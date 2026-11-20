@@ -134,13 +134,14 @@ export default function CreatePostPage() {
       }
 
       const data = await res.json();
+      const platforms = data.data?.platforms || data.variants;
       const firstPlatform = selectedPlatforms[0] || "linkedin";
-      const variant = data.variants?.[firstPlatform] || Object.values(data.variants || {})[0];
+      const variant = platforms?.[firstPlatform] || platforms?.linkedin || Object.values(platforms || {})[0];
 
       if (variant) {
         setCaption(variant.caption || "");
-        setHashtags(Array.isArray(variant.hashtags) ? variant.hashtags.join(" ") : "");
-        toast.success("Captions generated with Gemini AI");
+        setHashtags(Array.isArray(variant.hashtags) ? variant.hashtags.join(" ") : (variant.hashtags || ""));
+        toast.success("Captions & trending hashtags generated with Gemini AI");
       }
     } catch (err: any) {
       toast.error(err.message || "Failed to generate AI content");

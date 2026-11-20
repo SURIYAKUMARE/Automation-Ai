@@ -4,12 +4,14 @@ import { generateSocialContentWithGemini } from '@/lib/ai/gemini';
 import { SupportedLanguage, SupportedTone } from '@/types';
 
 const GenerateRequestSchema = z.object({
-  userPrompt: z.string().optional().default(''),
+  userPrompt: z.string().optional(),
+  prompt: z.string().optional(),
   language: z.enum(['English', 'Tamil', 'Tanglish']).default('English'),
   tone: z.enum(['Professional', 'Friendly', 'Creative', 'Educational', 'Minimal', 'Promotional']).default('Professional'),
   mediaBase64: z.string().optional(),
   mimeType: z.string().optional(),
   isMediaVideo: z.boolean().optional().default(false),
+  targetPlatforms: z.array(z.string()).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -24,7 +26,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { userPrompt, language, tone, mediaBase64, mimeType, isMediaVideo } = parsed.data;
+    const { userPrompt, prompt, language, tone, mediaBase64, mimeType, isMediaVideo } = parsed.data;
+    const effectivePrompt = userPrompt || prompt || '';
 
     let mediaBuffer: Buffer | undefined;
     if (mediaBase64) {
@@ -36,13 +39,17 @@ export async function POST(req: NextRequest) {
     const result = await generateSocialContentWithGemini({
       mediaBuffer,
       mimeType,
-      userPrompt,
+      userPrompt: effectivePrompt,
       language: language as SupportedLanguage,
       tone: tone as SupportedTone,
       isMediaVideo,
     });
 
-    return NextResponse.json({ success: true, data: result });
+    return NextResponse.json({
+      success: true,
+      data: result,
+      variants: result.platforms,
+    });
   } catch (err: any) {
     console.error('API /api/ai/generate error:', err);
     return NextResponse.json(

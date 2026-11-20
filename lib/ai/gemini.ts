@@ -4,26 +4,43 @@ import { GeminiAnalysisResult, SupportedLanguage, SupportedTone } from '@/types'
 
 // Zod schema for structured output validation
 export const GeminiPlatformContentSchema = z.object({
-  caption: z.string().min(1),
-  title: z.string().optional(),
-  hashtags: z.array(z.string()).default([]),
-  call_to_action: z.string().default(''),
-  character_count: z.number().default(0),
+  caption: z.string().default(''),
+  title: z.string().optional().default(''),
+  hashtags: z
+    .union([z.array(z.string()), z.string()])
+    .transform((val) => {
+      if (Array.isArray(val)) {
+        return val.map((t) => (t.startsWith('#') ? t : `#${t}`));
+      }
+      if (typeof val === 'string') {
+        return val
+          .split(/\s+/)
+          .filter(Boolean)
+          .map((t) => (t.startsWith('#') ? t : `#${t}`));
+      }
+      return [];
+    })
+    .default([]),
+  call_to_action: z.string().optional().default(''),
+  character_count: z.number().optional().default(0),
   estimated_read_time_seconds: z.number().optional(),
 });
 
 export const GeminiAnalysisResultSchema = z.object({
-  summary: z.string().min(1),
+  summary: z.string().default('Media content analysis'),
   detected_objects: z.array(z.string()).default([]),
   extracted_text: z.string().optional().default(''),
   topics: z.array(z.string()).default([]),
-  sentiment: z.enum(['positive', 'neutral', 'inspirational', 'urgent', 'informative']).default('positive'),
+  sentiment: z
+    .enum(['positive', 'neutral', 'inspirational', 'urgent', 'informative'])
+    .catch('positive')
+    .default('positive'),
   dominant_colors: z.array(z.string()).default([]),
   platforms: z.object({
-    linkedin: GeminiPlatformContentSchema,
-    instagram: GeminiPlatformContentSchema,
-    facebook: GeminiPlatformContentSchema,
-    youtube: GeminiPlatformContentSchema.optional(),
+    linkedin: GeminiPlatformContentSchema.default({ caption: '', hashtags: [] }),
+    instagram: GeminiPlatformContentSchema.default({ caption: '', hashtags: [] }),
+    facebook: GeminiPlatformContentSchema.default({ caption: '', hashtags: [] }),
+    youtube: GeminiPlatformContentSchema.optional().default({ caption: '', hashtags: [] }),
   }),
 });
 
@@ -52,81 +69,79 @@ export async function generateSocialContentWithGemini({
   }
 
   const genAI = new GoogleGenerativeAI(apiKey);
+  // gemini-3.5-flash is the active generation model for the provided API key
   const model = genAI.getGenerativeModel({
-    model: 'gemini-1.5-flash',
+    model: 'gemini-3.5-flash',
     generationConfig: {
       responseMimeType: 'application/json',
-      temperature: 0.7,
+      temperature: 0.8,
       maxOutputTokens: 4096,
     },
   });
 
   const promptParts: (string | Part)[] = [];
 
-  // Google Stitch Design System Editorial Prompt (Strictly NO EMOJIS, High Editorial Precision)
+  // Google Stitch Design System & High-Engagement Trend-Aware Editorial Prompt
   const systemPrompt = `
-You are the Lead Editorial AI for SocialSync AI, operating under the Google Stitch Enterprise Design System.
-Your task is to analyze visual media and generate highly articulate, platform-tailored publishing content for LinkedIn, Instagram, Facebook, and YouTube.
+You are the Lead Creative & Trend-Aware Social Media AI for SocialSync AI.
+Your primary objective is to generate fresh, highly engaging, catchy, and trend-responsive captions and hashtags tailored specifically to the analyzed visual media and user context.
 
-EDITORIAL STYLE REQUIREMENTS (GOOGLE STITCH SPECIFICATION):
-1. ABSOLUTELY ZERO EMOJIS. Do not include any unicode emojis or emoticon symbols in any generated field (no rockets, no fire, no sparkles, no pointing fingers).
-2. Maintain high editorial clarity, intellectual rigor, and razor-sharp typographic hierarchy.
-3. Use clean unicode bullets (• or ▸) and line breaks for structure.
-4. **LINKEDIN**:
-   - Opening line: High-impact thesis statement or contrarian business observation.
-   - Core body: Analytical breakdown of the topic, framework, or architectural milestone depicted.
-   - Actionable takeaways in concise bulleted form.
-   - Concluding invitation to intellectual discourse or debate.
-   - 3 to 5 targeted industry hashtags at the bottom.
-5. **INSTAGRAM**:
-   - Clean, aesthetic, typographic caption focused on visual narrative and design clarity.
-   - Clean line spacing without decorative symbols.
-   - Explicit call to action: "Save this post for reference." or "Join the conversation in the comments."
-   - 6 to 10 relevant topic tags.
-6. **FACEBOOK**:
-   - Community-focused, thorough, readable narrative detailing the engineering or initiative context.
-   - Articulate call to action inviting thoughts and shares.
-7. **YOUTUBE**:
-   - Informative, high-relevance title (under 70 characters).
-   - Structured video description including chapter breakdowns ([00:00] Overview, [02:15] Deep Dive, [05:00] Implementation), reference links placeholder, and search tags.
+CRITICAL INSTRUCTIONS FOR CATCHY TREND-DRIVEN CONTENT:
+1. DEEP MEDIA ANALYSIS:
+   - Carefully inspect the visual media: detect key subjects, focal text/graphics, style, mood, and implied message.
+   - Do NOT produce repetitive or boilerplate text. Ground every caption in what is actually seen or described.
+2. CATCHY & TRENDING HOOKS:
+   - Craft pattern-interrupting, compelling opening lines that stop the scroll and immediately spark curiosity or agreement.
+   - Integrate current day-to-day conversation trends, modern tech culture, and viral communication patterns.
+3. TRENDING HASHTAGS:
+   - Provide high-velocity, relevant, updating hashtags directly related to the media's detected objects, text, and industry trends (e.g. #TechTrends2026, #AIInnovation, #BuildInPublic, #CreativeTech, #NextGen).
+   - Avoid dead or overly generic tags; use a mix of broad trending tags and targeted topic-specific tags.
+4. PLATFORM-SPECIFIC CRAFT:
+   - **LINKEDIN**: High-impact professional thought-leadership hook ▸ compelling industry narrative ▸ 2-3 bullet takeaways (using •) ▸ debate-starting closing prompt ▸ 4-6 targeted trending hashtags.
+   - **INSTAGRAM**: Catchy aesthetic storytelling ▸ punchy paragraph rhythm ▸ strong engagement call to action ("Save this post", "Drop your thoughts below") ▸ 7-10 trending and niche hashtags.
+   - **FACEBOOK**: Relatable, community-centric story connecting the visual media to real-world value ▸ discussion question ▸ 3-5 hashtags.
+   - **YOUTUBE**: High-CTR viral video title (under 70 chars) ▸ detailed chapter-based description with search-optimized metadata ▸ relevant hashtags.
+5. TYPOGRAPHY & FORMATTING:
+   - Keep formatting clean, elegant, and readable using line breaks and unicode bullets (• or ▸).
+   - Zero informal emojis (no rockets, fire, sparkles, or pointing emojis). Maintain high enterprise aesthetic standards.
 
 LANGUAGE & TONE:
-- Language: ${language} (English, Tamil in authentic script, or Tanglish in Latin script).
+- Target Language: ${language} (English, Tamil in native script, or Tanglish in Latin script).
 - Tone: ${tone}.
-- User Context: "${userPrompt.replace(/"/g, "'")}"
+- User Prompt / Context: "${userPrompt.replace(/"/g, "'")}"
 
 You MUST respond strictly with a valid JSON object matching this schema:
 {
-  "summary": "Precise visual and thematic summary",
-  "detected_objects": ["object1", "object2"],
-  "extracted_text": "Extracted text or title from media",
-  "topics": ["topic1", "topic2"],
+  "summary": "Detailed visual analysis and thematic breakdown of the media",
+  "detected_objects": ["object1", "object2", "visual_element"],
+  "extracted_text": "Text or slogan visible in the media",
+  "topics": ["topic1", "topic2", "trending_category"],
   "sentiment": "positive" | "neutral" | "inspirational" | "urgent" | "informative",
   "dominant_colors": ["#hex1", "#hex2"],
   "platforms": {
     "linkedin": {
-      "caption": "Full analytical LinkedIn post with line breaks",
-      "hashtags": ["#Tag1", "#Tag2"],
+      "caption": "Full analytical, catchy LinkedIn post with line breaks",
+      "hashtags": ["#Tag1", "#Tag2", "#Tag3"],
       "call_to_action": "Closing discussion prompt",
       "character_count": 0
     },
     "instagram": {
-      "caption": "Clean editorial Instagram caption without emojis",
-      "hashtags": ["#Tag1", "#Tag2"],
+      "caption": "Catchy, trend-responsive Instagram caption",
+      "hashtags": ["#Tag1", "#Tag2", "#Tag3"],
       "call_to_action": "Closing call to action",
       "character_count": 0
     },
     "facebook": {
-      "caption": "Articulate community post",
+      "caption": "Engaging community narrative post",
       "hashtags": ["#Tag1", "#Tag2"],
       "call_to_action": "Closing community CTA",
       "character_count": 0
     },
     "youtube": {
-      "title": "Clear informative video title",
-      "caption": "Structured video description with chapters",
+      "title": "High-CTR clear video title",
+      "caption": "Structured video description with chapters and search tags",
       "hashtags": ["#Tag1", "#Tag2"],
-      "call_to_action": "Subscribe and comment",
+      "call_to_action": "Subscribe and comment CTA",
       "character_count": 0
     }
   }
@@ -144,8 +159,29 @@ You MUST respond strictly with a valid JSON object matching this schema:
     });
   }
 
-  const result = await model.generateContent(promptParts);
-  const responseText = result.response.text();
+  let responseText = '';
+  try {
+    const result = await model.generateContent(promptParts);
+    responseText = result.response.text();
+    console.log('GEMINI RAW RESPONSE:', responseText);
+  } catch (primaryErr: any) {
+    console.warn('Primary model error, attempting gemini-3.5-flash-lite fallback:', primaryErr?.message);
+    try {
+      const fallbackModel = genAI.getGenerativeModel({
+        model: 'gemini-3.5-flash-lite',
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.8,
+          maxOutputTokens: 4096,
+        },
+      });
+      const fallbackResult = await fallbackModel.generateContent(promptParts);
+      responseText = fallbackResult.response.text();
+    } catch (fallbackErr: any) {
+      console.error('Gemini API call failed completely:', fallbackErr?.message);
+      return generateCleanEditorialContent(userPrompt, language, tone, isMediaVideo);
+    }
+  }
 
   try {
     const rawJson = JSON.parse(responseText);
