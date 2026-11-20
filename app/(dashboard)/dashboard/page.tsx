@@ -3,387 +3,304 @@
 import * as React from "react";
 import Link from "next/link";
 import {
-  Share2,
-  Sparkles,
-  Send,
-  Calendar,
-  CheckCircle2,
-  AlertTriangle,
-  Clock,
-  ArrowUpRight,
-  TrendingUp,
-  FileText,
   Plus,
-  RefreshCw,
-  Upload,
-  Play,
-  ArrowRight,
-  ShieldCheck,
-  Check,
-  XCircle,
+  Zap,
+  SlidersHorizontal,
+  ArrowUp,
+  Clock,
+  KeyRound,
+  ChevronRight,
+  CheckCircle2,
+  AlertCircle,
+  Video,
+  Share2,
 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { toast } from "sonner";
 import { SocialPlatform } from "@/types";
 
-interface ActivityPost {
-  id: string;
-  title: string;
-  platforms: SocialPlatform[];
-  status: "published" | "scheduled" | "pending_approval" | "failed";
-  date: string;
-  externalUrl?: string;
+interface PlatformCardState {
+  id: SocialPlatform;
+  name: string;
+  tag: string;
+  status: "Connected" | "Offline";
+  connectionLabel: string;
+  accountHandle?: string;
+  iconType: "facebook" | "instagram" | "linkedin" | "youtube";
 }
 
-export default function MainDashboardPage() {
-  const [isRefreshing, setIsRefreshing] = React.useState(false);
-
-  // 4 Summary Metrics as required in Phase 4
-  const summaryMetrics = [
+export default function DashboardOverviewPage() {
+  const [platformStatuses, setPlatformStatuses] = React.useState<PlatformCardState[]>([
     {
-      title: "Total Published",
-      value: "42",
-      subtext: "Live across channels",
-      icon: Send,
-      color: "text-emerald-500",
-      bg: "bg-emerald-500/10 border-emerald-500/20",
-    },
-    {
-      title: "Scheduled Posts",
-      value: "9",
-      subtext: "Next scheduled in 45m",
-      icon: Clock,
-      color: "text-primary",
-      bg: "bg-primary/10 border-primary/20",
-    },
-    {
-      title: "Pending Approval",
-      value: "3",
-      subtext: "Requires human review",
-      icon: CheckCircle2,
-      color: "text-amber-500",
-      bg: "bg-amber-500/10 border-amber-500/20",
-    },
-    {
-      title: "Failed Posts",
-      value: "1",
-      subtext: "Action required",
-      icon: AlertTriangle,
-      color: "text-rose-500",
-      bg: "bg-rose-500/10 border-rose-500/20",
-    },
-  ];
-
-  // 4 Connected Platforms as required in Phase 4
-  const platforms = [
-    {
-      platform: "linkedin" as SocialPlatform,
-      name: "LinkedIn",
-      account: "Jeffrey Rathinam",
-      handle: "@jeffreyrathinam",
-      status: "Connected",
-      badgeVariant: "success" as const,
-      apiLabel: "UGC & Member REST API",
-    },
-    {
-      platform: "youtube" as SocialPlatform,
-      name: "YouTube",
-      account: "SocialSync AI Official",
-      handle: "@SocialSyncAIOfficial",
-      status: "Connected",
-      badgeVariant: "success" as const,
-      apiLabel: "YouTube Data API v3",
-    },
-    {
-      platform: "instagram" as SocialPlatform,
-      name: "Instagram",
-      account: "socialsync.ai",
-      handle: "@socialsync.ai (Professional)",
-      status: "Connected",
-      badgeVariant: "success" as const,
-      apiLabel: "Content Publishing Graph API",
-    },
-    {
-      platform: "facebook" as SocialPlatform,
+      id: "facebook",
       name: "Facebook",
-      account: "SocialSync Platform",
-      handle: "@socialsyncplatform (Page)",
+      tag: "Meta Graph",
       status: "Connected",
-      badgeVariant: "success" as const,
-      apiLabel: "Page Feed & Media API",
-    },
-  ];
-
-  // Quick Actions
-  const quickActions = [
-    { title: "Upload Content", desc: "Attach visual media or video reels", href: "/dashboard/create-post", icon: Upload },
-    { title: "Generate AI Caption", desc: "Multimodal visual OCR & tone synthesis", href: "/dashboard/caption-studio", icon: Sparkles },
-    { title: "Publish Now", desc: "Direct multi-network immediate dispatch", href: "/dashboard/create-post", icon: Play },
-    { title: "Schedule Post", desc: "Calendar date & queue configuration", href: "/dashboard/calendar", icon: Calendar },
-  ];
-
-  // Recent Activity Feed
-  const [recentActivity, setRecentActivity] = React.useState<ActivityPost[]>([
-    {
-      id: "post-101",
-      title: "Autonomous Multi-Platform Distribution Architecture",
-      platforms: ["linkedin", "youtube"],
-      status: "published",
-      date: "Today, 02:30 PM",
-      externalUrl: "https://www.linkedin.com/feed/update/urn:li:ugcPost:72635489102948271/",
+      connectionLabel: "Facebook Connection",
+      accountHandle: "@socialsyncplatform",
+      iconType: "facebook",
     },
     {
-      id: "post-102",
-      title: "Google Stitch Design System & Enterprise Specifications",
-      platforms: ["instagram", "facebook"],
-      status: "published",
-      date: "Yesterday, 06:15 PM",
-      externalUrl: "https://www.instagram.com/p/C_abc1234/",
+      id: "instagram",
+      name: "Instagram",
+      tag: "IG Business",
+      status: "Connected",
+      connectionLabel: "Instagram Connection",
+      accountHandle: "@socialsync.ai",
+      iconType: "instagram",
     },
     {
-      id: "post-103",
-      title: "Multimodal Gemini 1.5 Video Frame Engine",
-      platforms: ["linkedin", "youtube", "instagram"],
-      status: "pending_approval",
-      date: "Nov 21, 10:00 AM UTC",
+      id: "linkedin",
+      name: "LinkedIn",
+      tag: "UGC REST",
+      status: "Connected",
+      connectionLabel: "LinkedIn Connection",
+      accountHandle: "@jeffreyrathinam",
+      iconType: "linkedin",
     },
     {
-      id: "post-104",
-      title: "Engineering Milestone & System Demonstration",
-      platforms: ["youtube"],
-      status: "scheduled",
-      date: "Nov 22, 04:00 PM UTC",
+      id: "youtube",
+      name: "YouTube",
+      tag: "Data API v3",
+      status: "Connected",
+      connectionLabel: "YouTube Connection",
+      accountHandle: "@SocialSyncAIOfficial",
+      iconType: "youtube",
     },
   ]);
 
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    toast.info("Synchronizing platform health and queue statuses...");
-    setTimeout(() => {
-      setIsRefreshing(false);
-      toast.success("Platform connections and publishing queues synchronized.");
-    }, 700);
-  };
+  const [isLoading, setIsLoading] = React.useState(false);
+
+  React.useEffect(() => {
+    async function loadAccounts() {
+      try {
+        const res = await fetch("/api/accounts");
+        if (res.ok) {
+          const data = await res.json();
+          const accounts = data.accounts || [];
+          if (accounts.length > 0) {
+            setPlatformStatuses((prev) =>
+              prev.map((item) => {
+                const found = accounts.find((a: any) => a.platform === item.id);
+                if (found) {
+                  return {
+                    ...item,
+                    status: found.status === "active" ? "Connected" : "Offline",
+                    accountHandle: found.account_name || found.account_id,
+                  };
+                }
+                return item;
+              })
+            );
+          }
+        }
+      } catch (e) {
+        // Fallback to active mock state
+      }
+    }
+    loadAccounts();
+  }, []);
 
   return (
     <div className="space-y-6">
-      {/* Header Banner as specified in Phase 4 */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border/60 pb-5">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Welcome back!
+      {/* Hero Banner: Cross-Platform Publishing Control */}
+      <div className="rounded-2xl border border-border bg-card p-6 sm:p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+        <div className="space-y-1.5 max-w-2xl">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+            Cross-Platform Publishing Control
           </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Create, schedule and publish your content from one place.
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Automate, schedule, and distribute content across Facebook, Instagram, LinkedIn, and YouTube.
           </p>
         </div>
-
-        <div className="flex items-center gap-2.5">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="h-8 text-xs gap-1.5"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
-            <span>Sync Engine</span>
-          </Button>
-
-          <Link href="/dashboard/create-post">
-            <Button variant="default" size="sm" className="h-8 text-xs gap-1.5 font-medium shadow-sm">
-              <Plus className="h-3.5 w-3.5" />
-              <span>Create New Post</span>
-            </Button>
-          </Link>
-        </div>
+        <Link
+          href="/dashboard/create-post"
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-black text-white dark:bg-white dark:text-black font-semibold text-sm hover:opacity-90 transition-opacity shadow-sm whitespace-nowrap"
+        >
+          <Plus className="h-4 w-4" />
+          <span>+ New Post</span>
+        </Link>
       </div>
 
-      {/* 4 Summary Cards Grid */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {summaryMetrics.map((stat, i) => {
-          const Icon = stat.icon;
+      {/* 4 Platform Status Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {platformStatuses.map((platform) => {
+          const isConnected = platform.status === "Connected";
           return (
-            <Card key={i} className="border-border/80">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-muted-foreground">{stat.title}</span>
-                  <div className={`flex h-7 w-7 items-center justify-center rounded border ${stat.bg}`}>
-                    <Icon className={`h-3.5 w-3.5 ${stat.color}`} />
-                  </div>
+            <Link
+              key={platform.id}
+              href="/dashboard/accounts"
+              className="rounded-xl border border-border bg-card p-5 hover:border-foreground/30 transition-all flex flex-col justify-between space-y-4 group shadow-sm"
+            >
+              <div className="flex items-center justify-between">
+                {/* Platform Icon */}
+                <div className="text-foreground">
+                  {platform.iconType === "facebook" && (
+                    <span className="font-serif font-black text-xl leading-none">f</span>
+                  )}
+                  {platform.iconType === "instagram" && (
+                    <svg className="h-5 w-5 fill-none stroke-current stroke-2" viewBox="0 0 24 24">
+                      <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
+                      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+                      <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
+                    </svg>
+                  )}
+                  {platform.iconType === "linkedin" && (
+                    <span className="font-sans font-bold text-lg leading-none">in</span>
+                  )}
+                  {platform.iconType === "youtube" && (
+                    <svg className="h-5 w-5 fill-current" viewBox="0 0 24 24">
+                      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
+                    </svg>
+                  )}
                 </div>
-                <div className="mt-2.5 flex items-baseline justify-between">
-                  <span className="text-2xl font-bold tracking-tight font-mono tabular-nums text-foreground">
-                    {stat.value}
+
+                {/* API Tag */}
+                <span className="px-2 py-0.5 text-[11px] font-mono rounded border border-border bg-muted/50 text-muted-foreground">
+                  {platform.tag}
+                </span>
+              </div>
+
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-lg font-bold text-foreground">
+                    {platform.status}
                   </span>
-                  <span className="text-[11px] text-muted-foreground font-mono">
-                    {stat.subtext}
-                  </span>
+                  {isConnected && (
+                    <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  )}
                 </div>
-              </CardContent>
-            </Card>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {platform.connectionLabel}
+                </p>
+                {platform.accountHandle && (
+                  <p className="text-[11px] text-muted-foreground font-mono mt-1 truncate">
+                    {platform.accountHandle}
+                  </p>
+                )}
+              </div>
+            </Link>
           );
         })}
       </div>
 
-      {/* Connected Platforms (4 Cards Grid) */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h2 className="text-xs font-mono font-semibold uppercase tracking-wider text-muted-foreground">
-              Connected Platforms
+      {/* 2-Column Section: Quick Workflows & System Configuration */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left Column: Quick Workflows */}
+        <div className="rounded-2xl border border-border bg-card p-6 space-y-4 shadow-sm">
+          <div className="flex items-center gap-2 border-b border-border pb-3">
+            <Zap className="h-4 w-4 text-foreground" />
+            <h2 className="text-base font-bold text-foreground tracking-tight">
+              Quick Workflows
             </h2>
           </div>
-          <Link href="/dashboard/accounts" className="text-xs text-primary hover:underline font-medium">
-            Manage Accounts →
-          </Link>
-        </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {platforms.map((p) => (
-            <Card key={p.platform} className="border-border/80 flex flex-col justify-between">
-              <CardContent className="p-4 space-y-3">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-accent/40 font-mono text-xs font-bold uppercase text-foreground">
-                      {p.name.charAt(0)}
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold text-foreground">{p.name}</p>
-                      <p className="text-[10px] text-muted-foreground font-mono">{p.apiLabel}</p>
-                    </div>
-                  </div>
-                  <Badge variant={p.badgeVariant} dot className="text-[10px]">
-                    {p.status}
-                  </Badge>
+          <div className="space-y-3">
+            {/* Workflow 1 */}
+            <Link
+              href="/dashboard/create-post"
+              className="flex items-center justify-between p-4 rounded-xl border border-border hover:bg-muted/40 transition-colors group"
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="h-9 w-9 rounded-lg bg-muted flex items-center justify-center text-foreground shrink-0 group-hover:scale-105 transition-transform">
+                  <ArrowUp className="h-4 w-4" />
                 </div>
-
-                <div className="rounded bg-accent/20 p-2 text-xs border border-border/40">
-                  <p className="font-medium text-foreground truncate">{p.account}</p>
-                  <p className="text-[11px] text-muted-foreground font-mono truncate">{p.handle}</p>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    Immediate Media Broadcast
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Upload assets and push instantly to selected channels
+                  </p>
                 </div>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
+            </Link>
 
-                <Link href="/dashboard/accounts" className="block pt-1">
-                  <Button variant="outline" size="sm" className="w-full h-7 text-[11px]">
-                    Configure
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
+            {/* Workflow 2 */}
+            <Link
+              href="/dashboard/calendar"
+              className="flex items-center justify-between p-4 rounded-xl border border-border hover:bg-muted/40 transition-colors group"
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="h-9 w-9 rounded-lg bg-muted flex items-center justify-center text-foreground shrink-0 group-hover:scale-105 transition-transform">
+                  <Clock className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    Configure Automation Engine
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Adjust cron timing and sequential content delivery rules
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
+            </Link>
 
-      {/* Quick Actions Grid */}
-      <div>
-        <h2 className="text-xs font-mono font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-          Quick Workflows
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {quickActions.map((action, i) => {
-            const Icon = action.icon;
-            return (
-              <Link key={i} href={action.href} className="group">
-                <Card className="border-border/80 hover:border-slate-600 transition-colors h-full">
-                  <CardContent className="p-4 space-y-2">
-                    <div className="flex h-7 w-7 items-center justify-center rounded border border-border bg-card text-primary group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
-                      <Icon className="h-3.5 w-3.5" />
-                    </div>
-                    <p className="text-xs font-semibold text-foreground">{action.title}</p>
-                    <p className="text-[11px] text-muted-foreground leading-normal">{action.desc}</p>
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Recent Activity Section */}
-      <Card className="border-border/80">
-        <CardHeader className="pb-3 border-b border-border/40 flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
-              Recent Activity
-            </CardTitle>
-            <CardDescription className="text-xs text-foreground font-medium pt-0.5">
-              Live multi-platform publishing operations and queue records
-            </CardDescription>
+            {/* Workflow 3 */}
+            <Link
+              href="/dashboard/accounts"
+              className="flex items-center justify-between p-4 rounded-xl border border-border hover:bg-muted/40 transition-colors group"
+            >
+              <div className="flex items-center gap-3.5">
+                <div className="h-9 w-9 rounded-lg bg-muted flex items-center justify-center text-foreground shrink-0 group-hover:scale-105 transition-transform">
+                  <KeyRound className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">
+                    OAuth Key Store
+                  </h3>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Manage verified credentials and secure access tokens
+                  </p>
+                </div>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors shrink-0" />
+            </Link>
           </div>
-          <Link href="/dashboard/history" className="text-xs text-primary hover:underline font-medium">
-            Full Audit History →
-          </Link>
-        </CardHeader>
-        <CardContent className="p-0">
-          {recentActivity.length === 0 ? (
-            <div className="p-8 text-center space-y-2">
-              <FileText className="mx-auto h-8 w-8 text-muted-foreground" />
-              <p className="text-xs font-medium text-foreground">No recent publishing activity</p>
-              <p className="text-[11px] text-muted-foreground">
-                Create your first campaign to initiate automated or reviewed broadcasts.
-              </p>
-            </div>
-          ) : (
-            <div className="divide-y divide-border/60">
-              {recentActivity.map((post) => (
-                <div key={post.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 hover:bg-accent/20 transition-colors gap-3">
-                  <div className="space-y-1">
-                    <p className="text-xs font-medium text-foreground line-clamp-1">{post.title}</p>
-                    <div className="flex items-center gap-2 text-[11px] text-muted-foreground font-mono">
-                      <span>{post.date}</span>
-                      <span>•</span>
-                      <div className="flex items-center gap-1 uppercase">
-                        {post.platforms.map((p) => (
-                          <span key={p} className="bg-accent/60 text-muted-foreground px-1.5 py-0.2 rounded text-[9px] border border-border/60">
-                            {p}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
+        </div>
 
-                  <div className="flex items-center gap-2.5">
-                    {post.status === "published" && (
-                      <Badge variant="success" dot className="text-[10px]">
-                        Published
-                      </Badge>
-                    )}
-                    {post.status === "scheduled" && (
-                      <Badge variant="info" dot className="text-[10px]">
-                        Scheduled
-                      </Badge>
-                    )}
-                    {post.status === "pending_approval" && (
-                      <Badge variant="warning" dot className="text-[10px]">
-                        Pending Approval
-                      </Badge>
-                    )}
-                    {post.status === "failed" && (
-                      <Badge variant="error" dot className="text-[10px]">
-                        Failed
-                      </Badge>
-                    )}
+        {/* Right Column: System Configuration */}
+        <div className="rounded-2xl border border-border bg-card p-6 space-y-4 shadow-sm">
+          <div className="flex items-center gap-2 border-b border-border pb-3">
+            <SlidersHorizontal className="h-4 w-4 text-foreground" />
+            <h2 className="text-base font-bold text-foreground tracking-tight">
+              System Configuration
+            </h2>
+          </div>
 
-                    {post.externalUrl && (
-                      <a
-                        href={post.externalUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-muted-foreground hover:text-foreground text-xs"
-                        title="View live post"
-                      >
-                        <ArrowUpRight className="h-3.5 w-3.5" />
-                      </a>
-                    )}
-                  </div>
-                </div>
-              ))}
+          <div className="space-y-4 pt-1 font-mono text-xs">
+            <div className="flex items-center justify-between py-1.5 border-b border-border/50">
+              <span className="text-muted-foreground font-sans text-xs">Deployment</span>
+              <span className="text-foreground font-semibold">Vercel Serverless Ready</span>
             </div>
-          )}
-        </CardContent>
-      </Card>
+
+            <div className="flex items-center justify-between py-1.5 border-b border-border/50">
+              <span className="text-muted-foreground font-sans text-xs">Content Directory</span>
+              <span className="text-foreground font-semibold">./content</span>
+            </div>
+
+            <div className="flex items-center justify-between py-1.5 border-b border-border/50">
+              <span className="text-muted-foreground font-sans text-xs">Config Directory</span>
+              <span className="text-foreground font-semibold">./config</span>
+            </div>
+
+            <div className="flex items-center justify-between py-1.5 border-b border-border/50">
+              <span className="text-muted-foreground font-sans text-xs">OAuth Standards</span>
+              <span className="text-foreground font-semibold">OAuth 2.0 + PKCE</span>
+            </div>
+
+            <div className="flex items-center justify-between py-1.5 border-b border-border/50">
+              <span className="text-muted-foreground font-sans text-xs">AI Engine</span>
+              <span className="text-foreground font-semibold">Google Gemini 1.5 Multimodal</span>
+            </div>
+
+            <div className="flex items-center justify-between py-1.5">
+              <span className="text-muted-foreground font-sans text-xs">Publishing Protocol</span>
+              <span className="text-foreground font-semibold">Official Platform REST APIs</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

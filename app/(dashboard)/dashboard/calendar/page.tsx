@@ -91,20 +91,19 @@ export default function PublishingCalendarPage() {
   return (
     <div className="space-y-6">
       {/* Calendar Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-2 border-b border-border gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <CalendarIcon className="h-6 w-6 text-primary" />
-            Publishing Calendar
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            Schedules
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground mt-0.5">
             View scheduled campaigns, adjust publishing timelines, and trigger instant releases.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <Link href="/dashboard/create-post">
-            <Button variant="stitch" size="sm" className="gap-1.5">
+            <Button size="sm" className="gap-1.5 bg-black text-white hover:bg-neutral-800 dark:bg-white dark:text-black">
               <Plus className="h-4 w-4" />
               <span>Schedule New Post</span>
             </Button>

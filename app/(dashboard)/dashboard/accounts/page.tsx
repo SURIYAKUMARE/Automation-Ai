@@ -115,27 +115,26 @@ export default function ConnectedAccountsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-2 border-b border-border gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <Share2 className="h-6 w-6 text-primary" />
-            Connected Social Accounts
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            Authentication
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Manage official OAuth 2.0 authorizations with encrypted tokens at rest.
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Manage official OAuth 2.0 authorizations for Facebook, Instagram, LinkedIn, and YouTube.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          <Badge variant="outline" className="border-indigo-500/30 text-indigo-400 bg-indigo-500/5 px-3 py-1">
+          <Badge variant="outline" className="border-border text-xs font-mono">
             AES-256-GCM Encrypted
           </Badge>
         </div>
       </div>
 
       {/* Security notice alert */}
-      <div className="rounded-xl border border-indigo-500/20 bg-indigo-950/20 p-4 text-xs text-muted-foreground flex items-start gap-3">
-        <ShieldCheck className="h-5 w-5 text-indigo-400 shrink-0 mt-0.5" />
+      <div className="rounded-xl border border-border bg-card p-4 text-xs text-muted-foreground flex items-start gap-3 shadow-sm">
+        <ShieldCheck className="h-5 w-5 text-foreground shrink-0 mt-0.5" />
         <div className="space-y-1">
           <p className="font-semibold text-foreground">Zero-Password Architecture</p>
           <p>

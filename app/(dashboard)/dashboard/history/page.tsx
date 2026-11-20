@@ -132,14 +132,13 @@ export default function PostHistoryPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-2 border-b border-border gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <HistoryIcon className="h-6 w-6 text-primary" />
-            Publishing History & Diagnostics
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            Execution Logs
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Immutable audit record of all multi-platform publishing attempts and external identifiers.
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Immutable audit record of all multi-platform publishing attempts, response IDs, and logs.
           </p>
         </div>
       </div>
