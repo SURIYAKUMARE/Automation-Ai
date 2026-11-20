@@ -213,4 +213,4 @@ export interface GeminiAnalysisResult {
 }
 
 export type SupportedLanguage = 'English' | 'Tamil' | 'Tanglish';
-export type SupportedTone = 'Professional' | 'Friendly' | 'Creative' | 'Minimal' | 'Promotional';
+export type SupportedTone = 'Professional' | 'Friendly' | 'Creative' | 'Educational' | 'Minimal' | 'Promotional';

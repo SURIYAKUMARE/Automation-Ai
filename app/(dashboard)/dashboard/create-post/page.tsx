@@ -579,6 +579,7 @@ export default function CreatePostPage() {
                     <option value="Professional">Professional</option>
                     <option value="Friendly">Friendly</option>
                     <option value="Creative">Creative</option>
+                    <option value="Educational">Educational</option>
                     <option value="Minimal">Minimal</option>
                     <option value="Promotional">Promotional</option>
                   </select>
@@ -613,19 +614,33 @@ export default function CreatePostPage() {
                   </CardDescription>
                 </div>
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleCopyCaption(activeTab)}
-                  className="h-8 gap-1.5 text-xs"
-                >
-                  {copiedPlatform === activeTab ? (
-                    <Check className="h-3.5 w-3.5 text-emerald-500" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                  <span>{copiedPlatform === activeTab ? "Copied" : "Copy Content"}</span>
-                </Button>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleGenerateCaptions}
+                    disabled={isGenerating}
+                    className="h-8 gap-1.5 text-xs"
+                    title="Regenerate captions using Gemini AI"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${isGenerating ? "animate-spin" : ""}`} />
+                    <span>Regenerate</span>
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleCopyCaption(activeTab)}
+                    className="h-8 gap-1.5 text-xs"
+                  >
+                    {copiedPlatform === activeTab ? (
+                      <Check className="h-3.5 w-3.5 text-emerald-500" />
+                    ) : (
+                      <Copy className="h-3.5 w-3.5" />
+                    )}
+                    <span>{copiedPlatform === activeTab ? "Copied" : "Copy"}</span>
+                  </Button>
+                </div>
               </div>
 
               {/* Segmented Network Tabs */}

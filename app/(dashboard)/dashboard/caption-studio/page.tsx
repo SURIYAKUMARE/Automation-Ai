@@ -240,6 +240,7 @@ export default function AICaptionStudioPage() {
                     <option value="Professional">Professional</option>
                     <option value="Friendly">Friendly</option>
                     <option value="Creative">Creative</option>
+                    <option value="Educational">Educational</option>
                     <option value="Minimal">Minimal</option>
                     <option value="Promotional">Promotional</option>
                   </select>

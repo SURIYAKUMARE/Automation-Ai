@@ -6,7 +6,7 @@ import { SupportedLanguage, SupportedTone } from '@/types';
 const GenerateRequestSchema = z.object({
   userPrompt: z.string().optional().default(''),
   language: z.enum(['English', 'Tamil', 'Tanglish']).default('English'),
-  tone: z.enum(['Professional', 'Friendly', 'Creative', 'Minimal', 'Promotional']).default('Professional'),
+  tone: z.enum(['Professional', 'Friendly', 'Creative', 'Educational', 'Minimal', 'Promotional']).default('Professional'),
   mediaBase64: z.string().optional(),
   mimeType: z.string().optional(),
   isMediaVideo: z.boolean().optional().default(false),
