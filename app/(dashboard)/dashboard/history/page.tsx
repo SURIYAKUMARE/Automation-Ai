@@ -40,86 +40,41 @@ export default function PostHistoryPage() {
   const [selectedPlatform, setSelectedPlatform] = React.useState<string>("all");
   const [selectedStatus, setSelectedStatus] = React.useState<string>("all");
   const [inspectItem, setInspectItem] = React.useState<PostHistoryEntry | null>(null);
+  const [posts, setPosts] = React.useState<PostHistoryEntry[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
 
-  const posts: PostHistoryEntry[] = [
-    {
-      id: "post-882",
-      title: "Autonomous Multi-Platform Distribution Architecture",
-      date: "Nov 20, 2026, 04:30 PM",
-      status: "published",
-      mode: "automatic",
-      targets: [
-        {
-          platform: "linkedin",
-          status: "published",
-          externalPostId: "urn:li:ugcPost:72635489102948271",
-          externalPostUrl: "https://www.linkedin.com/feed/update/urn:li:ugcPost:72635489102948271/",
-        },
-        {
-          platform: "youtube",
-          status: "published",
-          externalPostId: "dQw4w9WgXcQ",
-          externalPostUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-        },
-      ],
-    },
-    {
-      id: "post-881",
-      title: "Google Stitch Design System in Action",
-      date: "Nov 19, 2026, 02:15 PM",
-      status: "published",
-      mode: "manual_approval",
-      targets: [
-        {
-          platform: "instagram",
-          status: "published",
-          externalPostId: "17948291048291048",
-          externalPostUrl: "https://www.instagram.com/p/C_abc1234/",
-        },
-        {
-          platform: "facebook",
-          status: "published",
-          externalPostId: "102948201948201_1029482029384",
-          externalPostUrl: "https://www.facebook.com/102948201948201_1029482029384",
-        },
-      ],
-    },
-    {
-      id: "post-880",
-      title: "Weekend Community Q&A Flyer",
-      date: "Nov 18, 2026, 11:00 AM",
-      status: "failed",
-      mode: "automatic",
-      targets: [
-        {
-          platform: "instagram",
-          status: "failed",
-          errorMessage: "IG_CONTAINER_FAILED_400: Image aspect ratio must be between 4:5 and 1.91:1",
-        },
-      ],
-    },
-    {
-      id: "post-879",
-      title: "SocialSync AI Launch Keynote Trailer",
-      date: "Nov 17, 2026, 09:30 AM",
-      status: "published",
-      mode: "manual_approval",
-      targets: [
-        {
-          platform: "youtube",
-          status: "published",
-          externalPostId: "yt_vid_94820",
-          externalPostUrl: "https://www.youtube.com/watch?v=yt_vid_94820",
-        },
-        {
-          platform: "linkedin",
-          status: "published",
-          externalPostId: "urn:li:ugcPost:726350001928374",
-          externalPostUrl: "https://www.linkedin.com/feed/update/urn:li:ugcPost:726350001928374/",
-        },
-      ],
-    },
-  ];
+  React.useEffect(() => {
+    async function loadHistory() {
+      try {
+        const res = await fetch("/api/posts");
+        if (res.ok) {
+          const data = await res.json();
+          const realPosts = data.posts || [];
+          setPosts(
+            realPosts.map((p: any) => ({
+              id: p.id,
+              title: p.title || "Untitled Campaign",
+              date: p.published_at || p.created_at ? new Date(p.published_at || p.created_at).toLocaleString() : "Recently",
+              status: p.status || "published",
+              mode: p.publishing_mode || "automatic",
+              targets: (p.post_targets || []).map((t: any) => ({
+                platform: t.platform,
+                status: t.status,
+                externalPostId: t.external_post_id,
+                externalPostUrl: t.external_post_url,
+                errorMessage: t.error_message,
+              })),
+            }))
+          );
+        }
+      } catch (err) {
+        console.error("Failed to load posts:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+    loadHistory();
+  }, []);
 
   const filteredPosts = posts.filter((p) => {
     const matchesSearch = p.title.toLowerCase().includes(searchTerm.toLowerCase());
@@ -198,7 +153,14 @@ export default function PostHistoryPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
-              {filteredPosts.map((post) => (
+              {filteredPosts.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="text-center py-12 text-muted-foreground text-xs">
+                    {isLoading ? "Loading logs..." : "No execution logs found yet. Connect your accounts in Authentication and publish your first post in Publish Now."}
+                  </td>
+                </tr>
+              ) : (
+                filteredPosts.map((post) => (
                 <tr key={post.id} className="hover:bg-accent/20 transition-colors">
                   <td className="p-3.5 font-medium text-foreground">
                     <div className="max-w-xs truncate">{post.title}</div>
@@ -264,7 +226,7 @@ export default function PostHistoryPage() {
                     </Button>
                   </td>
                 </tr>
-              ))}
+              )))}
             </tbody>
           </table>
         </div>

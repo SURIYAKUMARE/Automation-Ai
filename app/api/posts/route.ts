@@ -9,7 +9,6 @@ export async function GET(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
-    const platform = searchParams.get('platform');
     const limit = parseInt(searchParams.get('limit') || '50', 10);
 
     const supabase = createAdminClient();
@@ -27,45 +26,10 @@ export async function GET(req: NextRequest) {
 
     const { data: posts, error } = await query;
 
-    if (error || !posts || posts.length === 0) {
-      // Fallback demo posts if database is empty
+    if (error || !posts) {
       return NextResponse.json({
         success: true,
-        posts: [
-          {
-            id: 'post_demo_1',
-            title: 'Google Stitch UI/UX Release & Architecture Overview',
-            status: 'published',
-            publishing_mode: 'automatic',
-            published_at: new Date(Date.now() - 7200000).toISOString(),
-            target_platforms: ['linkedin', 'instagram', 'facebook'],
-            post_variants: [
-              {
-                platform: 'linkedin',
-                caption: 'Excited to release the new Google Stitch inspired SocialSync AI architecture.',
-                hashtags: ['#Architecture', '#FullStack', '#NextJS'],
-              },
-            ],
-            post_targets: [
-              {
-                platform: 'linkedin',
-                status: 'published',
-                external_post_id: 'urn:li:ugcPost:72635489102948271',
-                external_post_url: 'https://www.linkedin.com/feed/update/urn:li:ugcPost:72635489102948271/',
-              },
-            ],
-          },
-          {
-            id: 'post_demo_2',
-            title: 'Multimodal Video Distribution & Gemini OCR Analysis',
-            status: 'scheduled',
-            publishing_mode: 'manual_approval',
-            scheduled_for: new Date(Date.now() + 86400000).toISOString(),
-            target_platforms: ['youtube', 'linkedin'],
-            post_variants: [],
-            post_targets: [],
-          },
-        ],
+        posts: [],
       });
     }
 
@@ -74,6 +38,6 @@ export async function GET(req: NextRequest) {
       posts,
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ error: err.message, posts: [] }, { status: 500 });
   }
 }

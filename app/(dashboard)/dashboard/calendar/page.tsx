@@ -32,45 +32,36 @@ interface ScheduledEvent {
 export default function PublishingCalendarPage() {
   const [selectedFilter, setSelectedFilter] = React.useState<string>("all");
   const [isTriggering, setIsTriggering] = React.useState<string | null>(null);
+  const [events, setEvents] = React.useState<ScheduledEvent[]>([]);
 
-  const events: ScheduledEvent[] = [
-    {
-      id: "ev-1",
-      title: "Google Stitch UI/UX Release Announcement",
-      date: "Nov 21, 2026",
-      time: "10:00 AM UTC",
-      platforms: ["linkedin", "instagram"],
-      status: "scheduled",
-      previewText: "Exploring the next evolution of intelligent social media automation with Stitch design...",
-    },
-    {
-      id: "ev-2",
-      title: "YouTube Studio Walkthrough & Feature Reel",
-      date: "Nov 22, 2026",
-      time: "03:30 PM UTC",
-      platforms: ["youtube"],
-      status: "scheduled",
-      previewText: "Full walkthrough of automated video publishing and metadata generation with Gemini AI...",
-    },
-    {
-      id: "ev-3",
-      title: "Weekend Community Discussion & Engagement Poll",
-      date: "Nov 23, 2026",
-      time: "06:00 PM UTC",
-      platforms: ["facebook", "linkedin"],
-      status: "pending_approval",
-      previewText: "What feature has saved you the most time this month? Let's discuss...",
-    },
-    {
-      id: "ev-4",
-      title: "Autonomous SaaS Milestone Update #4",
-      date: "Nov 24, 2026",
-      time: "11:15 AM UTC",
-      platforms: ["linkedin", "instagram", "facebook"],
-      status: "scheduled",
-      previewText: "Behind the scenes on building multi-channel resilience and AES-256 encrypted OAuth...",
-    },
-  ];
+  React.useEffect(() => {
+    async function loadScheduledPosts() {
+      try {
+        const res = await fetch("/api/posts?status=scheduled");
+        if (res.ok) {
+          const data = await res.json();
+          const posts = data.posts || [];
+          setEvents(
+            posts.map((p: any) => {
+              const dt = p.scheduled_for ? new Date(p.scheduled_for) : new Date();
+              return {
+                id: p.id,
+                title: p.title || "Scheduled Campaign",
+                date: dt.toLocaleDateString(),
+                time: dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                platforms: p.target_platforms || ["linkedin"],
+                status: "scheduled",
+                previewText: p.post_variants?.[0]?.caption || "Scheduled automated broadcast",
+              };
+            })
+          );
+        }
+      } catch (err) {
+        console.error("Failed to load scheduled posts:", err);
+      }
+    }
+    loadScheduledPosts();
+  }, []);
 
   const handleRunNow = async (id: string, title: string) => {
     setIsTriggering(id);
@@ -138,7 +129,14 @@ export default function PublishingCalendarPage() {
 
       {/* Events Agenda Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredEvents.map((ev) => (
+        {filteredEvents.length === 0 ? (
+          <Card className="border-dashed border-border p-12 text-center col-span-full">
+            <p className="text-xs text-muted-foreground">
+              No scheduled events found. Go to Publish Now and toggle &quot;Schedule for Later&quot; to queue posts.
+            </p>
+          </Card>
+        ) : (
+          filteredEvents.map((ev) => (
           <Card key={ev.id} className="border-border/80 flex flex-col justify-between">
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between gap-2">
@@ -201,7 +199,7 @@ export default function PublishingCalendarPage() {
               </div>
             </div>
           </Card>
-        ))}
+        )))}
       </div>
     </div>
   );

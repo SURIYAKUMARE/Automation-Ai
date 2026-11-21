@@ -32,54 +32,39 @@ interface PendingApprovalItem {
 }
 
 export default function ApprovalCenterPage() {
-  const [items, setItems] = React.useState<PendingApprovalItem[]>([
-    {
-      id: "post-appr-1",
-      title: "SocialSync AI Multi-Platform Architecture Overview",
-      createdAt: "Today at 01:15 PM",
-      variants: [
-        {
-          id: "var-1",
-          platform: "linkedin",
-          caption:
-            "Elevating social media automation with intelligent multi-channel orchestration.\n\nWe engineered SocialSync AI to solve fragmented multi-platform distribution. Powered by Google Gemini multimodal AI and official OAuth integrations, digital teams save 10+ hours weekly.\n\nKey architectural capabilities:\n• Zero-Password AES-256-GCM token encryption\n• Real-time Gemini poster text and visual extraction\n• Fully automatic and manual review pipelines\n\nHow does your team manage cross-platform distribution today?",
-          hashtags: ["#SocialSyncAI", "#SoftwareEngineering", "#Architecture", "#Productivity"],
-          isApproved: false,
-        },
-        {
-          id: "var-2",
-          platform: "instagram",
-          caption:
-            "System Architecture Overview: SocialSync AI.\n\nA unified command center for autonomous multi-channel distribution. One media upload produces four platform-compliant presentations with full cryptographic token security.\n\nSave this post for architectural reference. Inquiries are welcomed in the comments below.",
-          hashtags: ["#SoftwareEngineering", "#Architecture", "#Automation", "#DesignSystems"],
-          isApproved: false,
-        },
-      ],
-    },
-    {
-      id: "post-appr-2",
-      title: "Engineering Milestone & System Demonstration",
-      createdAt: "Yesterday at 05:40 PM",
-      variants: [
-        {
-          id: "var-3",
-          platform: "facebook",
-          caption:
-            "System Update Announcement:\n\nOur latest platform release is live. Users can now orchestrate and publish directly to connected Facebook Pages and Instagram Business accounts with guaranteed API compliance and audit tracking.",
-          hashtags: ["#SoftwareUpdate", "#Engineering", "#Automation"],
-          isApproved: false,
-        },
-      ],
-    },
-  ]);
-
-  const [activePlatformTab, setActivePlatformTab] = React.useState<Record<string, SocialPlatform>>({
-    "post-appr-1": "linkedin",
-    "post-appr-2": "facebook",
-  });
-
+  const [items, setItems] = React.useState<PendingApprovalItem[]>([]);
+  const [activePlatformTab, setActivePlatformTab] = React.useState<Record<string, SocialPlatform>>({});
   const [editingCaptions, setEditingCaptions] = React.useState<Record<string, string>>({});
   const [isProcessing, setIsProcessing] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    async function loadApprovals() {
+      try {
+        const res = await fetch("/api/posts?status=pending_approval");
+        if (res.ok) {
+          const data = await res.json();
+          const realItems = data.posts || [];
+          setItems(
+            realItems.map((p: any) => ({
+              id: p.id,
+              title: p.title || "Untitled Post",
+              createdAt: p.created_at ? new Date(p.created_at).toLocaleString() : "Recently",
+              variants: (p.post_variants || []).map((v: any) => ({
+                id: v.id || `var-${v.platform}`,
+                platform: v.platform,
+                caption: v.caption,
+                hashtags: v.hashtags || [],
+                isApproved: v.is_approved || false,
+              })),
+            }))
+          );
+        }
+      } catch (err) {
+        console.error("Failed to load approvals:", err);
+      }
+    }
+    loadApprovals();
+  }, []);
 
   const handleEditChange = (variantId: string, text: string) => {
     setEditingCaptions((prev) => ({ ...prev, [variantId]: text }));

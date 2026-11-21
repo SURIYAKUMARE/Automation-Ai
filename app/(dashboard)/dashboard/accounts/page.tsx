@@ -2,14 +2,8 @@
 
 import * as React from "react";
 import {
-  Share2,
-  CheckCircle2,
-  AlertTriangle,
   RefreshCw,
-  ExternalLink,
   ShieldCheck,
-  Key,
-  Info,
   Trash2,
   Plus,
 } from "lucide-react";
@@ -24,79 +18,119 @@ interface AccountDisplay {
   platform: SocialPlatform;
   accountName: string;
   accountHandle: string;
-  status: "active" | "expired" | "not_connected" | "action_required";
+  status: "active" | "not_connected";
   scopes: string[];
-  lastValidated: string;
+  lastValidated?: string;
   expiresInDays?: number;
 }
 
+const DEFAULT_PLATFORMS: SocialPlatform[] = ["linkedin", "youtube", "instagram", "facebook"];
+
 export default function ConnectedAccountsPage() {
   const [isSyncing, setIsSyncing] = React.useState<string | null>(null);
+  const [isLoading, setIsLoading] = React.useState(true);
 
+  // Initialize with all accounts disconnected (ZERO fake data)
   const [accounts, setAccounts] = React.useState<AccountDisplay[]>([
     {
-      id: "acc-li-1",
+      id: "platform-li",
       platform: "linkedin",
-      accountName: "Jeffrey Rathinam",
-      accountHandle: "@jeffreyrathinam",
-      status: "active",
+      accountName: "",
+      accountHandle: "",
+      status: "not_connected",
       scopes: ["w_member_social", "openid", "profile", "email"],
-      lastValidated: "Today, 04:30 PM",
-      expiresInDays: 58,
     },
     {
-      id: "acc-yt-1",
+      id: "platform-yt",
       platform: "youtube",
-      accountName: "SocialSync AI Official",
-      accountHandle: "@SocialSyncAIOfficial",
-      status: "active",
-      scopes: ["youtube.upload", "youtube.readonly", "userinfo.profile"],
-      lastValidated: "Today, 02:10 PM",
-      expiresInDays: 365,
+      accountName: "",
+      accountHandle: "",
+      status: "not_connected",
+      scopes: ["youtube.upload", "youtube.readonly"],
     },
     {
-      id: "acc-ig-1",
+      id: "platform-ig",
       platform: "instagram",
-      accountName: "socialsync.ai",
-      accountHandle: "@socialsync.ai (Professional)",
-      status: "active",
+      accountName: "",
+      accountHandle: "",
+      status: "not_connected",
       scopes: ["instagram_basic", "instagram_content_publish", "pages_show_list"],
-      lastValidated: "Yesterday, 11:20 AM",
-      expiresInDays: 54,
     },
     {
-      id: "acc-fb-1",
+      id: "platform-fb",
       platform: "facebook",
-      accountName: "SocialSync AI Platform Page",
-      accountHandle: "@socialsyncplatform (Page)",
-      status: "active",
+      accountName: "",
+      accountHandle: "",
+      status: "not_connected",
       scopes: ["pages_manage_posts", "pages_read_engagement"],
-      lastValidated: "Today, 01:05 PM",
-      expiresInDays: 90,
     },
   ]);
 
+  // Load real connected accounts from backend database
+  React.useEffect(() => {
+    async function loadRealAccounts() {
+      try {
+        const res = await fetch("/api/accounts");
+        if (res.ok) {
+          const data = await res.json();
+          const realAccounts = data.accounts || [];
+
+          if (realAccounts.length > 0) {
+            setAccounts((prev) =>
+              prev.map((acc) => {
+                const found = realAccounts.find((r: any) => r.platform === acc.platform);
+                if (found) {
+                  return {
+                    ...acc,
+                    id: found.id || acc.id,
+                    accountName: found.account_name || found.account_id || "Connected Account",
+                    accountHandle: found.account_handle || `@${found.account_name || found.platform}`,
+                    status: found.status === "active" ? "active" : "not_connected",
+                    scopes: found.granted_scopes || acc.scopes,
+                    lastValidated: found.last_validated_at ? new Date(found.last_validated_at).toLocaleDateString() : "Active",
+                    expiresInDays: found.expires_in_days || 60,
+                  };
+                }
+                return acc;
+              })
+            );
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load accounts:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadRealAccounts();
+  }, []);
+
   const handleConnect = (platform: SocialPlatform) => {
     toast.loading(`Redirecting to official ${platform.toUpperCase()} OAuth consent screen...`);
-    window.location.href = `/api/oauth/${platform}/authorize?userId=00000000-0000-0000-0000-000000000001`;
+    window.location.href = `/api/oauth/${platform}?userId=00000000-0000-0000-0000-000000000001`;
   };
 
   const handleDisconnect = async (accountId: string, platform: SocialPlatform) => {
-    if (!confirm(`Are you sure you want to disconnect your ${platform.toUpperCase()} account? Automated publishing will stop.`)) {
+    if (!confirm(`Are you sure you want to disconnect your ${platform.toUpperCase()} account?`)) {
       return;
     }
 
     try {
-      const res = await fetch("/api/oauth/disconnect", {
-        method: "POST",
+      const res = await fetch("/api/accounts", {
+        method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ accountId, userId: "00000000-0000-0000-0000-000000000001" }),
+        body: JSON.stringify({ accountId, platform }),
       });
 
       if (!res.ok) throw new Error("Disconnection failed");
 
       setAccounts((prev) =>
-        prev.map((acc) => (acc.id === accountId ? { ...acc, status: "not_connected" } : acc))
+        prev.map((acc) =>
+          acc.platform === platform
+            ? { ...acc, status: "not_connected", accountName: "", accountHandle: "" }
+            : acc
+        )
       );
       toast.success(`${platform.toUpperCase()} account disconnected.`);
     } catch (err: any) {
@@ -106,10 +140,18 @@ export default function ConnectedAccountsPage() {
 
   const handleTestToken = async (platform: SocialPlatform) => {
     setIsSyncing(platform);
-    setTimeout(() => {
+    try {
+      const res = await fetch(`/api/${platform}/profile`);
+      if (res.ok) {
+        toast.success(`Validated ${platform.toUpperCase()} token. Connection operational.`);
+      } else {
+        toast.error(`Token check failed for ${platform.toUpperCase()}. Please re-authenticate.`);
+      }
+    } catch {
+      toast.error(`Unable to verify ${platform.toUpperCase()} token.`);
+    } finally {
       setIsSyncing(null);
-      toast.success(`Validated ${platform.toUpperCase()} token. Permissions & scopes operational.`);
-    }, 1000);
+    }
   };
 
   return (
@@ -121,13 +163,13 @@ export default function ConnectedAccountsPage() {
             Authentication
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Manage official OAuth 2.0 authorizations for Facebook, Instagram, LinkedIn, and YouTube.
+            Connect your official social media accounts via OAuth 2.0. No credentials stored.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="border-border text-xs font-mono">
-            AES-256-GCM Encrypted
+            OAuth 2.0 + PKCE
           </Badge>
         </div>
       </div>
@@ -138,7 +180,7 @@ export default function ConnectedAccountsPage() {
         <div className="space-y-1">
           <p className="font-semibold text-foreground">Zero-Password Architecture</p>
           <p>
-            SocialSync AI uses official OAuth authorization flows. We never store or ask for your social media passwords. Access tokens are encrypted at rest with hardware-grade AES-256-GCM and never delivered to the client browser.
+            Connect each platform manually below. SocialSync AI uses official OAuth 2.0 authorization flows. We never store or ask for your social media passwords.
           </p>
         </div>
       </div>
@@ -171,7 +213,7 @@ export default function ConnectedAccountsPage() {
                     </Badge>
                   ) : (
                     <Badge variant="neutral" className="text-xs">
-                      Disconnected
+                      Offline
                     </Badge>
                   )}
                 </div>
@@ -185,14 +227,18 @@ export default function ConnectedAccountsPage() {
                         <span className="text-muted-foreground">Account Name:</span>
                         <span className="font-semibold text-foreground">{acc.accountName}</span>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Token Health:</span>
-                        <span className="font-mono text-emerald-400">Valid ({acc.expiresInDays}d remaining)</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-muted-foreground">Last Validated:</span>
-                        <span className="font-mono text-muted-foreground">{acc.lastValidated}</span>
-                      </div>
+                      {acc.expiresInDays && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Token Health:</span>
+                          <span className="font-mono text-emerald-400">Valid ({acc.expiresInDays}d remaining)</span>
+                        </div>
+                      )}
+                      {acc.lastValidated && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-muted-foreground">Last Validated:</span>
+                          <span className="font-mono text-muted-foreground">{acc.lastValidated}</span>
+                        </div>
+                      )}
                     </div>
 
                     <div>
@@ -209,7 +255,7 @@ export default function ConnectedAccountsPage() {
                 ) : (
                   <div className="py-4 text-center space-y-2">
                     <p className="text-muted-foreground">
-                      Connect your {acc.platform.toUpperCase()} account to enable automated publishing, scheduled queues, and real engagement metrics.
+                      Connect your {acc.platform.toUpperCase()} account manually to enable multi-platform publishing and analytics.
                     </p>
                   </div>
                 )}
@@ -241,10 +287,9 @@ export default function ConnectedAccountsPage() {
                   </>
                 ) : (
                   <Button
-                    variant="stitch"
                     size="sm"
                     onClick={() => handleConnect(acc.platform)}
-                    className="w-full text-xs gap-1.5"
+                    className="w-full text-xs font-semibold gap-1.5 bg-black text-white hover:bg-neutral-800 dark:bg-white dark:text-black shadow-sm"
                   >
                     <Plus className="h-3.5 w-3.5" />
                     <span>Connect {acc.platform.toUpperCase()}</span>

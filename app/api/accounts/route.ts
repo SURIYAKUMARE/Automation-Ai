@@ -12,66 +12,22 @@ export async function GET(req: NextRequest) {
       .select('id, platform, external_account_id, account_name, account_handle, avatar_url, granted_scopes, token_expires_at, status, last_validated_at')
       .eq('user_id', user?.id || '00000000-0000-0000-0000-000000000001');
 
-    if (error || !accounts || accounts.length === 0) {
-      // Default configured connections representation
-      const defaultAccounts = [
-        {
-          id: 'acc-fb-1',
-          platform: 'facebook',
-          account_name: 'SocialSync AI Platform Page',
-          account_handle: '@socialsyncplatform',
-          status: 'active',
-          granted_scopes: ['pages_manage_posts', 'pages_read_engagement'],
-          last_validated_at: new Date().toISOString(),
-          expires_in_days: 90,
-        },
-        {
-          id: 'acc-ig-1',
-          platform: 'instagram',
-          account_name: 'socialsync.ai',
-          account_handle: '@socialsync.ai',
-          status: 'active',
-          granted_scopes: ['instagram_basic', 'instagram_content_publish', 'pages_show_list'],
-          last_validated_at: new Date().toISOString(),
-          expires_in_days: 60,
-        },
-        {
-          id: 'acc-li-1',
-          platform: 'linkedin',
-          account_name: 'Jeffrey Rathinam',
-          account_handle: '@jeffreyrathinam',
-          status: 'active',
-          granted_scopes: ['w_member_social', 'openid', 'profile', 'email'],
-          last_validated_at: new Date().toISOString(),
-          expires_in_days: 58,
-        },
-        {
-          id: 'acc-yt-1',
-          platform: 'youtube',
-          account_name: 'SocialSync AI Official',
-          account_handle: '@SocialSyncAIOfficial',
-          status: 'active',
-          granted_scopes: ['youtube.upload', 'youtube.readonly'],
-          last_validated_at: new Date().toISOString(),
-          expires_in_days: 365,
-        },
-      ];
-
+    if (error || !accounts) {
       return NextResponse.json({
         success: true,
-        accounts: defaultAccounts,
-        total: defaultAccounts.length,
+        accounts: [],
+        total: 0,
       });
     }
 
     return NextResponse.json({
       success: true,
-      accounts,
-      total: accounts.length,
+      accounts: accounts.filter((a: any) => a.status === 'active'),
+      total: accounts.filter((a: any) => a.status === 'active').length,
     });
   } catch (err: any) {
     return NextResponse.json(
-      { success: false, error: err.message || 'Failed to fetch accounts' },
+      { success: false, error: err.message || 'Failed to fetch accounts', accounts: [], total: 0 },
       { status: 500 }
     );
   }
