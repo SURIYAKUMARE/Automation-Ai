@@ -34,61 +34,33 @@ function timingSafeEqualStr(a: string, b: string): boolean {
  *   ?hub.mode=subscribe&hub.challenge=1158201444&hub.verify_token=my_verify_token
  */
 export async function GET(req: NextRequest) {
-  try {
-    const { searchParams } = new URL(req.url);
-    const mode = searchParams.get('hub.mode');
-    const token = searchParams.get('hub.verify_token');
-    const challenge = searchParams.get('hub.challenge');
+  const params = req.nextUrl.searchParams;
 
-    const expectedToken =
-      process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN ||
-      process.env.META_WEBHOOK_VERIFY_TOKEN ||
-      '3af370f33ea9676736d29980fb5aa7088ebb9fd7aeb81a1b';
+  const mode = params.get("hub.mode");
+  const token = params.get("hub.verify_token");
+  const challenge = params.get("hub.challenge");
 
-    // 1. Verify that server has configured a webhook verification token
-    if (!expectedToken) {
-      console.error('[Instagram Webhook] Error: INSTAGRAM_WEBHOOK_VERIFY_TOKEN is not configured on the server.');
-      return new Response('Server configuration error: Webhook verify token is not set.', {
-        status: 500,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-      });
-    }
+  const expectedToken =
+    process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN ||
+    process.env.META_WEBHOOK_VERIFY_TOKEN ||
+    "3af370f33ea9676736d29980fb5aa7088ebb9fd7aeb81a1b";
 
-    // 2. Validate hub.mode, hub.verify_token, and hub.challenge existence
-    if (!mode || !token || !challenge) {
-      return new Response('Forbidden: Missing required verification parameters (hub.mode, hub.verify_token, hub.challenge).', {
-        status: 403,
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-      });
-    }
-
-    // 3. Verify mode is 'subscribe' and token matches using constant-time comparison
-    const isModeValid = mode === 'subscribe';
-    const isTokenValid = timingSafeEqualStr(token, expectedToken);
-
-    if (isModeValid && isTokenValid) {
-      // Return the EXACT challenge string as plain text with HTTP 200
-      return new Response(challenge, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/plain; charset=utf-8',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-        },
-      });
-    }
-
-    // 4. Verification token or mode mismatch
-    return new Response('Forbidden: Webhook verify token or subscription mode mismatch.', {
-      status: 403,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-    });
-  } catch (err: any) {
-    console.error('[Instagram Webhook] GET Verification Handler Exception:', err?.message || err);
-    return new Response('Internal Server Error during verification.', {
-      status: 500,
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  if (
+    mode === "subscribe" &&
+    token &&
+    (token === process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN || token === expectedToken) &&
+    challenge !== null
+  ) {
+    return new NextResponse(challenge, {
+      status: 200,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "no-store, no-cache, must-revalidate",
+      },
     });
   }
+
+  return new NextResponse("Forbidden", { status: 403 });
 }
 
 /**
