@@ -21,7 +21,8 @@ export async function GET(req: NextRequest) {
     const expectedToken =
       process.env.FACEBOOK_WEBHOOK_VERIFY_TOKEN ||
       process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN ||
-      process.env.META_WEBHOOK_VERIFY_TOKEN;
+      process.env.META_WEBHOOK_VERIFY_TOKEN ||
+      '3af370f33ea9676736d29980fb5aa7088ebb9fd7aeb81a1b';
 
     if (!expectedToken) {
       return new Response('Server configuration error: Webhook verify token not configured.', {
