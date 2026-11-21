@@ -8,12 +8,7 @@ import {
   Send,
   Calendar,
   X,
-  FileText,
-  Image as ImageIcon,
-  Video,
   Check,
-  AlertCircle,
-  Clock,
   Save,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -36,6 +31,11 @@ const PLATFORMS: PlatformOption[] = [
   { id: "youtube", name: "YouTube", tag: "Data API v3", note: "Video only" },
 ];
 
+interface PlatformContent {
+  caption: string;
+  hashtags: string;
+}
+
 export default function CreatePostPage() {
   const router = useRouter();
 
@@ -46,19 +46,28 @@ export default function CreatePostPage() {
 
   // Platform selection
   const [selectedPlatforms, setSelectedPlatforms] = React.useState<SocialPlatform[]>([
-    "facebook",
     "instagram",
+    "facebook",
     "linkedin",
   ]);
 
-  // AI & Content
+  // Active preview/edit platform tab
+  const [activeTab, setActiveTab] = React.useState<SocialPlatform>("instagram");
+
+  // Per-platform tailored content
+  const [platformContents, setPlatformContents] = React.useState<Record<SocialPlatform, PlatformContent>>({
+    instagram: { caption: "", hashtags: "" },
+    facebook: { caption: "", hashtags: "" },
+    linkedin: { caption: "", hashtags: "" },
+    youtube: { caption: "", hashtags: "" },
+  });
+
+  // AI & Context Prompt
   const [topicPrompt, setTopicPrompt] = React.useState("");
   const [language, setLanguage] = React.useState<"English" | "Tamil" | "Tanglish">("English");
-  const [caption, setCaption] = React.useState("");
-  const [hashtags, setHashtags] = React.useState("");
   const [isGenerating, setIsGenerating] = React.useState(false);
 
-  // Schedule
+  // Scheduling
   const [isScheduled, setIsScheduled] = React.useState(false);
   const [scheduledDateTime, setScheduledDateTime] = React.useState("");
 
@@ -67,9 +76,13 @@ export default function CreatePostPage() {
 
   // Toggle platform
   const togglePlatform = (id: SocialPlatform) => {
-    setSelectedPlatforms((prev) =>
-      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
-    );
+    setSelectedPlatforms((prev) => {
+      const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
+      if (next.length > 0 && !next.includes(activeTab)) {
+        setActiveTab(next[0]);
+      }
+      return next;
+    });
   };
 
   // Handle File Selection
@@ -96,9 +109,32 @@ export default function CreatePostPage() {
     setIsVideo(false);
   };
 
+  // Update current active platform's content
+  const updateCurrentCaption = (newCaption: string) => {
+    setPlatformContents((prev) => ({
+      ...prev,
+      [activeTab]: {
+        ...prev[activeTab],
+        caption: newCaption,
+      },
+    }));
+  };
+
+  const updateCurrentHashtags = (newHashtags: string) => {
+    setPlatformContents((prev) => ({
+      ...prev,
+      [activeTab]: {
+        ...prev[activeTab],
+        hashtags: newHashtags,
+      },
+    }));
+  };
+
   // AI Generation with Gemini
   const handleGenerateAI = async () => {
     setIsGenerating(true);
+    toast.loading("Analyzing media and generating trend-aware captions with Gemini AI...");
+
     try {
       let mediaBase64: string | undefined = undefined;
       let mediaMimeType: string | undefined = undefined;
@@ -120,30 +156,44 @@ export default function CreatePostPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: topicPrompt || "Social media distribution campaign",
+          prompt: topicPrompt || "Visual showcase and system campaign",
           language,
           tone: "Professional",
           targetPlatforms: selectedPlatforms,
           mediaBase64,
-          mediaMimeType,
+          mimeType: mediaMimeType,
         }),
       });
+
+      toast.dismiss();
 
       if (!res.ok) {
         throw new Error("Failed to generate caption with Gemini");
       }
 
       const data = await res.json();
-      const platforms = data.data?.platforms || data.variants;
-      const firstPlatform = selectedPlatforms[0] || "linkedin";
-      const variant = platforms?.[firstPlatform] || platforms?.linkedin || Object.values(platforms || {})[0];
+      const variants = data.data?.platforms || data.variants;
 
-      if (variant) {
-        setCaption(variant.caption || "");
-        setHashtags(Array.isArray(variant.hashtags) ? variant.hashtags.join(" ") : (variant.hashtags || ""));
-        toast.success("Captions & trending hashtags generated with Gemini AI");
+      if (variants) {
+        const updated: Record<SocialPlatform, PlatformContent> = { ...platformContents };
+
+        for (const p of ["instagram", "facebook", "linkedin", "youtube"] as SocialPlatform[]) {
+          if (variants[p]) {
+            const tags = Array.isArray(variants[p].hashtags)
+              ? variants[p].hashtags.join(" ")
+              : variants[p].hashtags || "";
+            updated[p] = {
+              caption: variants[p].caption || variants[p].title || "",
+              hashtags: tags,
+            };
+          }
+        }
+
+        setPlatformContents(updated);
+        toast.success("Tailored captions and trending hashtags generated for each platform.");
       }
     } catch (err: any) {
+      toast.dismiss();
       toast.error(err.message || "Failed to generate AI content");
     } finally {
       setIsGenerating(false);
@@ -152,8 +202,9 @@ export default function CreatePostPage() {
 
   // Submit Post
   const handleSubmit = async (isDraft = false) => {
-    if (!caption.trim() && !isDraft) {
-      toast.error("Please provide a caption or generate one with AI");
+    const currentContent = platformContents[activeTab];
+    if (!currentContent?.caption.trim() && !isDraft) {
+      toast.error("Please provide a caption or generate one with Gemini AI");
       return;
     }
 
@@ -169,21 +220,23 @@ export default function CreatePostPage() {
 
     setIsPublishing(true);
     try {
-      // Create post payload
       const payload = {
-        userId: "00000000-0000-0000-0000-000000000000",
+        userId: "00000000-0000-0000-0000-000000000001",
         title: topicPrompt || "SocialSync Post",
         publishingMode: isDraft ? "manual_approval" : "automatic",
         scheduledFor: isScheduled && scheduledDateTime ? new Date(scheduledDateTime).toISOString() : undefined,
         targetPlatforms: selectedPlatforms,
-        variants: selectedPlatforms.map((p) => ({
-          platform: p,
-          caption,
-          hashtags: hashtags.split(/\s+/).filter(Boolean),
-          language,
-          tone: "Professional",
-          isApproved: true,
-        })),
+        variants: selectedPlatforms.map((p) => {
+          const content = platformContents[p] || currentContent;
+          return {
+            platform: p,
+            caption: content?.caption || currentContent?.caption || "",
+            hashtags: (content?.hashtags || currentContent?.hashtags || "").split(/\s+/).filter(Boolean),
+            language,
+            tone: "Professional",
+            isApproved: true,
+          };
+        }),
       };
 
       const res = await fetch("/api/posts/create", {
@@ -212,6 +265,8 @@ export default function CreatePostPage() {
       setIsPublishing(false);
     }
   };
+
+  const currentContent = platformContents[activeTab] || { caption: "", hashtags: "" };
 
   return (
     <div className="space-y-6">
@@ -390,7 +445,7 @@ export default function CreatePostPage() {
 
             <div className="space-y-2">
               <Input
-                placeholder="Topic or context (e.g. Major system launch or tech demo)..."
+                placeholder="Topic or context (e.g. New major launch or trending tech news)..."
                 value={topicPrompt}
                 onChange={(e) => setTopicPrompt(e.target.value)}
                 className="text-xs"
@@ -402,42 +457,66 @@ export default function CreatePostPage() {
                 className="w-full text-xs font-medium gap-2 bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900"
               >
                 <Sparkles className="h-3.5 w-3.5" />
-                {isGenerating ? "Analyzing Media with Gemini..." : "Generate with Gemini AI"}
+                {isGenerating ? "Analyzing Media & Trends with Gemini..." : "Generate with Gemini AI"}
               </Button>
             </div>
           </div>
 
-          {/* Caption Field */}
+          {/* Per-Platform Caption & Hashtags Editor */}
           <div className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-bold text-foreground tracking-tight">
-                Caption
-              </h2>
-              <span className="text-[11px] font-mono text-muted-foreground">
-                {caption.length} chars
+            {/* Platform Selector Tabs */}
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <div className="flex items-center gap-1.5 overflow-x-auto">
+                {selectedPlatforms.map((p) => {
+                  const isActive = activeTab === p;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setActiveTab(p)}
+                      className={`px-3 py-1 rounded-md text-xs font-semibold capitalize transition-all ${
+                        isActive
+                          ? "bg-foreground text-background shadow-sm"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <span className="text-[11px] font-mono text-muted-foreground shrink-0">
+                {currentContent.caption.length} chars
               </span>
             </div>
 
-            <Textarea
-              rows={6}
-              placeholder="Write your post caption here or click Generate with Gemini AI above..."
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-              className="text-xs leading-relaxed"
-            />
-          </div>
+            {/* Caption Textarea */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-foreground flex items-center justify-between">
+                <span>Caption for <span className="capitalize font-semibold">{activeTab}</span></span>
+              </label>
+              <Textarea
+                rows={6}
+                placeholder={`Write tailored caption for ${activeTab} or generate with Gemini AI above...`}
+                value={currentContent.caption}
+                onChange={(e) => updateCurrentCaption(e.target.value)}
+                className="text-xs leading-relaxed"
+              />
+            </div>
 
-          {/* Hashtags Field */}
-          <div className="rounded-xl border border-border bg-card p-5 space-y-3 shadow-sm">
-            <h2 className="text-sm font-bold text-foreground tracking-tight">
-              Hashtags
-            </h2>
-            <Input
-              placeholder="#ai #tech #socialsync #automation"
-              value={hashtags}
-              onChange={(e) => setHashtags(e.target.value)}
-              className="text-xs font-mono"
-            />
+            {/* Hashtags Input */}
+            <div className="space-y-1.5 pt-1">
+              <label className="text-xs font-medium text-foreground">
+                Trending Hashtags for <span className="capitalize font-semibold">{activeTab}</span>
+              </label>
+              <Input
+                placeholder="#trends #ai #innovation #viral"
+                value={currentContent.hashtags}
+                onChange={(e) => updateCurrentHashtags(e.target.value)}
+                className="text-xs font-mono"
+              />
+            </div>
           </div>
 
           {/* Action Buttons */}
