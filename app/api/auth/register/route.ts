@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { createAdminClient, SupabaseConfigurationError } from '@/lib/supabase/admin';
 import { setSessionCookie, AuthUser } from '@/lib/auth/session';
 
 const RegisterSchema = z.object({
@@ -22,7 +22,10 @@ export async function POST(req: NextRequest) {
     if (!data.session) return NextResponse.json({ success: true, confirmationRequired: true });
     const user: AuthUser = { id: data.user.id, email, name, role: 'user', createdAt: data.user.created_at };
     return setSessionCookie(NextResponse.json({ success: true, user }), user);
-  } catch {
+  } catch (error) {
+    if (error instanceof SupabaseConfigurationError) {
+      return NextResponse.json({ error: 'Registration is not configured. Set a valid Supabase project URL and server key.' }, { status: 503 });
+    }
     return NextResponse.json({ error: 'Registration is temporarily unavailable' }, { status: 503 });
   }
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { ClaimedJob, executePostPublishing } from '@/lib/publishing/engine';
+import { reconcileYouTubeProcessing } from '@/lib/publishing/youtube-processing';
 
 export async function POST(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
@@ -19,7 +20,8 @@ export async function POST(req: NextRequest) {
     if (error) throw error;
     const job = data?.[0] as ClaimedJob | undefined;
     const jobs = job ? [await executePostPublishing(db, job)] : [];
-    return NextResponse.json({ success: true, executedCount: jobs.length, jobs });
+    const reviewed = await reconcileYouTubeProcessing(db);
+    return NextResponse.json({ success: true, executedCount: jobs.length, jobs, reviewed: reviewed.filter(Boolean).length });
   } catch {
     return NextResponse.json({ error: 'Worker could not finish. In-flight outcomes are retained for reconciliation.' }, { status: 503 });
   }

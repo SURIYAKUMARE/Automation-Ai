@@ -2,21 +2,32 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Lock, Mail, ArrowRight, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
+const GOOGLE_ERRORS: Record<string, string> = {
+  google_configuration: "Google sign-in is unavailable until the app's Google OAuth credentials are configured.",
+  supabase_configuration: "Sign-in is unavailable until a valid Supabase project URL and server key are configured.",
+  google_sign_in_failed: "Google sign-in could not be completed. Start again from this page.",
+};
+
 export default function LoginPage() {
-  const router = useRouter();
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [isLoading, setIsLoading] = React.useState(false);
+  const [errorMessage, setErrorMessage] = React.useState("");
+
+  React.useEffect(() => {
+    const code = new URLSearchParams(window.location.search).get("error");
+    if (code && Object.hasOwn(GOOGLE_ERRORS, code)) setErrorMessage(GOOGLE_ERRORS[code]);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage("");
     setIsLoading(true);
     toast.loading("Authenticating credentials...");
 
@@ -35,10 +46,10 @@ export default function LoginPage() {
       }
 
       toast.success("Welcome back! Redirecting to Dashboard...");
-      router.push("/dashboard");
-    } catch (err: any) {
+      window.location.replace(new URL("/dashboard", window.location.origin));
+    } catch (err) {
       toast.dismiss();
-      toast.error(err.message || "Invalid credentials. Please verify your email and password.");
+      setErrorMessage(err instanceof Error ? err.message : "Sign-in could not be completed.");
     } finally {
       setIsLoading(false);
     }
@@ -66,6 +77,7 @@ export default function LoginPage() {
         </CardHeader>
 
         <CardContent className="space-y-4">
+          {errorMessage && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">{errorMessage}</p>}
           {/* Continue with Google */}
           <Button
             type="button"
@@ -108,6 +120,7 @@ export default function LoginPage() {
               </label>
               <Input
                 type="email"
+                autoComplete="username"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -121,12 +134,10 @@ export default function LoginPage() {
                 <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
                   <Lock className="h-3.5 w-3.5 text-muted-foreground" /> Password
                 </label>
-                <span className="text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors">
-                  Forgot password?
-                </span>
               </div>
               <Input
                 type="password"
+                autoComplete="current-password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}

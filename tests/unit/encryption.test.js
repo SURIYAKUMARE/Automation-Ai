@@ -51,8 +51,9 @@ test('AES-256-GCM Rejects Tampered Ciphertext', async (t) => {
   const encrypted = encryptToken(sampleToken, mockKey);
 
   const parts = encrypted.split(':');
-  // Tamper ciphertext
-  const tampered = `${parts[0]}:${parts[1]}:${parts[2].slice(0, -2)}aa`;
+  const ciphertext = Buffer.from(parts[2], 'hex');
+  ciphertext[ciphertext.length - 1] ^= 1;
+  const tampered = `${parts[0]}:${parts[1]}:${ciphertext.toString('hex')}`;
 
   assert.throws(() => {
     decryptToken(tampered, mockKey);

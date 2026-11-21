@@ -29,6 +29,7 @@ interface PostHistoryEntry {
   status: PostStatus;
   mode: "automatic" | "manual_approval";
   targets: Array<{
+    id: string;
     platform: SocialPlatform;
     status: PostStatus;
     externalPostUrl?: string;
@@ -60,6 +61,7 @@ export default function PostHistoryPage() {
               status: p.status,
               mode: p.publishing_mode || "automatic",
               targets: (p.post_targets || []).map((t: any) => ({
+                id: t.id,
                 platform: t.platform,
                 status: t.status,
                 externalPostId: t.external_post_id,
@@ -105,6 +107,21 @@ export default function PostHistoryPage() {
       selectedPlatform === "all" || p.targets.some((t) => t.platform === selectedPlatform);
     return matchesSearch && matchesStatus && matchesPlatform;
   });
+
+  async function retryTarget(id: string) {
+    setPending(id);
+    try {
+      const response = await fetch("/api/publishing/targets/" + id + "/retry", { method: "POST" });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      toast.success("Destination retry queued");
+      setInspectItem(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not retry the destination");
+    } finally {
+      setPending("");
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -227,7 +244,8 @@ export default function PostHistoryPage() {
                   </td>
                   <td className="p-3.5">
                     <Badge variant={post.status === "published" ? "success" : post.status === "failed" ? "error" : "outline"} dot className="text-[11px] capitalize">
-                      {post.status === "approved" ? "Approved" : post.status.replaceAll("_", " ")}
+                      {post.status === "failed" && post.targets.some((target) => target.status === "published")
+                        ? "Partial failure" : post.status.replaceAll("_", " ")}
                     </Badge>
                   </td>
                   <td className="p-3.5 text-right">
@@ -275,8 +293,8 @@ export default function PostHistoryPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="p-4 space-y-3 text-xs">
-              {inspectItem.targets.map((t, idx) => (
-                <div key={idx} className="rounded-lg border border-border/60 bg-accent/30 p-3 space-y-1.5">
+              {inspectItem.targets.map((t) => (
+                <div key={t.id} className="rounded-lg border border-border/60 bg-accent/30 p-3 space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className="font-semibold capitalize text-foreground">{t.platform}</span>
                     <Badge variant={t.status === "published" ? "success" : "error"} className="text-[10px]">
@@ -305,6 +323,10 @@ export default function PostHistoryPage() {
                       {t.errorMessage}
                     </div>
                   )}
+                  {["failed", "processing"].includes(inspectItem.status) && !t.externalPostId && ["failed", "reauthorization_required"].includes(t.status) &&
+                    <Button size="sm" type="button" variant="outline" disabled={Boolean(pending)} onClick={() => void retryTarget(t.id)}>
+                      Retry this destination
+                    </Button>}
                 </div>
               ))}
             </CardContent>

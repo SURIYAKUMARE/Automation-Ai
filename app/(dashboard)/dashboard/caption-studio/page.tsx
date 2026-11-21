@@ -53,7 +53,8 @@ export default function AICaptionStudioPage() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || isGenerating) return;
+    setAnalysisResult(null);
     setSelectedFile(file);
     setPreviewUrl(URL.createObjectURL(file));
   };
@@ -181,6 +182,7 @@ export default function AICaptionStudioPage() {
                 <input
                   id="studio-file-upload"
                   type="file"
+                  disabled={isGenerating}
                   accept="image/*,video/*"
                   onChange={handleFileChange}
                   className="sr-only"
@@ -188,7 +190,11 @@ export default function AICaptionStudioPage() {
 
                 {previewUrl ? (
                   <div className="w-full space-y-2">
-                    <img src={previewUrl} alt="Studio Preview" className="max-h-44 w-full rounded-lg object-contain" />
+                    {selectedFile?.type.startsWith("video/") ? (
+                      <video src={previewUrl} controls playsInline aria-label="Video preview" className="max-h-44 w-full rounded-lg object-contain" />
+                    ) : (
+                      <img src={previewUrl} alt="Studio Preview" className="max-h-44 w-full rounded-lg object-contain" />
+                    )}
                     <span className="text-[11px] text-primary hover:underline block font-mono">Replace Asset</span>
                   </div>
                 ) : (

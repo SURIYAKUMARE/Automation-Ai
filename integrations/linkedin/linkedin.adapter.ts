@@ -106,6 +106,65 @@ export class LinkedInAdapter implements PlatformAdapter {
     }
   }
 
+  private async prepareVideo(bytes: Buffer, author: string, token: string): Promise<string | null | PublishResult> {
+    const base = 'https://api.linkedin.com/rest/videos';
+    const signal = AbortSignal.timeout(110_000);
+    const headers = {
+      Authorization: 'Bearer ' + token, 'Content-Type': 'application/json',
+      'LinkedIn-Version': process.env.LINKEDIN_API_VERSION || '202610', 'X-Restli-Protocol-Version': '2.0.0',
+    };
+    const failure = (code: string, message: string): PublishResult => ({ success: false, errorCode: code, errorMessage: message });
+    try {
+      const initialized = await fetch(base + '?action=initializeUpload', {
+        method: 'POST', headers, signal,
+        body: JSON.stringify({ initializeUploadRequest: { owner: author, fileSizeBytes: bytes.length, uploadCaptions: false, uploadThumbnail: false } }),
+      });
+      if ([403, 404, 410].includes(initialized.status)) return null;
+      if (!initialized.ok) return failure('LINKEDIN_VIDEO_INIT_' + initialized.status, 'LinkedIn could not initialize video upload.');
+      const data = (await initialized.json()).value;
+      if (typeof data?.video !== 'string' || !data.video.startsWith('urn:li:video:') || !Array.isArray(data.uploadInstructions)) {
+        return failure('LINKEDIN_VIDEO_UPLOAD_INVALID', 'LinkedIn did not return a valid video upload session.');
+      }
+
+      const receipts: string[] = [];
+      let offset = 0;
+      for (const part of data.uploadInstructions) {
+        const target = URL.parse(part.uploadUrl);
+        const end = Math.min(part.lastByte + 1, bytes.length);
+        if (!target || target.protocol !== 'https:' || !/(^|\.)linkedin\.com$/i.test(target.hostname) ||
+            !Number.isSafeInteger(end) || part.firstByte !== offset || end <= offset) {
+          return failure('LINKEDIN_VIDEO_UPLOAD_INVALID', 'LinkedIn returned invalid video part instructions.');
+        }
+        const upload = await fetch(target, {
+          method: 'PUT', redirect: 'error', signal, headers: { 'Content-Type': 'application/octet-stream' },
+          body: new Uint8Array(bytes.subarray(offset, end)),
+        });
+        const etag = upload.headers.get('etag')?.replace(/^"|"$/g, '');
+        if (!upload.ok || !etag) return failure('LINKEDIN_VIDEO_PART_' + upload.status, 'LinkedIn could not accept a video part.');
+        receipts.push(etag);
+        offset = end;
+      }
+      if (offset !== bytes.length) return failure('LINKEDIN_VIDEO_UPLOAD_INVALID', 'LinkedIn did not receive the complete video.');
+      const finalized = await fetch(base + '?action=finalizeUpload', {
+        method: 'POST', headers, signal,
+        body: JSON.stringify({ finalizeUploadRequest: { video: data.video, uploadToken: data.uploadToken || '', uploadedPartIds: receipts } }),
+      });
+      if (!finalized.ok) return failure('LINKEDIN_VIDEO_FINALIZE_' + finalized.status, 'LinkedIn could not finalize video upload.');
+
+      for (let attempt = 0; attempt < 5; attempt++) {
+        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 8000));
+        const response = await fetch(base + '/' + encodeURIComponent(data.video), { headers, signal });
+        if (!response.ok) return failure('LINKEDIN_VIDEO_STATUS_' + response.status, 'Could not check LinkedIn video processing.');
+        const { status } = await response.json();
+        if (status === 'AVAILABLE') return data.video;
+        if (status === 'PROCESSING_FAILED') return failure('LINKEDIN_VIDEO_PROCESSING_FAILED', 'LinkedIn rejected this video during encoding.');
+      }
+      return failure('LINKEDIN_VIDEO_NOT_READY', 'LinkedIn is still processing the video.');
+    } catch {
+      return failure('LINKEDIN_VIDEO_NOT_READY', 'LinkedIn video preparation did not finish.');
+    }
+  }
+
   async publish(request: PublishRequest): Promise<PublishResult> {
     const { text, accessToken, accountId, mediaUrl, mediaType } = request;
 
@@ -155,8 +214,14 @@ export class LinkedInAdapter implements PlatformAdapter {
         return { success: false, errorCode: 'MEDIA_DOWNLOAD_FAILED', errorMessage: 'Could not read the stored LinkedIn media.' };
       }
 
-      let uploadedImageUrn: string | null = null;
+      let uploadedRestMediaUrn: string | null = null;
       let uploadedAssetUrn: string | null = null;
+
+      if (mediaBuffer && isVideo) {
+        const modernVideo = await this.prepareVideo(mediaBuffer, authorUrn, accessToken);
+        if (typeof modernVideo === 'string') uploadedRestMediaUrn = modernVideo;
+        else if (modernVideo) return modernVideo;
+      }
 
       // 2. Try Modern LinkedIn REST Images API (/rest/images)
       if (mediaBuffer && !isVideo) {
@@ -192,7 +257,7 @@ export class LinkedInAdapter implements PlatformAdapter {
               });
 
               if (putRes.ok || putRes.status === 201) {
-                uploadedImageUrn = imageUrn;
+                uploadedRestMediaUrn = imageUrn;
               }
             }
           }
@@ -202,7 +267,7 @@ export class LinkedInAdapter implements PlatformAdapter {
       }
 
       // 3. Try Legacy UGC Assets API (/v2/assets) as backup or primary for video/image
-      if (mediaBuffer && (!uploadedImageUrn || isVideo)) {
+      if (mediaBuffer && !uploadedRestMediaUrn) {
         try {
           const recipe = isVideo
             ? 'urn:li:digitalmediaRecipe:feedshare-video'
@@ -260,13 +325,13 @@ export class LinkedInAdapter implements PlatformAdapter {
         }
       }
 
-      if (mediaUrl && !uploadedImageUrn && !uploadedAssetUrn) {
+      if (mediaUrl && !uploadedRestMediaUrn && !uploadedAssetUrn) {
         return { success: false, errorCode: 'LINKEDIN_MEDIA_UPLOAD_FAILED',
           actionRequired: 'LinkedIn could not accept the media. Check the media format and app permissions.' };
       }
 
-      // Publish once an image has an official media URN.
-      if (uploadedImageUrn) {
+      // Publish once the image or video has an official media URN.
+      if (uploadedRestMediaUrn) {
         try {
           const restPostRes = await fetch('https://api.linkedin.com/rest/posts', {
             method: 'POST',
@@ -288,7 +353,7 @@ export class LinkedInAdapter implements PlatformAdapter {
               content: {
                 media: {
                   title: request.title || 'SocialSync AI Post',
-                  id: uploadedImageUrn,
+                  id: uploadedRestMediaUrn,
                 },
               },
               lifecycleState: 'PUBLISHED',
@@ -372,11 +437,11 @@ export class LinkedInAdapter implements PlatformAdapter {
                 targetEntities: [],
                 thirdPartyDistributionChannels: [],
               },
-              content: uploadedImageUrn
+              content: uploadedRestMediaUrn
                 ? {
                     media: {
                       title: request.title || 'SocialSync AI Post',
-                      id: uploadedImageUrn,
+                      id: uploadedRestMediaUrn,
                     },
                   }
                 : undefined,

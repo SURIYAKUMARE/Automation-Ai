@@ -10,12 +10,15 @@ import {
   X,
   Check,
   Save,
+  Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { prepareMediaPreview } from "@/lib/ai/media-preview";
+import { convertImageToVideo } from "@/lib/media/image-to-video";
+import { UploadPublishingSettings } from "@/components/dashboard/upload-publishing-settings";
 import { SocialPlatform, SupportedTone } from "@/types";
 import { PlatformIcon } from "@/components/platform-icon";
 
@@ -38,6 +41,8 @@ interface PlatformContent {
   caption: string;
   hashtags: string;
   keywords?: string[];
+  youtubePrivacy?: "private" | "unlisted" | "public";
+  alt_text?: string;
   alternatives?: string[];
   rationale?: string;
 }
@@ -94,6 +99,8 @@ export default function CreatePostPage() {
   const [topicPrompt, setTopicPrompt] = React.useState("");
   const [language, setLanguage] = React.useState<"English" | "Tamil" | "Tanglish">("English");
   const [tone, setTone] = React.useState<SupportedTone>("Professional");
+  const [captionLength, setCaptionLength] = React.useState<"short" | "standard" | "detailed">("standard");
+  const [hashtagLimit, setHashtagLimit] = React.useState(10);
   const [summary, setSummary] = React.useState("");
   const [review, setReview] = React.useState(false);
   const requestId = React.useRef<string | undefined>(undefined);
@@ -108,6 +115,10 @@ export default function CreatePostPage() {
 
   // Submitting
   const [isPublishing, setIsPublishing] = React.useState(false);
+  const [isConvertingVideo, setIsConvertingVideo] = React.useState(false);
+  const [uploadPublishing, setUploadPublishing] = React.useState(false);
+  const [autoUploadFailed, setAutoUploadFailed] = React.useState(false);
+  const uploadRequest = React.useRef<XMLHttpRequest | null>(null);
 
   React.useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("draft");
@@ -128,7 +139,8 @@ export default function CreatePostPage() {
         const updated = { ...current };
         for (const variant of post.post_variants) {
           const platform = variant.platform as SocialPlatform;
-          updated[platform] = { caption: variant.caption, title: variant.title, hashtags: (variant.hashtags || []).join(" "), keywords: variant.keywords };
+          updated[platform] = { caption: variant.caption, title: variant.title, hashtags: (variant.hashtags || []).join(" "),
+            keywords: variant.keywords, youtubePrivacy: variant.youtube_privacy ?? undefined, alt_text: variant.alt_text ?? undefined };
         }
         return updated;
       });
@@ -150,14 +162,81 @@ export default function CreatePostPage() {
   // Handle File Selection
   React.useEffect(() => () => { if (mediaPreview?.startsWith("blob:")) URL.revokeObjectURL(mediaPreview); }, [mediaPreview]);
 
+  const generatedPlatforms = React.useRef<SocialPlatform[]>([]);
+  const clearGeneratedCaptions = () => {
+    const platforms = generatedPlatforms.current;
+    generatedPlatforms.current = [];
+    setSummary("");
+    if (platforms.length) setPlatformContents((previous) => {
+      const updated = { ...previous };
+      for (const platform of platforms) updated[platform] = { caption: "", hashtags: "" };
+      return updated;
+    });
+  };
+
+  async function storeFile(file: File) {
+    if (uploadedAsset.current?.file === file) return uploadedAsset.current.id;
+    setUploadProgress(0);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const id = await new Promise<string>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        uploadRequest.current = xhr;
+        xhr.open("POST", "/api/media/upload");
+        xhr.responseType = "json";
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) setUploadProgress(Math.round(event.loaded / event.total * 100));
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300 && xhr.response?.asset?.id) resolve(xhr.response.asset.id);
+          else reject(new Error(xhr.response?.error || "Media upload failed"));
+        };
+        xhr.onerror = () => reject(new Error("Could not reach the upload service"));
+        xhr.onabort = () => reject(new Error("Upload cancelled"));
+        xhr.send(form);
+      });
+      uploadedAsset.current = { file, id };
+      return id;
+    } finally {
+      uploadRequest.current = null;
+      setUploadProgress(null);
+    }
+  }
+
+  async function publishUpload(file: File) {
+    setIsPublishing(true);
+    setAutoUploadFailed(false);
+    const notice = toast.loading("Uploading for automatic publishing");
+    try {
+      const mediaAssetId = await storeFile(file);
+      toast.loading("Analyzing the stored upload and validating destinations", { id: notice });
+      const response = await fetch("/api/automation/uploads", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mediaAssetId }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      toast.success(data.duplicate ? "This upload already has a publishing record" : "Post queued for your authorized accounts", { id: notice });
+      router.push("/dashboard/history");
+    } catch (error) {
+      setAutoUploadFailed(true);
+      toast.error(error instanceof Error ? error.message : "Automatic upload publishing failed", { id: notice });
+    } finally {
+      setIsPublishing(false);
+    }
+  }
+
   const chooseFile = (file?: File) => {
-    if (!file) return;
+    if (!file || isGenerating || isPublishing) return;
 
     if (file.size > (file.type.startsWith("video/") ? 100 : 15) * 1024 * 1024) {
       toast.error("File exceeds the upload size limit");
       return;
     }
 
+    clearGeneratedCaptions();
+    setAutoUploadFailed(false);
     setSavedAssetId(undefined);
     setSelectedFile(file);
     const isVid = file.type.startsWith("video/");
@@ -165,9 +244,12 @@ export default function CreatePostPage() {
 
     const objectUrl = URL.createObjectURL(file);
     setMediaPreview(objectUrl);
+    if (uploadPublishing && !draftId) void publishUpload(file);
   };
 
   const removeFile = () => {
+    if (isGenerating || isPublishing) return;
+    clearGeneratedCaptions();
     setSavedAssetId(undefined);
     setSelectedFile(null);
     setMediaPreview(null);
@@ -205,28 +287,52 @@ export default function CreatePostPage() {
     }));
   };
 
+  const handleConvertToVideo = async () => {
+    if (!selectedFile) return;
+    setIsConvertingVideo(true);
+    const notice = toast.loading("Converting image into YouTube video clip (1080p)...");
+    try {
+      const videoFile = await convertImageToVideo(selectedFile);
+      chooseFile(videoFile);
+      toast.success("Image successfully converted to MP4 video for YouTube!", { id: notice });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Video conversion failed", { id: notice });
+    } finally {
+      setIsConvertingVideo(false);
+    }
+  };
+
   const handleGenerateAI = async () => {
-    if (!selectedPlatforms.length || (!selectedFile && !topicPrompt.trim())) {
+    if (!selectedPlatforms.length || (!selectedFile && !savedAssetId && !topicPrompt.trim())) {
       toast.error("Select a platform and add media or text context.");
       return;
     }
     setIsGenerating(true);
     const notice = toast.loading("Generating platform captions");
     try {
-      const media = selectedFile ? await prepareMediaPreview(selectedFile) : {};
+      let file: Blob | null = selectedFile;
+      if (!file && savedAssetId) {
+        if (!mediaPreview) throw new Error("Reattach the saved media to generate a caption for it.");
+        const saved = await fetch(mediaPreview).catch(() => null);
+        if (!saved?.ok) throw new Error("Could not read the saved media. Reattach it and try again.");
+        file = await saved.blob();
+      }
+      const media = file ? await prepareMediaPreview(file, isVideo) : {};
       const res = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...media, prompt: topicPrompt, language, tone, targetPlatforms: selectedPlatforms, alternatives: true }),
+        body: JSON.stringify({ ...media, prompt: topicPrompt, language, tone, captionLength, hashtagLimit,
+          targetPlatforms: selectedPlatforms, alternatives: true }),
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || "Could not generate captions");
       setSummary(result.data.summary);
+      generatedPlatforms.current = [...new Set([...generatedPlatforms.current, ...selectedPlatforms])];
       setPlatformContents((previous) => {
         const updated = { ...previous };
         for (const p of selectedPlatforms) {
           const variant = result.variants[p];
-          if (variant) updated[p] = { ...variant, hashtags: variant.hashtags.join(" ") };
+          if (variant) updated[p] = { ...variant, hashtags: variant.hashtags.join(" "), youtubePrivacy: previous[p].youtubePrivacy };
         }
         return updated;
       });
@@ -268,30 +374,7 @@ export default function CreatePostPage() {
     requestId.current ??= draftId || crypto.randomUUID();
     setIsPublishing(true);
     try {
-      let mediaAssetId = savedAssetId;
-      if (selectedFile) {
-        if (uploadedAsset.current?.file !== selectedFile) {
-          setUploadProgress(0);
-          const form = new FormData();
-          form.append("file", selectedFile);
-          const id = await new Promise<string>((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open("POST", "/api/media/upload");
-            xhr.responseType = "json";
-            xhr.upload.onprogress = (event) => {
-              if (event.lengthComputable) setUploadProgress(Math.round(event.loaded / event.total * 100));
-            };
-            xhr.onload = () => {
-              if (xhr.status >= 200 && xhr.status < 300 && xhr.response?.asset?.id) resolve(xhr.response.asset.id);
-              else reject(new Error(xhr.response?.error || "Media upload failed"));
-            };
-            xhr.onerror = () => reject(new Error("Could not reach the upload service"));
-            xhr.send(form);
-          });
-          uploadedAsset.current = { file: selectedFile, id };
-        }
-        mediaAssetId = uploadedAsset.current?.id;
-      }
+      const mediaAssetId = selectedFile ? await storeFile(selectedFile) : savedAssetId;
 
       const res = await fetch("/api/posts/create", {
         method: "POST",
@@ -312,7 +395,9 @@ export default function CreatePostPage() {
             const content = platformContents[platform];
             return { platform, title: platform === "youtube" ? ytVideoTitle : content.title,
               caption: content.caption, hashtags: content.hashtags.split(/\s+/).filter(Boolean),
-              keywords: content.keywords?.map((keyword) => keyword.trim()).filter(Boolean), language, tone };
+              keywords: content.keywords?.map((keyword) => keyword.trim()).filter(Boolean), language, tone,
+              youtubePrivacy: platform === "youtube" ? content.youtubePrivacy ?? "private" : undefined,
+              altText: platform === "instagram" && !isVideo ? content.alt_text : undefined };
           }),
         }),
       });
@@ -336,9 +421,12 @@ export default function CreatePostPage() {
 
   return (
     <div className="space-y-6">
-      {uploadProgress !== null && <label className="block text-sm">Uploading media ({uploadProgress}%)
+      {uploadProgress !== null && <div className="space-y-2"><label className="block text-sm">Uploading media ({uploadProgress}%)
         <progress className="block w-full" max={100} value={uploadProgress} />
-      </label>}
+      </label><Button type="button" size="sm" variant="outline" onClick={() => uploadRequest.current?.abort()}>Cancel upload</Button></div>}
+      {!draftId && <UploadPublishingSettings onEnabledChange={setUploadPublishing} busy={isPublishing || isGenerating} />}
+      {uploadPublishing && autoUploadFailed && selectedFile &&
+        <Button type="button" variant="outline" disabled={isPublishing} onClick={() => void publishUpload(selectedFile)}>Retry automatic upload publishing</Button>}
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-2 border-b border-border gap-4">
         <div>
@@ -381,6 +469,7 @@ export default function CreatePostPage() {
                     {selectedFile?.name}
                   </span>
                   <button
+                    disabled={isGenerating || isPublishing}
                     onClick={removeFile}
                     className="text-xs text-destructive hover:underline flex items-center gap-1"
                   >
@@ -398,16 +487,38 @@ export default function CreatePostPage() {
                     Click or drag image or video here
                   </p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    PNG, JPG, or MP4 up to 50MB
+                    JPEG, PNG and WebP up to 15 MB. MP4, MOV and WebM up to 100 MB.
                   </p>
                 </div>
                 <input
                   type="file"
+                  disabled={isGenerating || isPublishing}
                   accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
                   onChange={(event) => chooseFile(event.target.files?.[0])}
                   className="sr-only"
                 />
               </label>
+            )}
+            {mediaPreview && !isVideo && selectedPlatforms.includes("youtube") && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2 text-xs">
+                <div className="flex items-center gap-1.5 font-semibold text-amber-500">
+                  <Video className="h-4 w-4" />
+                  <span>YouTube Video Format Required</span>
+                </div>
+                <p className="text-muted-foreground">
+                  YouTube requires video media. Convert this photo into a 5-second video (1080p, with audio track) ready for YouTube publishing?
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={isConvertingVideo || isGenerating || isPublishing}
+                  onClick={handleConvertToVideo}
+                  className="text-xs h-8 border-amber-500/40 hover:bg-amber-500/20 text-foreground"
+                >
+                  {isConvertingVideo ? "Converting to Video..." : "Convert Image to Video for YouTube"}
+                </Button>
+              </div>
             )}
           </div>
 
@@ -550,6 +661,18 @@ export default function CreatePostPage() {
                 </select>
               </label>
               {summary && <p className="text-sm text-muted-foreground">{summary}</p>}
+              <div className="flex flex-wrap gap-3">
+                <label className="text-xs">Caption length
+                  <select value={captionLength} className="ml-2 rounded border bg-background p-1"
+                    onChange={(event) => setCaptionLength(event.target.value as typeof captionLength)}>
+                    <option value="short">Short</option><option value="standard">Standard</option><option value="detailed">Detailed</option>
+                  </select>
+                </label>
+                <label className="text-xs">Hashtag limit
+                  <input className="ml-2 w-16 rounded border bg-background p-1" type="number" value={hashtagLimit} min={0} max={30}
+                    onChange={(event) => setHashtagLimit(Math.min(30, Math.max(0, Math.trunc(Number(event.target.value)) || 0)))} />
+                </label>
+              </div>
               <Button
                 type="button"
                 onClick={handleGenerateAI}
@@ -677,6 +800,25 @@ export default function CreatePostPage() {
                     ...previous, youtube: { ...previous.youtube, keywords: event.target.value.split(",") },
                   }))} />
               </label>}
+              {activeTab === "youtube" && <label className="block text-xs font-medium">
+                YouTube visibility
+                <select className="ml-2 rounded border bg-background p-1" value={currentContent.youtubePrivacy ?? "private"}
+                  onChange={(event) => {
+                    const youtubePrivacy = event.target.value as PlatformContent["youtubePrivacy"];
+                    setPlatformContents((previous) => ({ ...previous, youtube: { ...previous.youtube, youtubePrivacy } }));
+                  }}>
+                  <option value="private">Private</option>
+                  <option value="unlisted">Unlisted</option>
+                  <option value="public">Public</option>
+                </select>
+              </label>}
+              {activeTab === "instagram" && !isVideo && mediaPreview && <label className="block text-xs font-medium">
+                Instagram image description
+                <Input value={currentContent.alt_text ?? ""} maxLength={1000} placeholder="Describe the image for screen readers"
+                  onChange={(event) => setPlatformContents((previous) => ({
+                    ...previous, instagram: { ...previous.instagram, alt_text: event.target.value },
+                  }))} />
+              </label>}
               <Input
                 placeholder="#trends #ai #innovation #viral"
                 value={currentContent.hashtags}
@@ -692,7 +834,7 @@ export default function CreatePostPage() {
               type="button"
               variant="outline"
               onClick={() => handleSubmit(true)}
-              disabled={isPublishing}
+              disabled={isPublishing || isGenerating}
               className="flex-1 text-xs font-semibold gap-1.5"
             >
               <Save className="h-3.5 w-3.5" />
@@ -702,7 +844,7 @@ export default function CreatePostPage() {
             <Button
               type="button"
               onClick={() => handleSubmit(false)}
-              disabled={isPublishing}
+              disabled={isPublishing || isGenerating}
               className="flex-1 text-xs font-semibold gap-1.5 bg-black text-white hover:bg-neutral-800 dark:bg-white dark:text-black shadow-sm"
             >
               {isScheduled ? (
@@ -713,7 +855,7 @@ export default function CreatePostPage() {
               ) : (
                 <>
                   <Send className="h-3.5 w-3.5" />
-                  {isPublishing ? "Publishing..." : "Publish Now"}
+                  {isPublishing ? "Queuing…" : selectedPlatforms.length > 1 && !review ? "Publish Everywhere" : "Publish Now"}
                 </>
               )}
             </Button>

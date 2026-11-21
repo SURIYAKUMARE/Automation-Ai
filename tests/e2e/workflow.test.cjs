@@ -5,6 +5,11 @@ const { createServer } = require('node:net');
 const { once } = require('node:events');
 const { resolve } = require('node:path');
 const { setTimeout: delay } = require('node:timers/promises');
+const sharp = require('sharp');
+
+function fixturePhoto() {
+  return sharp({ create: { width: 80, height: 60, channels: 3, background: '#dc253b' } }).jpeg().toBuffer();
+}
 
 async function openPort() {
   const socket = createServer();
@@ -15,7 +20,7 @@ async function openPort() {
   return port;
 }
 
-async function startApp(t) {
+async function startApp(t, overrides = {}) {
   const port = await openPort();
   const origin = 'http://127.0.0.1:' + port;
   const workerSecret = 'test-worker-secret-fixture-at-least-32';
@@ -27,6 +32,8 @@ async function startApp(t) {
         TOKEN_ENCRYPTION_KEY: 'a'.repeat(64), SESSION_SECRET: 'b'.repeat(64), CRON_SECRET: workerSecret,
         GEMINI_API_KEY: 'test-gemini-key', GEMINI_MODELS: 'gemini-fixture',
         META_APP_ID: 'test-meta-app-id', META_APP_SECRET: 'test-meta-app-secret',
+        GOOGLE_CLIENT_ID: 'fixture.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET: 'test-google-secret',
+        ...overrides,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -60,6 +67,16 @@ test('production HTTP workflow with mocked providers', { timeout: 55_000 }, asyn
   await request('/dashboard', { status: 307 });
   await request('/api/posts', { status: 401 });
   await request('/api/auth/login', { status: 401, json: { email: 'fixture@test.invalid', password: 'bad-password' } });
+  const unconfirmed = await request('/api/auth/login', { status: 403, json: { email: 'unconfirmed@test.invalid', password: 'fixture-password' } });
+  assert.match((await unconfirmed.json()).error, /confirm your email/i);
+  const google = await request('/api/auth/google', { status: 307 });
+  const googleConsent = new URL(google.headers.get('location'));
+  assert.equal(googleConsent.searchParams.get('redirect_uri'), origin + '/api/auth/google/callback');
+  const callback = await request('/api/auth/google/callback?' + new URLSearchParams({
+    code: 'fixture-google-code', state: googleConsent.searchParams.get('state'),
+  }), { status: 307, headers: { Cookie: google.headers.get('set-cookie').split(';')[0] } });
+  assert.equal(callback.headers.get('location'), origin + '/dashboard');
+  assert.ok(callback.headers.getSetCookie().some((value) => value.startsWith('socialsync_session=')));
   const login = await request('/api/auth/login', { json: { email: 'fixture@test.invalid', password: 'fixture-password' } });
   cookie = login.headers.get('set-cookie').split(';')[0];
   const oauth = await request('/api/oauth/facebook', { status: 307 });
@@ -74,15 +91,30 @@ test('production HTTP workflow with mocked providers', { timeout: 55_000 }, asyn
   const studio = await request('/dashboard/create-post');
   assert.match(await studio.text(), /Publish Now/);
 
-  const picture = Buffer.from('ffd8ffe000104a46494600010100000100010000ffd9', 'hex');
+  const picture = await fixturePhoto();
   const form = new FormData();
   form.append('file', new Blob([picture], { type: 'image/jpeg' }), 'fixture.jpg');
   const upload = await (await request('/api/media/upload', { method: 'POST', body: form, status: 201 })).json();
+  assert.equal(upload.asset.width, 80);
+  assert.equal(upload.asset.height, 60);
+  const duplicate = await (await request('/api/media/upload', { method: 'POST', body: form })).json();
+  assert.equal(duplicate.asset.id, upload.asset.id);
+  assert.equal(duplicate.duplicate, true);
+  const invalid = new FormData();
+  invalid.append('file', new Blob([Buffer.from([255, 216, 255, 0])], { type: 'image/jpeg' }), 'corrupt.jpg');
+  await request('/api/media/upload', { method: 'POST', body: invalid, status: 415 });
   const generated = await (await request('/api/ai/generate', { json: {
     mediaBase64: picture.toString('base64'), mimeType: 'image/jpeg', targetPlatforms: ['facebook'], alternatives: true,
   } })).json();
   assert.equal(generated.source, 'Gemini');
   assert.equal(generated.variants.facebook.alternatives.length, 2);
+  const unreadable = await (await request('/api/ai/generate', { status: 422, json: {
+    mediaBase64: picture.toString('base64'), mimeType: 'image/jpeg', prompt: 'unreadable fixture', targetPlatforms: ['facebook'],
+  } })).json();
+  assert.match(unreadable.error, /clearer photo or video/);
+  await request('/api/ai/generate', { status: 400, json: {
+    mediaBase64: picture.toString('base64'), mimeType: 'image/jpeg', isMediaVideo: true, prompt: 'Do not fall back to this text',
+  } });
 
   const id = '60000000-0000-4000-8000-000000000000';
   const post = await (await request('/api/posts/create', { status: 201, json: {
@@ -104,6 +136,54 @@ test('production HTTP workflow with mocked providers', { timeout: 55_000 }, asyn
   assert.equal(status.post.post_targets[0].status, 'published');
 });
 
+test('placeholder credentials report a configuration error on both sign-in methods', async (t) => {
+  const { origin } = await startApp(t, {
+    SUPABASE_URL: 'https://your-project.supabase.co', GOOGLE_CLIENT_ID: 'your_google_client_id.apps.googleusercontent.com',
+  });
+  const login = await fetch(origin + '/api/auth/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'fixture@test.invalid', password: 'fixture-password' }),
+  });
+  assert.equal(login.status, 503);
+  assert.match((await login.json()).error, /valid Supabase project URL and server key/);
+  assert.equal(login.headers.get('set-cookie'), null);
+  const google = await fetch(origin + '/api/auth/google', { redirect: 'manual' });
+  assert.equal(google.status, 307);
+  assert.equal(new URL(google.headers.get('location'), origin).href, origin + '/login?error=google_configuration');
+});
+
+test('approved upload automation analyzes original bytes and queues only once', { timeout: 55_000 }, async (t) => {
+  const { origin, workerSecret } = await startApp(t);
+  const login = await fetch(origin + '/api/auth/login', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'fixture@test.invalid', password: 'fixture-password' }),
+  });
+  const cookie = login.headers.get('set-cookie').split(';')[0];
+  async function json(path, body, expected, method = 'POST') {
+    const response = await fetch(origin + path, { method, headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const data = await response.json();
+    assert.equal(response.status, expected, JSON.stringify(data));
+    return data;
+  }
+  const form = new FormData();
+  form.append('file', new Blob([await fixturePhoto()], { type: 'image/jpeg' }), 'red.jpg');
+  const response = await fetch(origin + '/api/media/upload', { method: 'POST', headers: { Cookie: cookie }, body: form });
+  assert.equal(response.status, 201);
+  const { asset } = await response.json();
+  await json('/api/automation/uploads', { mediaAssetId: asset.id }, 403);
+  const settings = { enabled: true, accountIds: ['20000000-0000-4000-8000-000000000000'] };
+  await json('/api/automation/upload-settings', settings, 400, 'PUT');
+  await json('/api/automation/upload-settings', { ...settings, acknowledged: true }, 200, 'PUT');
+  const queued = await json('/api/automation/uploads', { mediaAssetId: asset.id }, 202);
+  assert.equal(queued.post.status, 'approved');
+  const duplicate = await json('/api/automation/uploads', { mediaAssetId: asset.id }, 200);
+  assert.equal(duplicate.post.id, queued.post.id);
+  assert.equal(duplicate.duplicate, true);
+  const worker = async () => (await fetch(origin + '/api/scheduler/execute', { headers: { Authorization: 'Bearer ' + workerSecret } })).json();
+  assert.equal((await worker()).executedCount, 1);
+  assert.equal((await worker()).executedCount, 0);
+});
+
 test('mobile browser reviews, approves and tracks an uploaded post', { timeout: 150_000 }, async (t) => {
   const { chromium } = require('playwright');
   const { origin, workerSecret } = await startApp(t);
@@ -119,6 +199,34 @@ test('mobile browser reviews, approves and tracks an uploaded post', { timeout: 
   await page.locator('button[type=submit]').click();
   await page.waitForURL('**/dashboard');
   await page.goto(origin + '/dashboard/create-post', { waitUntil: 'domcontentloaded' });
+  const video = await page.evaluate(async () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 96;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    const stream = canvas.captureStream(20);
+    const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+    const chunks = [];
+    recorder.ondataavailable = (event) => chunks.push(event.data);
+    const finished = new Promise((resolve) => { recorder.onstop = resolve; });
+    recorder.start();
+    for (let i = 0; i < 16; i++) {
+      ctx.fillStyle = '#151515';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#40f5ec';
+      ctx.fillRect(i * 5, 20, 14, 14);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+    }
+    recorder.stop();
+    await finished;
+    stream.getTracks().forEach((track) => track.stop());
+    return Array.from(new Uint8Array(await new Blob(chunks).arrayBuffer()));
+  });
+  await page.locator('input[type=file]').setInputFiles({ name: 'moving-square.webm', mimeType: 'video/webm', buffer: Buffer.from(video) });
+  await page.getByRole('button', { name: 'Generate with Gemini AI' }).click();
+  await page.getByText('A square moves across the frame', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  assert.equal(await page.getByText('A square moves across the frame', { exact: true }).count(), 0);
   const jpeg = await page.evaluate(() => {
     const canvas = document.createElement('canvas');
     canvas.width = canvas.height = 12;

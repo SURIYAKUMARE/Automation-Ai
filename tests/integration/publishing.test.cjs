@@ -8,7 +8,7 @@ const other = '20000000-0000-4000-8000-000000000000';
 const facebook = '30000000-0000-4000-8000-000000000000';
 const linkedin = '40000000-0000-4000-8000-000000000000';
 const id = '50000000-0000-4000-8000-000000000000';
-const migrations = ['20261120000000_initial_schema.sql', '20261121000000_reliable_publishing.sql'];
+const migrations = ['20261120000000_initial_schema.sql', '20261121000000_reliable_publishing.sql', '20261122000000_upload_automation.sql'];
 
 async function fixture(t) {
   const db = await PGlite.create();
@@ -111,4 +111,73 @@ test('draft promotion and weekly schedules preserve one copy per occurrence', as
   assert.equal((await db.query('select * from publishing_jobs')).rows.length, 3);
   assert.equal((await db.query('select * from post_targets')).rows.length, 6);
   assert.equal((await db.query("select has_function_privilege('authenticated','claim_publishing_job()', 'EXECUTE') as allowed")).rows[0].allowed, false);
+});
+
+test('upload publishing requires current consent for every exact destination', async (t) => {
+  const db = await fixture(t);
+  const revision = '60000000-0000-4000-8000-000000000000';
+  const asset = '70000000-0000-4000-8000-000000000000';
+  await db.query(`insert into media_assets(id,user_id,file_name,file_path,file_size,mime_type,media_type,checksum_sha256)
+    values($1,$2,'photo.jpg','fixture.jpg',20,'image/jpeg','image','fixture-checksum')`, [asset,owner]);
+  await assert.rejects(db.query(`insert into media_assets(user_id,file_name,file_path,file_size,mime_type,media_type,checksum_sha256)
+    values($1,'copy.jpg','copy.jpg',20,'image/jpeg','image','fixture-checksum')`, [owner]), /duplicate key/);
+  const enqueue = (destination = facebook) => db.query('select (create_automatic_campaign($1,$2,$3,$4,$5)).id', [
+    owner, revision, JSON.stringify({ id, media_asset_id: asset, status: 'approved', publishing_mode: 'automatic', target_platforms: ['facebook'] }),
+    JSON.stringify([{ platform: 'facebook', caption: 'Caption about the photo', hashtags: [] }]), JSON.stringify([{ id: destination }]),
+  ]);
+  await assert.rejects(enqueue(), /consent changed/);
+  await db.query('insert into upload_automation(user_id,enabled,revision,account_ids) values($1,true,$2,array[$3::uuid])', [owner,revision,facebook]);
+  await assert.rejects(enqueue(linkedin), /destinations changed/);
+  await enqueue();
+  await enqueue();
+  assert.equal((await db.query('select count(*)::int as total from publishing_jobs')).rows[0].total, 1);
+  await db.query('update upload_automation set revision=gen_random_uuid() where user_id=$1', [owner]);
+  await assert.rejects(enqueue(), /consent changed/);
+});
+
+test('one destination can retry without disturbing a confirmed publication', async (t) => {
+  const db = await fixture(t);
+  await create(db, { status: 'approved', mode: 'automatic' });
+  const batch = (await db.query('select * from claim_publishing_job()')).rows[0];
+  await result(db, batch.id, 'facebook', 'published');
+  await result(db, batch.id, 'linkedin', 'failed');
+  await db.query('select finish_publishing_job($1, null)', [batch.id]);
+  const targets = (await db.query('select id,platform from post_targets')).rows;
+  const failed = targets.find((target) => target.platform === 'linkedin').id;
+  const published = targets.find((target) => target.platform === 'facebook').id;
+  const retry = async (user, target) => (await db.query('select retry_publishing_target($1,$2) as id', [user,target])).rows[0].id;
+  assert.equal(await retry(other, failed), null);
+  assert.equal(await retry(owner, published), null);
+  const accepted = await retry(owner, failed);
+  assert.ok(accepted);
+  assert.equal(await retry(owner, failed), null);
+  const job = (await db.query('select * from claim_publishing_job()')).rows[0];
+  assert.equal(job.id, accepted);
+  assert.equal(job.target_id, failed);
+  await assert.rejects(db.query("select record_publishing_result($1,$2,'{\"status\":\"published\"}')", [job.id,published]), /no longer claimed/);
+  await result(db, job.id, 'linkedin', 'published');
+  await db.query('select finish_publishing_job($1, null)', [job.id]);
+  assert.equal((await db.query('select status from posts')).rows[0].status, 'published');
+});
+
+test('YouTube receipts remain processing until an official status is recorded', async (t) => {
+  const db = await fixture(t);
+  const channel = '80000000-0000-4000-8000-000000000000';
+  await db.query(`insert into social_accounts (id,user_id,platform,external_account_id,account_name,encrypted_access_token)
+    values($1,$2,'youtube','fixture-channel','YouTube fixture','mock')`, [channel,owner]);
+  await db.query('select create_campaign($1,$2,$3,$4)', [owner,
+    JSON.stringify({ id, status: 'approved', publishing_mode: 'automatic', target_platforms: ['youtube'] }),
+    JSON.stringify([{ platform: 'youtube', caption: 'Caption', youtube_privacy: 'unlisted', hashtags: [] }]), JSON.stringify([{ id: channel }]),
+  ]);
+  const job = (await db.query('select * from claim_publishing_job()')).rows[0];
+  const target = (await db.query("update post_targets set status='publishing' returning id")).rows[0];
+  await db.query('select record_publishing_result($1,$2,$3)', [job.id,target.id,JSON.stringify({ status:'processing', external_post_id:'video-receipt' })]);
+  await db.query('select finish_publishing_job($1, null)', [job.id]);
+  assert.equal((await db.query('select status from posts')).rows[0].status, 'processing');
+  assert.equal((await db.query('select youtube_privacy from post_variants')).rows[0].youtube_privacy, 'unlisted');
+  const report = async (receipt, status) => (await db.query('select report_youtube_processing($1,$2,$3,null) as saved', [target.id,receipt,status])).rows[0].saved;
+  assert.equal(await report('wrong-receipt', 'published'), false);
+  assert.equal(await report('video-receipt', 'published'), true);
+  assert.equal(await report('video-receipt', 'processing'), false);
+  assert.equal((await db.query('select status from posts')).rows[0].status, 'published');
 });

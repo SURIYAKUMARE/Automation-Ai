@@ -122,7 +122,7 @@ export class InstagramAdapter implements PlatformAdapter {
         success: false,
         errorCode: 'INSTAGRAM_REQUIRES_MEDIA',
         errorMessage: 'Instagram publishing requires an image or video asset. Pure text posts are not supported by the Instagram Graph API.',
-        actionRequired: 'Attach a valid image (JPEG/PNG) or Reel video (MP4) to post to Instagram.',
+        actionRequired: 'Attach a JPEG image or a compatible Reel video to post to Instagram.',
       };
     }
 
@@ -138,6 +138,7 @@ export class InstagramAdapter implements PlatformAdapter {
         containerParams.append('video_url', mediaUrl);
       } else {
         containerParams.append('image_url', mediaUrl);
+        if (request.altText?.trim()) containerParams.append('alt_text', request.altText.trim());
       }
 
       const createRes = await fetch(
@@ -157,7 +158,7 @@ export class InstagramAdapter implements PlatformAdapter {
           errorMessage: errJson.error?.message || `Instagram container creation failed (${createRes.status})`,
           actionRequired:
             createRes.status === 400
-              ? 'Ensure image format is JPEG/PNG and publicly accessible, or account has professional publishing rights.'
+              ? 'Check the media format and URL accessibility, and confirm the account has professional publishing rights.'
               : undefined,
           rawResponse: errJson,
         };
@@ -165,33 +166,40 @@ export class InstagramAdapter implements PlatformAdapter {
 
       const createData = await createRes.json();
       const creationId = createData.id;
+      if (typeof creationId !== 'string' || !creationId) {
+        return { success: false, errorCode: 'IG_CONTAINER_NOT_READY', errorMessage: 'Instagram did not return a media container.' };
+      }
 
       // Step 2: Poll container status if video or wait for ready
       let isReady = false;
       let attempts = 0;
-      const maxAttempts = mediaType === 'video' ? 12 : 3;
+      const maxAttempts = mediaType === 'video' ? 5 : 3;
 
       while (!isReady && attempts < maxAttempts) {
         attempts++;
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((resolve) => setTimeout(resolve, mediaType === 'video' ? 15_000 : 2000));
 
         const statusRes = await fetch(
-          `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${creationId}?fields=status_code&access_token=${accessToken}`
-        );
+          `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${creationId}?fields=status_code`,
+          { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(8000) },
+        ).catch(() => null);
 
-        if (statusRes.ok) {
+        if (statusRes?.ok) {
           const statusData = await statusRes.json();
           if (statusData.status_code === 'FINISHED') {
             isReady = true;
-          } else if (statusData.status_code === 'ERROR') {
+          } else if (['ERROR', 'EXPIRED'].includes(statusData.status_code)) {
             return {
               success: false,
               errorCode: 'IG_CONTAINER_PROCESSING_ERROR',
-              errorMessage: 'Instagram media container processing failed during video encoding.',
+              errorMessage: 'Instagram could not prepare this media container.',
             };
           }
         }
       }
+      if (!isReady) return {
+        success: false, errorCode: 'IG_CONTAINER_NOT_READY', errorMessage: 'Instagram is still preparing the media.',
+      };
 
       // Step 3: Publish Media Container
       const publishParams = new URLSearchParams({
@@ -223,18 +231,18 @@ export class InstagramAdapter implements PlatformAdapter {
 
       // Step 4: Retrieve post permalink
       let permalink: string | undefined;
-      const mediaInfoRes = await fetch(
-        `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${mediaId}?fields=permalink&access_token=${accessToken}`
-      );
-      if (mediaInfoRes.ok) {
-        const mediaInfo = await mediaInfoRes.json();
-        permalink = mediaInfo.permalink;
+      if (mediaId) {
+        const response = await fetch(
+          `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${mediaId}?fields=permalink`,
+          { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(8000) },
+        ).catch(() => null);
+        if (response?.ok) permalink = (await response.json().catch(() => ({}))).permalink;
       }
 
       return {
         success: true,
         externalPostId: mediaId,
-        externalPostUrl: permalink || `https://www.instagram.com/p/${mediaId}/`,
+        externalPostUrl: permalink,
         rawResponse: publishData,
       };
     } catch (err: any) {

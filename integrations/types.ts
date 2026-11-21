@@ -24,6 +24,8 @@ export interface PublishRequest {
   mediaUrl?: string;
   mediaType?: 'image' | 'video';
   tags?: string[];
+  youtubePrivacy?: 'private' | 'unlisted' | 'public';
+  altText?: string;
   accessToken: string;
   accountId: string;
   metadata?: Record<string, any>;
@@ -31,6 +33,7 @@ export interface PublishRequest {
 
 export interface PublishResult {
   success: boolean;
+  processing?: boolean;
   externalPostId?: string;
   externalPostUrl?: string;
   errorCode?: string;

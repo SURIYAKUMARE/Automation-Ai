@@ -36,3 +36,35 @@ test('LinkedIn accepts a publish receipt with the provider post ID header', asyn
   assert.equal(result.success, true);
   assert.equal(result.externalPostId, receipt);
 });
+
+test('LinkedIn uploads video parts, finalizes the asset and publishes only after it is available', async (t) => {
+  const video = 'urn:li:video:test-asset';
+  const calls = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    const path = new URL(url);
+    calls.push(path.pathname);
+    if (path.hostname === 'fixture.test') return new Response(Buffer.from('TEST'));
+    if (path.searchParams.get('action') === 'initializeUpload') {
+      return Response.json({ value: { video, uploadToken: '', uploadInstructions: [
+        { uploadUrl: 'https://www.linkedin.com/part1', firstByte: 0, lastByte: 1 },
+        { uploadUrl: 'https://www.linkedin.com/part2', firstByte: 2, lastByte: 4194303 },
+      ] } });
+    }
+    if (path.pathname.startsWith('/part')) {
+      assert.equal(Buffer.from(options.body).toString(), path.pathname === '/part1' ? 'TE' : 'ST');
+      return new Response(null, { headers: { etag: '"tag-' + path.pathname.at(-1) + '"' } });
+    }
+    if (path.searchParams.get('action') === 'finalizeUpload') {
+      assert.deepEqual(JSON.parse(options.body).finalizeUploadRequest.uploadedPartIds, ['tag-1', 'tag-2']);
+      return new Response(null, { status: 200 });
+    }
+    if (path.pathname.startsWith('/rest/videos/')) return Response.json({ status: 'AVAILABLE' });
+    assert.equal(path.pathname, '/rest/posts');
+    assert.equal(JSON.parse(options.body).content.media.id, video);
+    return new Response(null, { status: 201, headers: { 'x-restli-id': 'urn:li:ugcPost:test' } });
+  });
+  const result = await new LinkedInAdapter().publish({ ...fixture, mediaUrl: 'https://fixture.test/clip.mp4', mediaType: 'video' });
+  assert.equal(result.externalPostId, 'urn:li:ugcPost:test');
+  assert.deepEqual(calls, ['/clip.mp4', '/rest/videos', '/part1', '/part2', '/rest/videos',
+    '/rest/videos/' + encodeURIComponent(video), '/rest/posts']);
+});

@@ -18,6 +18,8 @@ const account = {
 };
 
 let media;
+let original;
+let automation;
 let post;
 let targets = [];
 let variants = [];
@@ -31,12 +33,31 @@ globalThis.fetch = async (input, init) => {
   const body = () => JSON.parse(init.body);
   const json = (data, status = 200) => Response.json(data, { status });
   if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') return fetchReal(input, init);
+  if (url.hostname === 'oauth2.googleapis.com') {
+    assert.equal(new URLSearchParams(init.body).get('code'), 'fixture-google-code');
+    return json({ access_token: 'fixture-google-access-token' });
+  }
+  if (url.hostname === 'www.googleapis.com' && path === '/oauth2/v2/userinfo') {
+    return json({ id: '123456', email: 'google@test.invalid', verified_email: true, name: 'Google Fixture' });
+  }
   if (url.hostname === 'generativelanguage.googleapis.com') {
     const request = body();
-    assert.ok(request.contents[0].parts.some((part) => JSON.stringify(part).includes('image/jpeg')));
+    const parts = request.contents[0].parts;
+    const images = parts.filter((part) => part.inlineData?.mimeType.startsWith('image/'));
+    assert.ok(parts[0].text.includes('attached visuals are the primary source'));
+    const isVideo = parts[0].text.includes('Chronological still frames');
+    if (isVideo) {
+      assert.equal(images.length, 6);
+      assert.ok(new Set(images.map((image) => image.inlineData.data)).size > 1);
+    } else {
+      assert.equal(images.length, 1);
+    }
+    const unreadable = parts[0].text.includes('unreadable fixture');
     return json({ candidates: [{ content: { role: 'model', parts: [{ text: JSON.stringify({
-      summary: 'A test poster', detected_objects: ['poster'], sentiment: 'neutral',
-      platforms: { facebook: { caption: 'A generated fixture caption.', hashtags: ['community'],
+      summary: isVideo ? 'A square moves across the frame' : 'A test poster',
+      detected_objects: [isVideo ? 'moving square' : 'poster'], sentiment: 'neutral',
+      media_review: { readable: !unreadable, observations: unreadable ? [] : [isVideo ? 'A square moves' : 'A visible poster'] },
+      platforms: { facebook: { caption: isVideo ? 'Watch the square move.' : 'A generated fixture caption.', hashtags: ['community'],
         alternatives: ['Fixture alternative one.', 'Fixture alternative two.'] } },
     }) }] }, finishReason: 'STOP' }] });
   }
@@ -45,7 +66,7 @@ globalThis.fetch = async (input, init) => {
     assert.match(path, /\/test-page\/photos$/);
     const form = new URLSearchParams(init.body);
     assert.equal(form.get('access_token'), token);
-    assert.match(form.get('caption'), /^Human-edited caption\./);
+    assert.match(form.get('caption'), post.publishing_mode === 'automatic' ? /^A generated fixture caption\./ : /^Human-edited caption\./);
     assert.match(form.get('url'), /^https:\/\/fixture\.supabase\.co\/storage\/v1\/object\/sign\//);
     assert.equal(++publishes, 1);
     return json({ id: 'provider-photo-id', post_id: 'provider-post-id' });
@@ -54,22 +75,41 @@ globalThis.fetch = async (input, init) => {
   if (path === '/auth/v1/token') {
     const credentials = body();
     if (credentials.password !== 'fixture-password') return json({ code: 'invalid_credentials', msg: 'Invalid credentials' }, 400);
+    if (credentials.email === 'unconfirmed@test.invalid') return json({ error_code: 'email_not_confirmed', msg: 'Email not confirmed' }, 400);
     return json({ access_token: 'session-fixture', refresh_token: 'refresh-fixture', expires_in: 3600,
       token_type: 'bearer', user: { id: owner, email: credentials.email, user_metadata: { full_name: 'Fixture Owner' }, created_at: new Date().toISOString() } });
   }
+  if (path === '/rest/v1/profiles' && method === 'POST') return new Response(null, { status: 201 });
   if (path.startsWith('/storage/v1/object/sign/')) return json({ signedURL: path.replace('/storage/v1', '') + '?token=fixture' });
-  if (path.startsWith('/storage/v1/object/media-assets/')) return json({ Key: path.split('/object/')[1] });
+  if (/^\/storage\/v1\/object\/(?:authenticated\/)?media-assets\//.test(path)) {
+    if (method === 'GET') return new Response(original, { headers: { 'Content-Type': 'image/jpeg' } });
+    if (!path.endsWith('.thumb.jpg')) original = init.body;
+    return json({ Key: path.split('/object/')[1] });
+  }
   if (path === '/rest/v1/media_assets' && method === 'POST') {
     media = { ...body(), id: assetId };
     return json(media, 201);
   }
-  if (path === '/rest/v1/media_assets') return json(media ? [media] : []);
+  if (path === '/rest/v1/media_assets') {
+    const checksum = url.searchParams.get('checksum_sha256');
+    return json(media && (!checksum || checksum === 'eq.' + media.checksum_sha256) ? [media] : []);
+  }
+  if (path === '/rest/v1/upload_automation') {
+    if (method !== 'POST') return json(automation ? [automation] : []);
+    automation = body();
+    return json(automation);
+  }
   if (path === '/rest/v1/brand_profiles') return json([]);
   if (path === '/rest/v1/social_accounts') return json([{ id: accountId, platform: 'facebook', status: 'active', account_name: 'Fixture Page' }]);
   if (path === '/rest/v1/rpc/consume_ai_request') return json(true);
-  if (path === '/rest/v1/rpc/create_campaign') {
+  if (path === '/rest/v1/rpc/create_campaign' || path === '/rest/v1/rpc/create_automatic_campaign') {
     const input = body();
     assert.equal(input.owner_id, owner);
+    if (path.endsWith('create_automatic_campaign')) {
+      assert.equal(input.consent_revision, automation.revision);
+      assert.deepEqual(input.destinations.map((account) => account.id), automation.account_ids);
+      queued = true;
+    }
     if (!post) {
       post = { ...input.campaign, user_id: owner, created_at: new Date().toISOString() };
       variants = input.variants.map((variant) => ({ ...variant, id: '70000000-0000-4000-8000-000000000000', is_approved: false }));
@@ -98,6 +138,7 @@ globalThis.fetch = async (input, init) => {
     targets[0].status = 'publishing';
     return json([targets[0]]);
   }
+  if (path === '/rest/v1/post_targets') return json([]);
   if (path === '/rest/v1/rpc/record_publishing_result') {
     const { result, target_id } = body();
     assert.equal(target_id, targetId);

@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AuthUser, setSessionCookie, stringToUuid } from '@/lib/auth/session';
 import { matchesOAuthState } from '@/lib/auth/oauth-state';
-import { createAdminClient } from '@/lib/supabase/admin';
+import { createAdminClient, SupabaseConfigurationError } from '@/lib/supabase/admin';
+import { getGoogleOAuthConfig } from '@/lib/auth/google-config';
 
 export async function GET(req: NextRequest) {
-  const base = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin;
+  const configured = URL.parse(process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin);
+  const base = configured && ['http:', 'https:'].includes(configured.protocol) ? configured.origin : req.nextUrl.origin;
   const cookie = 'socialflow_google_state';
   let response: NextResponse;
   try {
@@ -12,13 +14,16 @@ export async function GET(req: NextRequest) {
     if (!code || !matchesOAuthState(req.nextUrl.searchParams.get('state'), req.cookies.get(cookie)?.value)) {
       throw new Error('Invalid Google sign-in state');
     }
-    const clientId = process.env.GOOGLE_CLIENT_ID;
-    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-    if (!clientId || !clientSecret) throw new Error('Missing Google configuration');
+    const config = getGoogleOAuthConfig();
+    if (!config) {
+      const redirect = NextResponse.redirect(new URL('/login?error=google_configuration', base));
+      redirect.cookies.delete(cookie);
+      return redirect;
+    }
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       body: new URLSearchParams({
-        code, client_id: clientId, client_secret: clientSecret, grant_type: 'authorization_code',
+        code, client_id: config.clientId, client_secret: config.clientSecret, grant_type: 'authorization_code',
         redirect_uri: new URL('/api/auth/google/callback', base).href,
       }),
     });
@@ -39,8 +44,9 @@ export async function GET(req: NextRequest) {
     });
     if (error) throw new Error('Could not save Google profile');
     response = setSessionCookie(NextResponse.redirect(new URL('/dashboard', base)), user);
-  } catch {
-    response = NextResponse.redirect(new URL('/login?error=Google%20sign-in%20failed', base));
+  } catch (error) {
+    const reason = error instanceof SupabaseConfigurationError ? 'supabase_configuration' : 'google_sign_in_failed';
+    response = NextResponse.redirect(new URL('/login?error=' + reason, base));
   }
   response.cookies.delete(cookie);
   return response;

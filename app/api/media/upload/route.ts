@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { getSessionUser } from '@/lib/auth/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { matchesMediaSignature, mediaExtensions, mediaSizeLimit, signMedia } from '@/lib/publishing/media';
+import { inspectUploadedMedia, InvalidMediaError, MediaToolsError } from '@/lib/publishing/media-inspection';
 
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req);
@@ -23,21 +24,45 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'File contents do not match its declared type' }, { status: 415 });
     }
     const db = createAdminClient();
+    const checksum = createHash('sha256').update(bytes).digest('hex');
+    const existing = () => db.from('media_assets').select('*')
+      .eq('user_id', user.id).eq('checksum_sha256', checksum).maybeSingle();
+    const respond = async (asset: { file_path: string; thumbnail_path?: string }, status: number) => {
+      const [previewUrl, thumbnailUrl] = await Promise.all([
+        signMedia(asset.file_path, user.id).catch(() => undefined),
+        asset.thumbnail_path ? signMedia(asset.thumbnail_path, user.id).catch(() => undefined) : undefined,
+      ]);
+      return NextResponse.json({ success: true, asset, previewUrl, thumbnailUrl, duplicate: status === 200 }, { status });
+    };
+    const lookup = await existing();
+    if (lookup.error) throw lookup.error;
+    if (lookup.data) return respond(lookup.data, 200);
+
+    const media = await inspectUploadedMedia(bytes, file.type);
     const path = user.id + '/' + randomUUID() + '.' + mediaExtensions[file.type];
+    const thumbnailPath = path + '.thumb.jpg';
     const store = db.storage.from('media-assets');
     const { error: uploadError } = await store.upload(path, bytes, { contentType: file.type });
     if (uploadError) return NextResponse.json({ error: 'Could not store the uploaded file' }, { status: 502 });
+    const thumbnail = await store.upload(thumbnailPath, media.thumbnail, { contentType: 'image/jpeg' });
     const { data: asset, error } = await db.from('media_assets').insert({
       user_id: user.id, file_name: file.name.slice(0, 255), file_path: path, file_size: file.size,
       mime_type: file.type, media_type: file.type.startsWith('video/') ? 'video' : 'image',
+      checksum_sha256: checksum, width: media.width, height: media.height,
+      duration_seconds: media.duration, video_codec: media.codec, thumbnail_path: thumbnail.error ? null : thumbnailPath,
     }).select().single();
     if (error) {
-      await store.remove([path]);
+      await store.remove(thumbnail.error ? [path] : [path, thumbnailPath]);
+      if (error.code === '23505') {
+        const reused = await existing();
+        if (reused.data) return respond(reused.data, 200);
+      }
       return NextResponse.json({ error: 'Could not save the uploaded media record' }, { status: 502 });
     }
-    const previewUrl = await signMedia(path, user.id).catch(() => undefined);
-    return NextResponse.json({ success: true, asset, previewUrl, mediaUrl: previewUrl }, { status: 201 });
-  } catch {
+    return respond(asset, 201);
+  } catch (error) {
+    if (error instanceof InvalidMediaError) return NextResponse.json({ error: error.message }, { status: 415 });
+    if (error instanceof MediaToolsError) return NextResponse.json({ error: error.message }, { status: 503 });
     return NextResponse.json({ error: 'Media upload is unavailable' }, { status: 503 });
   }
 }

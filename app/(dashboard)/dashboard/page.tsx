@@ -66,6 +66,20 @@ export default function DashboardOverviewPage() {
 
   const [isLoading, setIsLoading] = React.useState(false);
 
+  const [summary, setSummary] = React.useState<{
+    uploads: number; published: number; scheduled: number; failed: number; connectedPlatforms: number;
+    recent: { id: string; title: string | null; status: string; updated_at: string }[];
+  }>();
+  const [summaryError, setSummaryError] = React.useState(false);
+  React.useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/dashboard/summary", { signal: controller.signal }).then(async (response) => {
+      if (!response.ok) throw new Error();
+      setSummary(await response.json());
+    }).catch(() => { if (!controller.signal.aborted) setSummaryError(true); });
+    return () => controller.abort();
+  }, []);
+
   React.useEffect(() => {
     async function loadAccounts() {
       try {
@@ -89,8 +103,8 @@ export default function DashboardOverviewPage() {
             );
           }
         }
-      } catch (e) {
-        // Fallback to active mock state
+      } catch {
+        // Account availability can still be checked from the Accounts page.
       }
     }
     loadAccounts();
@@ -117,6 +131,25 @@ export default function DashboardOverviewPage() {
         </Link>
       </div>
 
+      {summaryError && <p role="alert" className="text-sm text-destructive">Dashboard activity is unavailable.</p>}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+        {[
+          ["Uploads", summary?.uploads], ["Published posts", summary?.published], ["Scheduled posts", summary?.scheduled],
+          ["Failed destinations", summary?.failed], ["Connected platforms", summary?.connectedPlatforms],
+        ].map(([label, value]) => <div key={label} className="rounded-xl border bg-card p-4">
+          <div className="text-sm text-muted-foreground">{label}</div><div className="mt-1 text-2xl font-semibold tabular-nums">{value ?? "—"}</div>
+        </div>)}
+      </div>
+      <section className="rounded-xl border bg-card p-4">
+        <div className="flex items-center justify-between gap-2"><h2 className="text-sm font-semibold">Recent publishing activity</h2>
+          <Link className="text-sm underline" href="/dashboard/history">Open history</Link></div>
+        {summary && (summary.recent.length ? <ul className="mt-2 divide-y text-sm">
+          {summary.recent.map((post) => <li key={post.id} className="flex flex-wrap justify-between gap-2 py-2">
+            <span>{post.title || "Untitled post"}</span>
+            <span className="capitalize text-muted-foreground">{post.status.replaceAll("_", " ")} · {new Date(post.updated_at).toLocaleString()}</span>
+          </li>)}
+        </ul> : <p className="mt-2 text-sm text-muted-foreground">No publishing activity yet.</p>)}
+      </section>
       {/* 4 Platform Status Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {platformStatuses.map((platform) => {

@@ -182,7 +182,7 @@ export class YouTubeAdapter implements PlatformAdapter {
               categoryId: '28', // Science & Technology
             },
             status: {
-              privacyStatus: 'public',
+              privacyStatus: request.youtubePrivacy || 'public',
               selfDeclaredMadeForKids: false,
             },
           }),
@@ -201,8 +201,9 @@ export class YouTubeAdapter implements PlatformAdapter {
         };
       }
 
-      const uploadUrl = actualInitRes.headers.get('Location');
-      if (!uploadUrl) {
+      const location = actualInitRes.headers.get('Location');
+      const uploadUrl = location ? URL.parse(location) : null;
+      if (!uploadUrl || uploadUrl.protocol !== 'https:' || !/\.googleapis\.com$/i.test(uploadUrl.hostname)) {
         return {
           success: false,
           errorCode: 'NO_UPLOAD_URL',
@@ -223,6 +224,8 @@ export class YouTubeAdapter implements PlatformAdapter {
       const videoBuffer = await videoFileRes.arrayBuffer();
       const uploadRes = await fetch(uploadUrl, {
         method: 'PUT',
+        redirect: 'error',
+        signal: AbortSignal.timeout(110_000),
         headers: {
           'Content-Type': 'video/mp4',
           'Content-Length': videoBuffer.byteLength.toString(),
@@ -242,10 +245,16 @@ export class YouTubeAdapter implements PlatformAdapter {
 
       const uploadData = await uploadRes.json();
       const videoId = uploadData.id;
-      const externalPostUrl = `https://www.youtube.com/watch?v=${videoId}`;
+      const externalPostUrl = videoId ? `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}` : undefined;
+      const status = uploadData.status?.uploadStatus;
+      if (['failed', 'rejected', 'deleted'].includes(status)) {
+        return { success: false, externalPostId: videoId, externalPostUrl,
+          errorMessage: 'YouTube rejected or removed this upload. Review the video in YouTube Studio.' };
+      }
 
       return {
         success: true,
+        processing: status !== 'processed',
         externalPostId: videoId,
         externalPostUrl,
         rawResponse: uploadData,

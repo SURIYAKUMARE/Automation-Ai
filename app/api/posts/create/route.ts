@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { getSessionUser } from '@/lib/auth/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { captionSchema, platformSchema, postIdSchema } from '@/lib/publishing/campaign';
+import { captionLimits, mediaCompatibilityError } from '@/lib/publishing/compatibility';
 
 const CreatePost = z.object({
   requestId: postIdSchema.optional(),
@@ -21,6 +22,8 @@ const CreatePost = z.object({
     platform: platformSchema, caption: captionSchema, title: z.string().trim().max(200).optional(),
     hashtags: z.array(z.string().trim().min(1).max(100)).max(30).default([]),
     keywords: z.array(z.string().trim().min(1).max(100)).max(15).default([]),
+    youtubePrivacy: z.enum(['private', 'unlisted', 'public']).optional(),
+    altText: z.string().trim().max(1000).optional(),
     callToAction: z.string().max(400).optional(),
     language: z.enum(['English', 'Tamil', 'Tanglish']).default('English'),
     tone: z.string().max(40).default('Professional'),
@@ -60,30 +63,25 @@ export async function POST(req: NextRequest) {
       }
       if (!existing.data && post.replaceDraft) return NextResponse.json({ error: 'Draft unavailable' }, { status: 404 });
     }
-    let mime: string | undefined;
+    let media: { mime_type: string; width?: number; height?: number; duration_seconds?: number; video_codec?: string } | undefined;
     if (post.mediaAssetId) {
-      const { data, error } = await db.from('media_assets').select('mime_type')
+      const { data, error } = await db.from('media_assets').select('mime_type,width,height,duration_seconds,video_codec')
         .eq('id', post.mediaAssetId).eq('user_id', user.id).maybeSingle();
       if (error) throw error;
       if (!data) return NextResponse.json({ error: 'Uploaded media is unavailable' }, { status: 404 });
-      mime = data.mime_type;
+      media = data;
     }
 
     if (!post.draft) {
       for (const variant of post.variants) {
         if (!variant.caption) return NextResponse.json({ error: 'Add a caption for ' + variant.platform }, { status: 400 });
-        if (variant.platform === 'youtube' && (!mime?.startsWith('video/') || !variant.title || variant.title.length > 100)) {
+        const compatibility = mediaCompatibilityError(variant.platform, media);
+        if (compatibility) return NextResponse.json({ error: compatibility }, { status: 400 });
+        if (variant.platform === 'youtube' && (!variant.title || variant.title.length > 100)) {
           return NextResponse.json({ error: 'YouTube requires a video and a title of at most 100 characters' }, { status: 400 });
         }
-        if (variant.platform === 'instagram' && !['image/jpeg', 'video/mp4', 'video/quicktime'].includes(mime || '')) {
-          return NextResponse.json({ error: 'Instagram requires a JPEG, MP4 or MOV' }, { status: 400 });
-        }
-        if (variant.platform === 'linkedin' && mime && !['image/jpeg', 'image/png', 'video/mp4'].includes(mime)) {
-          return NextResponse.json({ error: 'LinkedIn requires JPEG, PNG or MP4 for media posts' }, { status: 400 });
-        }
-        const limits = { instagram: 2200, linkedin: 3000, youtube: 5000, facebook: 5000 };
         const length = variant.caption.length + (variant.hashtags.length ? 2 + variant.hashtags.join(' ').length : 0);
-        if (length > limits[variant.platform]) {
+        if (length > captionLimits[variant.platform]) {
           return NextResponse.json({ error: variant.platform + ' caption and hashtags exceed the length limit' }, { status: 400 });
         }
       }
@@ -105,7 +103,7 @@ export async function POST(req: NextRequest) {
         recurrences: post.recurrences,
         replace_draft: post.replaceDraft,
       },
-      variants: post.variants.map((variant) => ({ ...variant, call_to_action: variant.callToAction })),
+      variants: post.variants.map((variant) => ({ ...variant, call_to_action: variant.callToAction, youtube_privacy: variant.youtubePrivacy, alt_text: variant.altText })),
       destinations: accounts,
     });
     if (error?.message.includes('Connect an active account')) {

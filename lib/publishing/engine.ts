@@ -12,6 +12,7 @@ export interface ClaimedJob {
   user_id: string;
   retry_count: number;
   max_retries: number;
+  target_id?: string | null;
 }
 
 type Account = {
@@ -58,7 +59,8 @@ export async function executePostPublishing(db: Database, job: ClaimedJob) {
     : undefined;
 
   const targetStatuses = job.retry_count > 0 ? ['scheduled'] : eligible;
-  const results = await Promise.all(post.targets.filter((target: { status: string }) => targetStatuses.includes(target.status))
+  const results = await Promise.all(post.targets.filter((target: { id: string; status: string; external_post_id?: string }) =>
+    !target.external_post_id && targetStatuses.includes(target.status) && (!job.target_id || target.id === job.target_id))
     .map(async (target: { id: string; platform: SocialPlatform; account: Account | null }) => {
       const claimed = await db.from('post_targets').update({ status: 'publishing', updated_at: new Date().toISOString() })
         .eq('id', target.id).eq('post_id', post.id).in('status', eligible).select('id').maybeSingle();
@@ -89,11 +91,13 @@ export async function executePostPublishing(db: Database, job: ClaimedJob) {
             try {
               result = await getPlatformAdapter(platform).publish({
                 text, title: variant.title || post.title,
+                youtubePrivacy: variant.youtube_privacy ?? undefined,
+                altText: variant.alt_text ?? undefined,
                 tags: platform === 'youtube' && variant.keywords?.length ? variant.keywords : tags, mediaUrl,
                 mediaType: media?.media_type === 'video' ? 'video' : mediaUrl ? 'image' : undefined,
                 accessToken: token, accountId: account.external_account_id, metadata: account.metadata,
               });
-              stagingFailure = Boolean(result.errorCode?.match(/^(?:IG_CONTAINER_FAILED_5\d\d|YOUTUBE_INIT_FAILED_5\d\d|MEDIA_DOWNLOAD_FAILED)$/));
+              stagingFailure = Boolean(result.errorCode?.match(/^(?:IG_CONTAINER_FAILED_5\d\d|IG_CONTAINER_NOT_READY|YOUTUBE_INIT_FAILED_5\d\d|MEDIA_DOWNLOAD_FAILED|LINKEDIN_VIDEO_NOT_READY|LINKEDIN_VIDEO_(?:INIT|PART|FINALIZE|STATUS)_5\d\d)$/));
               ambiguous = (!stagingFailure && Boolean(result.errorCode?.match(/(?:EXCEPTION|NETWORK_ERROR|_5\d\d)$/))) ||
                 Boolean(result.success && !result.externalPostId);
             } catch {
@@ -105,8 +109,9 @@ export async function executePostPublishing(db: Database, job: ClaimedJob) {
       const limited = Boolean(result.errorCode?.endsWith('_429'));
       const retryable = limited || stagingFailure;
       const reconnect = result.errorCode === 'RECONNECT' || result.errorCode?.endsWith('_401');
-      const status = ambiguous ? 'processing' : result.success ? 'published' : reconnect ? 'reauthorization_required' : 'failed';
+      const status = ambiguous || result.processing ? 'processing' : result.success ? 'published' : reconnect ? 'reauthorization_required' : 'failed';
       const message = ambiguous ? 'Provider outcome is unknown. Check the destination before posting again.' :
+        result.processing ? 'YouTube accepted the upload and is still processing it.' :
         limited ? 'Provider rate limit reached.' : stagingFailure ? 'Temporary failure while preparing the media.' :
         reconnect ? 'Reconnect the destination and retry.' :
         result.success ? null : (result.actionRequired || (result.errorCode
