@@ -58,9 +58,11 @@ export default function RegisterPage() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12 relative">
       <Card className="w-full max-w-md border border-border shadow-sm">
         <CardHeader className="space-y-2 text-center pb-6">
-          <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg bg-black text-white dark:bg-white dark:text-black font-bold text-sm tracking-tight mb-1">
-            S
-          </div>
+          <img
+            src="/icon.png"
+            alt="SocialSync AI"
+            className="mx-auto h-12 w-12 rounded-xl object-contain mb-1 shadow-md shadow-indigo-500/10"
+          />
           <CardTitle className="text-2xl font-bold tracking-tight text-foreground">
             Create your Account
           </CardTitle>

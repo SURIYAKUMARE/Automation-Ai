@@ -58,15 +58,17 @@ export function TopNav() {
     <header className="w-full bg-card border-b border-border">
       {/* Top branding bar */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-        <Link href="/dashboard" className="flex items-center gap-3 group">
-          <div className="h-8 w-8 rounded bg-black dark:bg-white text-white dark:text-black font-bold flex items-center justify-center text-sm tracking-tight shadow-sm transition-transform group-hover:scale-105">
-            S
-          </div>
+        <Link href="/dashboard" className="flex items-center gap-2.5 group">
+          <img
+            src="/icon.png"
+            alt="SocialSync AI Logo"
+            className="h-9 w-9 rounded-xl object-contain shadow-sm transition-transform group-hover:scale-105"
+          />
           <div className="flex flex-col">
-            <span className="text-sm font-bold tracking-tight text-foreground">
-              Social Media Scheduler
+            <span className="text-sm font-bold tracking-tight text-foreground flex items-center">
+              SocialSync <span className="ml-1 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">AI</span>
             </span>
-            <span className="text-[11px] text-muted-foreground font-mono">
+            <span className="text-[10px] text-muted-foreground font-mono">
               Cross-Platform Distribution Engine
             </span>
           </div>

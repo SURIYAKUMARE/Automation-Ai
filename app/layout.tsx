@@ -8,7 +8,11 @@ export const metadata: Metadata = {
   description:
     "Production-grade intelligent multi-platform social media automation system powered by Google Gemini multimodal AI and official platform APIs for LinkedIn, YouTube, Instagram, and Facebook.",
   icons: {
-    icon: "/favicon.ico",
+    icon: [
+      { url: "/favicon.ico" },
+      { url: "/icon.png", type: "image/png" },
+    ],
+    apple: "/icon.png",
   },
 };
 

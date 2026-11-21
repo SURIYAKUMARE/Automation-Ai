@@ -55,10 +55,14 @@ export default function LandingPage() {
       {/* Top Navbar */}
       <header className="sticky top-0 z-50 border-b border-border/80 bg-background/80 backdrop-blur-md px-4 sm:px-8 py-3.5 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/25">
-            <Zap className="h-5 w-5" />
-          </div>
-          <span className="font-bold text-lg tracking-tight">SocialSync AI</span>
+          <img
+            src="/icon.png"
+            alt="SocialSync AI Logo"
+            className="h-9 w-9 rounded-xl object-contain shadow-sm"
+          />
+          <span className="font-bold text-lg tracking-tight">
+            SocialSync <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">AI</span>
+          </span>
         </div>
 
         <div className="flex items-center gap-3">
@@ -80,6 +84,14 @@ export default function LandingPage() {
       <section className="relative px-4 pt-16 pb-20 sm:pt-24 sm:pb-28 text-center max-w-5xl mx-auto overflow-hidden">
         {/* Ambient radial glows */}
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
+
+        <div className="flex justify-center mb-6">
+          <img
+            src="/logo.png"
+            alt="SocialSync AI - Create • Schedule • Publish • Grow"
+            className="h-28 sm:h-36 object-contain rounded-2xl shadow-xl border border-border/40 bg-card/80 p-2 backdrop-blur-sm"
+          />
+        </div>
 
         <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3.5 py-1 text-xs font-semibold text-indigo-400 mb-6">
           <Sparkles className="h-3.5 w-3.5" />
