@@ -40,7 +40,20 @@ export async function POST(req: NextRequest) {
 
     const supabase = createAdminClient();
 
-    // Ensure bucket exists or upload to 'media-assets'
+    // Auto-create media-assets bucket if it does not exist
+    try {
+      const { data: buckets } = await supabase.storage.listBuckets();
+      if (!buckets?.some((b) => b.name === 'media-assets')) {
+        await supabase.storage.createBucket('media-assets', {
+          public: true,
+          fileSizeLimit: 100 * 1024 * 1024,
+        });
+      }
+    } catch (bucketErr) {
+      console.warn('Storage bucket auto-creation skipped:', bucketErr);
+    }
+
+    // Upload to 'media-assets' bucket
     const { data: uploadData, error: uploadErr } = await supabase.storage
       .from('media-assets')
       .upload(storagePath, buffer, {
@@ -65,9 +78,17 @@ export async function POST(req: NextRequest) {
       .select()
       .single();
 
-    // Get public or signed URL for preview
+    // Resolve public or signed URL for cross-platform distribution
     const { data: urlData } = supabase.storage.from('media-assets').getPublicUrl(storagePath);
-    const previewUrl = urlData?.publicUrl || '';
+    let previewUrl = urlData?.publicUrl || '';
+
+    // Provide signed URL if publicUrl is not accessible or if bucket is private
+    try {
+      const { data: signedData } = await supabase.storage.from('media-assets').createSignedUrl(storagePath, 86400);
+      if (signedData?.signedUrl) {
+        previewUrl = signedData.signedUrl;
+      }
+    } catch {}
 
     return NextResponse.json({
       success: true,

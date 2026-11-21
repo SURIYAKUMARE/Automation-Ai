@@ -172,6 +172,8 @@ export async function executePostPublishing({
 
       // Resolve signed or public URL for media if present
       let mediaUrl: string | undefined = mediaUrlOverride;
+      let resolvedMediaType = mediaTypeOverride || (media?.media_type === 'video' ? 'video' : 'image');
+
       if (!mediaUrl && media?.file_path) {
         if (media.file_path.startsWith('http')) {
           mediaUrl = media.file_path;
@@ -179,13 +181,34 @@ export async function executePostPublishing({
           try {
             const { data: signedData } = await supabase.storage
               .from('media-assets')
-              .createSignedUrl(media.file_path, 3600);
+              .createSignedUrl(media.file_path, 86400);
             mediaUrl = signedData?.signedUrl;
           } catch {}
         }
       }
 
-      const resolvedMediaType = mediaTypeOverride || (media?.media_type === 'video' ? 'video' : 'image');
+      if (!mediaUrl && post.media_asset_id) {
+        try {
+          const { data: ma } = await supabase
+            .from('media_assets')
+            .select('file_path, media_type')
+            .eq('id', post.media_asset_id)
+            .maybeSingle();
+          if (ma) {
+            if (!mediaTypeOverride && ma.media_type) {
+              resolvedMediaType = ma.media_type === 'video' ? 'video' : 'image';
+            }
+            if (ma.file_path.startsWith('http')) {
+              mediaUrl = ma.file_path;
+            } else {
+              const { data: signedData } = await supabase.storage
+                .from('media-assets')
+                .createSignedUrl(ma.file_path, 86400);
+              mediaUrl = signedData?.signedUrl;
+            }
+          }
+        } catch {}
+      }
 
       // Execute publish through official platform adapter
       const publishResult = await adapter.publish({

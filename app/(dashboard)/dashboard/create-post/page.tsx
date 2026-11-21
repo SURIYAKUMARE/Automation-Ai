@@ -32,6 +32,7 @@ const PLATFORMS: PlatformOption[] = [
 ];
 
 interface PlatformContent {
+  title?: string;
   caption: string;
   hashtags: string;
 }
@@ -79,7 +80,7 @@ export default function CreatePostPage() {
     instagram: { caption: "", hashtags: "" },
     facebook: { caption: "", hashtags: "" },
     linkedin: { caption: "", hashtags: "" },
-    youtube: { caption: "", hashtags: "" },
+    youtube: { title: "", caption: "", hashtags: "" },
   });
 
   // AI & Context Prompt
@@ -130,6 +131,16 @@ export default function CreatePostPage() {
   };
 
   // Update current active platform's content
+  const updateCurrentTitle = (newTitle: string) => {
+    setPlatformContents((prev) => ({
+      ...prev,
+      [activeTab]: {
+        ...prev[activeTab],
+        title: newTitle,
+      },
+    }));
+  };
+
   const updateCurrentCaption = (newCaption: string) => {
     setPlatformContents((prev) => ({
       ...prev,
@@ -253,6 +264,14 @@ export default function CreatePostPage() {
       return;
     }
 
+    // Validate YouTube Video Title requirement
+    const ytVideoTitle = platformContents.youtube?.title?.trim() || topicPrompt.trim();
+    if (selectedPlatforms.includes("youtube") && !ytVideoTitle && !isDraft) {
+      toast.error("YouTube requires a Video Title. Please enter a video title in the YouTube tab.");
+      setActiveTab("youtube");
+      return;
+    }
+
     setIsPublishing(true);
     try {
       // 1. Resolve current session user ID
@@ -267,8 +286,11 @@ export default function CreatePostPage() {
 
       // 2. Upload media file to storage if present
       let mediaAssetId: string | undefined = undefined;
+      let mediaUrl: string | undefined = undefined;
+      let mediaType: "image" | "video" = isVideo ? "video" : "image";
+
       if (selectedFile) {
-        toast.loading("Uploading media asset...");
+        toast.loading("Uploading media asset to cloud storage...");
         try {
           const formData = new FormData();
           formData.append("file", selectedFile);
@@ -280,18 +302,34 @@ export default function CreatePostPage() {
           if (upRes.ok) {
             const upData = await upRes.json();
             mediaAssetId = upData.asset?.id;
+            mediaUrl = upData.previewUrl;
+            if (upData.asset?.media_type) {
+              mediaType = upData.asset.media_type;
+            }
+          } else {
+            const errData = await upRes.json().catch(() => ({}));
+            toast.error(errData.error || "Media upload failed");
+            setIsPublishing(false);
+            return;
           }
-        } catch (upErr) {
+        } catch (upErr: any) {
           console.warn("Media upload error:", upErr);
+          toast.error("Failed uploading media asset: " + (upErr.message || "Unknown error"));
+          setIsPublishing(false);
+          return;
         } finally {
           toast.dismiss();
         }
       }
 
+      const postTitle = ytVideoTitle || topicPrompt || "SocialSync Post";
+
       const payload = {
         userId,
         mediaAssetId,
-        title: topicPrompt || "SocialSync Post",
+        mediaUrl,
+        mediaType,
+        title: postTitle,
         publishingMode: isDraft ? "manual_approval" : "automatic",
         scheduledFor: isScheduled && scheduledDateTime ? new Date(scheduledDateTime).toISOString() : undefined,
         targetPlatforms: selectedPlatforms,
@@ -299,6 +337,7 @@ export default function CreatePostPage() {
           const content = platformContents[p] || currentContent;
           return {
             platform: p,
+            title: p === "youtube" ? ytVideoTitle : (topicPrompt || undefined),
             caption: content?.caption || currentContent?.caption || "",
             hashtags: (content?.hashtags || currentContent?.hashtags || "").split(/\s+/).filter(Boolean),
             language,
@@ -580,14 +619,44 @@ export default function CreatePostPage() {
               </span>
             </div>
 
+            {/* YouTube Video Title Section */}
+            {activeTab === "youtube" && (
+              <div className="space-y-1.5 p-3 rounded-xl border border-red-500/30 bg-red-500/5 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    <span className="text-red-500 font-bold">▶</span>
+                    <span>YouTube Video Title</span>
+                    <span className="text-[10px] text-red-500 font-mono font-medium">*Required by YouTube</span>
+                  </label>
+                  <span className="text-[10px] font-mono text-muted-foreground">
+                    {(currentContent.title || "").length}/100
+                  </span>
+                </div>
+                <Input
+                  maxLength={100}
+                  placeholder="Enter video title (e.g. Next-Gen AI Automation with SocialSync)..."
+                  value={currentContent.title || ""}
+                  onChange={(e) => updateCurrentTitle(e.target.value)}
+                  className="text-xs font-medium bg-background border-border"
+                />
+              </div>
+            )}
+
             {/* Caption Textarea */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-foreground flex items-center justify-between">
-                <span>Caption for <span className="capitalize font-semibold">{activeTab}</span></span>
+                <span>
+                  {activeTab === "youtube" ? "Video Description for" : "Caption for"}{" "}
+                  <span className="capitalize font-semibold">{activeTab}</span>
+                </span>
               </label>
               <Textarea
                 rows={6}
-                placeholder={`Write tailored caption for ${activeTab} or generate with Gemini AI above...`}
+                placeholder={
+                  activeTab === "youtube"
+                    ? "Write YouTube video description..."
+                    : `Write tailored caption for ${activeTab} or generate with Gemini AI above...`
+                }
                 value={currentContent.caption}
                 onChange={(e) => updateCurrentCaption(e.target.value)}
                 className="text-xs leading-relaxed"
@@ -597,7 +666,8 @@ export default function CreatePostPage() {
             {/* Hashtags Input */}
             <div className="space-y-1.5 pt-1">
               <label className="text-xs font-medium text-foreground">
-                Trending Hashtags for <span className="capitalize font-semibold">{activeTab}</span>
+                {activeTab === "youtube" ? "Video Tags for" : "Trending Hashtags for"}{" "}
+                <span className="capitalize font-semibold">{activeTab}</span>
               </label>
               <Input
                 placeholder="#trends #ai #innovation #viral"

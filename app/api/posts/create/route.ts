@@ -8,7 +8,9 @@ import { SocialPlatform, PublishingMode } from '@/types';
 const CreatePostSchema = z.object({
   userId: z.string(),
   title: z.string().optional(),
-  mediaAssetId: z.string().uuid().optional(),
+  mediaAssetId: z.string().optional(),
+  mediaUrl: z.string().optional(),
+  mediaType: z.enum(['image', 'video']).optional(),
   rawPrompt: z.string().optional(),
   publishingMode: z.enum(['automatic', 'manual_approval']).default('manual_approval'),
   scheduledFor: z.string().optional(),
@@ -43,6 +45,8 @@ export async function POST(req: NextRequest) {
       userId,
       title,
       mediaAssetId,
+      mediaUrl: directMediaUrl,
+      mediaType: directMediaType,
       rawPrompt,
       publishingMode,
       scheduledFor,
@@ -50,11 +54,39 @@ export async function POST(req: NextRequest) {
       variants,
     } = parsed.data;
 
+    let mediaUrl = directMediaUrl;
+    let mediaType: 'image' | 'video' | undefined = directMediaType;
+
     const user = await getSessionUser(req);
     const validUserId = stringToUuid(user?.id || userId || '00000000-0000-0000-0000-000000000001');
     const cookieAccounts = getConnectedAccountsFromCookie(req);
 
     const supabase = createAdminClient();
+
+    // If mediaAssetId provided and mediaUrl not set, resolve from media_assets
+    if (mediaAssetId && !mediaUrl) {
+      try {
+        const { data: assetData } = await supabase
+          .from('media_assets')
+          .select('file_path, media_type')
+          .eq('id', mediaAssetId)
+          .maybeSingle();
+
+        if (assetData) {
+          mediaType = mediaType || (assetData.media_type === 'video' ? 'video' : 'image');
+          if (assetData.file_path.startsWith('http')) {
+            mediaUrl = assetData.file_path;
+          } else {
+            const { data: signed } = await supabase.storage
+              .from('media-assets')
+              .createSignedUrl(assetData.file_path, 86400);
+            mediaUrl = signed?.signedUrl;
+          }
+        }
+      } catch (assetErr) {
+        console.warn('Failed resolving media_asset file path:', assetErr);
+      }
+    }
 
     // Ensure profile exists in profiles table
     try {
@@ -184,9 +216,14 @@ export async function POST(req: NextRequest) {
         postId: post.id,
         userId: validUserId,
         cookieAccounts,
-        postOverride: post,
+        postOverride: {
+          ...post,
+          media: mediaUrl ? { file_path: mediaUrl, media_type: mediaType } : undefined,
+        },
         variantsOverride: variants,
         targetPlatformsOverride: targetPlatforms,
+        mediaUrlOverride: mediaUrl,
+        mediaTypeOverride: mediaType,
       });
 
       return NextResponse.json({

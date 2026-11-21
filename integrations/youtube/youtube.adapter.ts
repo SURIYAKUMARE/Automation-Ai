@@ -185,18 +185,46 @@ export class YouTubeAdapter implements PlatformAdapter {
         }
       );
 
-      if (!initRes.ok) {
-        const errJson = await initRes.json().catch(() => ({}));
+      let actualInitRes = initRes;
+      if (!actualInitRes.ok) {
+        // Fallback to unlisted privacy status if public upload is restricted on unverified Google Cloud projects
+        actualInitRes = await fetch(
+          'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json; charset=UTF-8',
+              'X-Upload-Content-Type': 'video/mp4',
+            },
+            body: JSON.stringify({
+              snippet: {
+                title: videoTitle,
+                description: videoDescription,
+                tags: tags.length > 0 ? tags : ['SocialSyncAI', 'Automation'],
+                categoryId: '28',
+              },
+              status: {
+                privacyStatus: 'unlisted',
+                selfDeclaredMadeForKids: false,
+              },
+            }),
+          }
+        );
+      }
+
+      if (!actualInitRes.ok) {
+        const errJson = await actualInitRes.json().catch(() => ({}));
         return {
           success: false,
-          errorCode: `YOUTUBE_INIT_FAILED_${initRes.status}`,
-          errorMessage: errJson.error?.message || `YouTube upload initialization failed (${initRes.status})`,
-          actionRequired: initRes.status === 403 ? 'YouTube API Quota exceeded or verification needed.' : undefined,
+          errorCode: `YOUTUBE_INIT_FAILED_${actualInitRes.status}`,
+          errorMessage: errJson.error?.message || `YouTube upload initialization failed (${actualInitRes.status})`,
+          actionRequired: actualInitRes.status === 403 ? 'YouTube API Quota exceeded or verification needed in Google Cloud Console.' : undefined,
           rawResponse: errJson,
         };
       }
 
-      const uploadUrl = initRes.headers.get('Location');
+      const uploadUrl = actualInitRes.headers.get('Location');
       if (!uploadUrl) {
         return {
           success: false,

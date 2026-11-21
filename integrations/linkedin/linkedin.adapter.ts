@@ -115,10 +115,14 @@ export class LinkedInAdapter implements PlatformAdapter {
         },
       };
 
-      // If media is attached, register and upload image/video
+      // If media is attached, register and upload image or video
       if (mediaUrl) {
-        if (mediaType === 'image') {
-          // Register image upload
+        const isVideo = mediaType === 'video';
+        const recipe = isVideo
+          ? 'urn:li:digitalmediaRecipe:feedshare-video'
+          : 'urn:li:digitalmediaRecipe:feedshare-image';
+
+        try {
           const registerRes = await fetch('https://api.linkedin.com/v2/assets?action=registerUpload', {
             method: 'POST',
             headers: {
@@ -128,7 +132,7 @@ export class LinkedInAdapter implements PlatformAdapter {
             },
             body: JSON.stringify({
               registerUploadRequest: {
-                recipes: ['urn:li:digitalmediaRecipe:feedshare-image'],
+                recipes: [recipe],
                 owner: authorUrn,
                 serviceRelationships: [
                   {
@@ -146,36 +150,60 @@ export class LinkedInAdapter implements PlatformAdapter {
             const assetUrn = regData.value?.asset;
 
             if (uploadUrl && assetUrn) {
-              // Fetch file bytes and upload to LinkedIn asset storage
               const fileRes = await fetch(mediaUrl);
               if (fileRes.ok) {
                 const arrayBuf = await fileRes.arrayBuffer();
-                await fetch(uploadUrl, {
-                  method: 'POST',
-                  headers: {
-                    Authorization: `Bearer ${accessToken}`,
-                    'Content-Type': 'image/jpeg',
-                  },
-                  body: arrayBuf,
-                });
+                const mimeType = isVideo ? 'application/octet-stream' : 'image/jpeg';
 
-                specificContent = {
-                  'com.linkedin.ugc.ShareContent': {
-                    shareCommentary: { text },
-                    shareMediaCategory: 'IMAGE',
-                    media: [
-                      {
-                        status: 'READY',
-                        description: { text: text.substring(0, 100) },
-                        media: assetUrn,
-                        title: { text: 'SocialSync AI Post' },
+                // Single-part upload to LinkedIn asset storage (supports PUT & fallback POST)
+                let uploadSuccess = false;
+                try {
+                  const putRes = await fetch(uploadUrl, {
+                    method: 'PUT',
+                    headers: {
+                      Authorization: `Bearer ${accessToken}`,
+                      'Content-Type': mimeType,
+                    },
+                    body: arrayBuf,
+                  });
+                  uploadSuccess = putRes.ok;
+                } catch {}
+
+                if (!uploadSuccess) {
+                  try {
+                    const postRes = await fetch(uploadUrl, {
+                      method: 'POST',
+                      headers: {
+                        Authorization: `Bearer ${accessToken}`,
+                        'Content-Type': mimeType,
                       },
-                    ],
-                  },
-                };
+                      body: arrayBuf,
+                    });
+                    uploadSuccess = postRes.ok;
+                  } catch {}
+                }
+
+                if (uploadSuccess) {
+                  specificContent = {
+                    'com.linkedin.ugc.ShareContent': {
+                      shareCommentary: { text },
+                      shareMediaCategory: isVideo ? 'VIDEO' : 'IMAGE',
+                      media: [
+                        {
+                          status: 'READY',
+                          description: { text: text.substring(0, 100) },
+                          media: assetUrn,
+                          title: { text: request.title || (isVideo ? 'SocialSync AI Video' : 'SocialSync AI Photo') },
+                        },
+                      ],
+                    },
+                  };
+                }
               }
             }
           }
+        } catch (mediaErr) {
+          console.warn('LinkedIn media upload failed, continuing with text:', mediaErr);
         }
       }
 
