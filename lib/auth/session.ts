@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { encryptToken, decryptToken } from '@/lib/security/encryption';
 
 export interface AuthUser {
   id: string;
@@ -13,6 +14,82 @@ export interface AuthUser {
 
 const SESSION_COOKIE_NAME = 'socialsync_session';
 const SESSION_SECRET = process.env.TOKEN_ENCRYPTION_KEY || 'default-session-encryption-key-0123456789abcdef';
+const CONNECTIONS_COOKIE_NAME = 'socialsync_connections';
+
+/**
+ * Converts any arbitrary string (e.g. Google numeric ID, email) into a valid RFC 4122 UUID v4
+ */
+export function stringToUuid(str: string): string {
+  if (!str) return '00000000-0000-0000-0000-000000000001';
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (uuidRegex.test(str)) {
+    return str.toLowerCase();
+  }
+  const hash = crypto.createHash('md5').update(str).digest('hex');
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+}
+
+/**
+ * Reads encrypted connected accounts fallback from cookie
+ */
+export function getConnectedAccountsFromCookie(req: NextRequest): any[] {
+  try {
+    const raw = req.cookies.get(CONNECTIONS_COOKIE_NAME)?.value;
+    if (!raw) return [];
+    const decrypted = decryptToken(raw);
+    const parsed = JSON.parse(decrypted);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Appends or updates a connected account in the encrypted cookie
+ */
+export function saveConnectedAccountToCookie(req: NextRequest, res: NextResponse, newAccount: any): NextResponse {
+  try {
+    const existing = getConnectedAccountsFromCookie(req);
+    const filtered = existing.filter((a) => a.platform !== newAccount.platform);
+    filtered.push(newAccount);
+    const encrypted = encryptToken(JSON.stringify(filtered));
+    res.cookies.set({
+      name: CONNECTIONS_COOKIE_NAME,
+      value: encrypted,
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 30 * 24 * 60 * 60, // 30 days
+    });
+  } catch (err) {
+    console.error('Failed to set connected account cookie:', err);
+  }
+  return res;
+}
+
+/**
+ * Removes a connected platform from the encrypted cookie
+ */
+export function removeConnectedAccountFromCookie(req: NextRequest, res: NextResponse, platform: string): NextResponse {
+  try {
+    const existing = getConnectedAccountsFromCookie(req);
+    const filtered = existing.filter((a) => a.platform !== platform);
+    const encrypted = encryptToken(JSON.stringify(filtered));
+    res.cookies.set({
+      name: CONNECTIONS_COOKIE_NAME,
+      value: encrypted,
+      httpOnly: false,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+      maxAge: 30 * 24 * 60 * 60,
+    });
+  } catch (err) {
+    console.error('Failed to update connected account cookie:', err);
+  }
+  return res;
+}
 
 /**
  * Creates an encrypted, tamper-proof session token containing user payload and expiration

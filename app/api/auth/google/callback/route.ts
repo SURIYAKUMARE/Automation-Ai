@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
-import { setSessionCookie, AuthUser } from '@/lib/auth/session';
+import { setSessionCookie, AuthUser, stringToUuid, saveConnectedAccountToCookie } from '@/lib/auth/session';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { encryptToken } from '@/lib/security/encryption';
 
 export async function GET(req: NextRequest) {
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://automation-ai-dusky.vercel.app';
 
   try {
     const { searchParams } = new URL(req.url);
@@ -60,6 +61,7 @@ export async function GET(req: NextRequest) {
 
     const tokenData = await tokenRes.json();
     const accessToken = tokenData.access_token;
+    const refreshToken = tokenData.refresh_token;
 
     // Fetch user info
     const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
@@ -71,9 +73,10 @@ export async function GET(req: NextRequest) {
     }
 
     const profile = await userRes.json();
+    const validUserId = stringToUuid(profile.id || profile.email || '00000000-0000-0000-0000-000000000001');
 
     const authUser: AuthUser = {
-      id: profile.id || '00000000-0000-0000-0000-000000000001',
+      id: validUserId,
       email: profile.email || 'user@gmail.com',
       name: profile.name || 'Google User',
       avatarUrl: profile.picture,
@@ -81,22 +84,56 @@ export async function GET(req: NextRequest) {
       createdAt: new Date().toISOString(),
     };
 
-    // Upsert into Supabase profiles if possible
+    // Connected YouTube / Google Account data
+    const handleName = (profile.name || profile.email?.split('@')[0] || 'googleuser').replace(/\s+/g, '').toLowerCase();
+    const connectedYouTube = {
+      id: `acc-yt-${profile.id || Date.now()}`,
+      platform: 'youtube',
+      external_account_id: profile.id || validUserId,
+      account_name: profile.name || 'YouTube Creator',
+      account_handle: `@${handleName}`,
+      avatar_url: profile.picture || null,
+      status: 'active',
+      granted_scopes: ['openid', 'email', 'profile', 'youtube.upload', 'youtube.readonly'],
+      last_validated_at: new Date().toISOString(),
+      expires_in_days: 365,
+    };
+
+    // Upsert into Supabase profiles & social_accounts if available
     try {
       const supabase = createAdminClient();
       await supabase.from('profiles').upsert({
-        id: authUser.id,
+        id: validUserId,
         email: authUser.email,
         full_name: authUser.name,
         avatar_url: authUser.avatarUrl,
         updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+
+      await supabase.from('social_accounts').upsert({
+        user_id: validUserId,
+        platform: 'youtube',
+        external_account_id: connectedYouTube.external_account_id,
+        account_name: connectedYouTube.account_name,
+        account_handle: connectedYouTube.account_handle,
+        avatar_url: connectedYouTube.avatar_url,
+        granted_scopes: connectedYouTube.granted_scopes,
+        encrypted_access_token: encryptToken(accessToken),
+        encrypted_refresh_token: refreshToken ? encryptToken(refreshToken) : null,
+        status: 'active',
+        last_validated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_id,platform,external_account_id',
       });
-    } catch {
-      // Offline fallback
+    } catch (dbErr) {
+      console.warn('Supabase DB persistence skipped or failed, fallback to session storage:', dbErr);
     }
 
-    const res = NextResponse.redirect(`${baseUrl}/dashboard`);
-    return setSessionCookie(res, authUser);
+    let res = NextResponse.redirect(`${baseUrl}/dashboard/accounts?connected=youtube`);
+    res = setSessionCookie(res, authUser);
+    res = saveConnectedAccountToCookie(req, res, connectedYouTube);
+    return res;
   } catch (err: any) {
     console.error('Google callback error:', err);
     return NextResponse.redirect(`${baseUrl}/login?error=${encodeURIComponent(err.message || 'Google login failed')}`);

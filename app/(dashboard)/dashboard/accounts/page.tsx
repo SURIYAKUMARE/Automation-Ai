@@ -104,11 +104,35 @@ export default function ConnectedAccountsPage() {
     }
 
     loadRealAccounts();
+
+    // Check for incoming OAuth redirect query parameters
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const connected = params.get("connected");
+      const error = params.get("error");
+      if (connected) {
+        toast.success(`Successfully connected ${connected.toUpperCase()}! Channel is now active.`);
+        window.history.replaceState({}, "", window.location.pathname);
+      } else if (error) {
+        toast.error(`Connection notice: ${error}`);
+        window.history.replaceState({}, "", window.location.pathname);
+      }
+    }
   }, []);
 
-  const handleConnect = (platform: SocialPlatform) => {
+  const handleConnect = async (platform: SocialPlatform) => {
     toast.loading(`Redirecting to official ${platform.toUpperCase()} OAuth consent screen...`);
-    window.location.href = `/api/oauth/${platform}?userId=00000000-0000-0000-0000-000000000001`;
+    let userId = "00000000-0000-0000-0000-000000000001";
+    try {
+      const res = await fetch("/api/auth/session");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.user?.id) {
+          userId = data.user.id;
+        }
+      }
+    } catch {}
+    window.location.href = `/api/oauth/${platform}?userId=${encodeURIComponent(userId)}`;
   };
 
   const handleDisconnect = async (accountId: string, platform: SocialPlatform) => {
