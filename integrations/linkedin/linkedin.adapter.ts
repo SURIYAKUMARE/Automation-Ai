@@ -199,6 +199,45 @@ export class LinkedInAdapter implements PlatformAdapter {
       });
 
       if (!res.ok) {
+        // Fallback: Try LinkedIn modern /rest/posts API
+        try {
+          const restRes = await fetch('https://api.linkedin.com/rest/posts', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+              'LinkedIn-Version': '202401',
+              'X-Restli-Protocol-Version': '2.0.0',
+            },
+            body: JSON.stringify({
+              author: authorUrn,
+              commentary: text,
+              visibility: 'PUBLIC',
+              distribution: {
+                feedDistribution: 'MAIN_FEED',
+                targetEntities: [],
+                thirdPartyDistributionChannels: [],
+              },
+              lifecycleState: 'PUBLISHED',
+              isReshareDisabledByAuthor: false,
+            }),
+          });
+
+          if (restRes.ok) {
+            const restUrn =
+              restRes.headers.get('x-restli-id') ||
+              restRes.headers.get('x-linkedin-id') ||
+              `urn:li:share:${Date.now()}`;
+            return {
+              success: true,
+              externalPostId: restUrn,
+              externalPostUrl: `https://www.linkedin.com/feed/update/${restUrn}/`,
+            };
+          }
+        } catch {
+          // Fall through to error handling
+        }
+
         const errorJson = await res.json().catch(() => ({ message: res.statusText }));
         return {
           success: false,
@@ -207,7 +246,7 @@ export class LinkedInAdapter implements PlatformAdapter {
           actionRequired:
             res.status === 401
               ? 'LinkedIn token expired. Please re-authenticate your LinkedIn account.'
-              : 'Verify LinkedIn app permissions and member posting rights.',
+              : 'Verify LinkedIn app permissions (w_member_social).',
           rawResponse: errorJson,
         };
       }

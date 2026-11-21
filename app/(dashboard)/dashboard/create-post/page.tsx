@@ -218,10 +218,50 @@ export default function CreatePostPage() {
       return;
     }
 
+    // Validate YouTube video requirements
+    if (selectedPlatforms.includes("youtube") && (!selectedFile || !selectedFile.type.startsWith("video/"))) {
+      toast.error("YouTube requires a video file (.mp4, .mov, .webm). Please attach a video asset to publish to YouTube, or uncheck YouTube.");
+      return;
+    }
+
     setIsPublishing(true);
     try {
+      // 1. Resolve current session user ID
+      let userId = "00000000-0000-0000-0000-000000000001";
+      try {
+        const sessionRes = await fetch("/api/auth/session");
+        if (sessionRes.ok) {
+          const sessionData = await sessionRes.json();
+          if (sessionData.user?.id) userId = sessionData.user.id;
+        }
+      } catch {}
+
+      // 2. Upload media file to storage if present
+      let mediaAssetId: string | undefined = undefined;
+      if (selectedFile) {
+        toast.loading("Uploading media asset...");
+        try {
+          const formData = new FormData();
+          formData.append("file", selectedFile);
+          formData.append("userId", userId);
+          const upRes = await fetch("/api/media/upload", {
+            method: "POST",
+            body: formData,
+          });
+          if (upRes.ok) {
+            const upData = await upRes.json();
+            mediaAssetId = upData.asset?.id;
+          }
+        } catch (upErr) {
+          console.warn("Media upload error:", upErr);
+        } finally {
+          toast.dismiss();
+        }
+      }
+
       const payload = {
-        userId: "00000000-0000-0000-0000-000000000001",
+        userId,
+        mediaAssetId,
         title: topicPrompt || "SocialSync Post",
         publishingMode: isDraft ? "manual_approval" : "automatic",
         scheduledFor: isScheduled && scheduledDateTime ? new Date(scheduledDateTime).toISOString() : undefined,
@@ -245,12 +285,24 @@ export default function CreatePostPage() {
         body: JSON.stringify(payload),
       });
 
+      const resData = await res.json();
+
       if (!res.ok) {
-        const errorData = await res.json();
-        throw new Error(errorData.error || "Failed to submit post");
+        throw new Error(resData.error || "Failed to submit post");
       }
 
-      if (isDraft) {
+      const summary = resData.summary;
+      if (summary) {
+        if (summary.failureCount > 0) {
+          const failedNotes = summary.results
+            .filter((r: any) => !r.success)
+            .map((r: any) => `${r.platform.toUpperCase()}: ${r.errorMessage || 'Failed'}`)
+            .join(" | ");
+          toast.warning(`Published with provider notices: ${failedNotes}`);
+        } else {
+          toast.success("Post successfully published to all selected platforms!");
+        }
+      } else if (isDraft) {
         toast.success("Draft saved successfully");
       } else if (isScheduled) {
         toast.success("Post scheduled successfully");
