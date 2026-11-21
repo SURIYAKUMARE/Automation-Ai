@@ -1,0 +1,101 @@
+import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
+import { getPlatformAdapter } from '@/integrations';
+import { encryptToken } from '@/lib/security/encryption';
+import { createAdminClient } from '@/lib/supabase/admin';
+
+export async function GET(req: NextRequest) {
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://automation-ai-dusky.vercel.app';
+
+  try {
+    const { searchParams } = new URL(req.url);
+    const code = searchParams.get('code');
+    const state = searchParams.get('state');
+    const oauthError = searchParams.get('error') || searchParams.get('error_description');
+
+    if (oauthError) {
+      console.error('OAuth provider error for facebook:', oauthError);
+      return NextResponse.redirect(`${baseUrl}/dashboard/accounts?error=${encodeURIComponent(oauthError)}`);
+    }
+
+    if (!code || !state) {
+      return NextResponse.redirect(
+        `${baseUrl}/dashboard/accounts?error=${encodeURIComponent('Missing authorization code or state token')}`
+      );
+    }
+
+    const decodedState = Buffer.from(state, 'base64url').toString('utf8');
+    const parts = decodedState.split(':');
+    if (parts.length !== 5) {
+      return NextResponse.redirect(
+        `${baseUrl}/dashboard/accounts?error=${encodeURIComponent('Invalid state token structure')}`
+      );
+    }
+
+    const [userId, statePlatform, timestampStr, nonce, receivedHmac] = parts;
+    const secret = process.env.TOKEN_ENCRYPTION_KEY || 'default-secret';
+    const statePayload = `${userId}:${statePlatform}:${timestampStr}:${nonce}`;
+    const expectedHmac = crypto.createHmac('sha256', secret).update(statePayload).digest('hex');
+
+    if (receivedHmac !== expectedHmac || statePlatform !== 'facebook') {
+      return NextResponse.redirect(
+        `${baseUrl}/dashboard/accounts?error=${encodeURIComponent('State token verification failed')}`
+      );
+    }
+
+    if (Date.now() - parseInt(timestampStr, 10) > 15 * 60 * 1000) {
+      return NextResponse.redirect(
+        `${baseUrl}/dashboard/accounts?error=${encodeURIComponent('OAuth state token expired. Please retry.')}`
+      );
+    }
+
+    const redirectUri = `${baseUrl}/api/oauth/facebook/callback`;
+    const adapter = getPlatformAdapter('facebook');
+    const tokenResult = await adapter.exchangeCodeForToken(code, redirectUri);
+
+    const encryptedAccess = encryptToken(tokenResult.accessToken);
+    const encryptedRefresh = tokenResult.refreshToken ? encryptToken(tokenResult.refreshToken) : null;
+
+    const expiresAt = tokenResult.expiresInSeconds && tokenResult.expiresInSeconds > 0
+      ? new Date(Date.now() + tokenResult.expiresInSeconds * 1000).toISOString()
+      : null;
+
+    const supabase = createAdminClient();
+
+    const { error: upsertErr } = await supabase.from('social_accounts').upsert(
+      {
+        user_id: userId,
+        platform: 'facebook',
+        external_account_id: tokenResult.externalAccountId,
+        account_name: tokenResult.accountName,
+        account_handle: tokenResult.accountHandle || null,
+        avatar_url: tokenResult.avatarUrl || null,
+        granted_scopes: tokenResult.grantedScopes,
+        encrypted_access_token: encryptedAccess,
+        encrypted_refresh_token: encryptedRefresh,
+        token_expires_at: expiresAt,
+        status: 'active',
+        metadata: tokenResult.rawMetadata || {},
+        last_validated_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: 'user_id,platform,external_account_id',
+      }
+    );
+
+    if (upsertErr) {
+      console.error('Failed to persist Facebook account:', upsertErr);
+      return NextResponse.redirect(
+        `${baseUrl}/dashboard/accounts?error=${encodeURIComponent(upsertErr.message)}`
+      );
+    }
+
+    return NextResponse.redirect(`${baseUrl}/dashboard/accounts?connected=facebook`);
+  } catch (err: any) {
+    console.error('OAuth Callback Error for facebook:', err);
+    return NextResponse.redirect(
+      `${baseUrl}/dashboard/accounts?error=${encodeURIComponent(err.message || 'Facebook OAuth exchange failed')}`
+    );
+  }
+}
