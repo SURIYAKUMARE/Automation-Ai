@@ -213,15 +213,36 @@ export default function CreatePostPage() {
             const tags = Array.isArray(variants[p].hashtags)
               ? variants[p].hashtags.join(" ")
               : variants[p].hashtags || "";
+            const autoTitle =
+              variants[p].title ||
+              (p === "youtube"
+                ? variants.youtube?.title || data.data?.summary || topicPrompt || "SocialSync Video"
+                : undefined);
+
             updated[p] = {
+              title: autoTitle,
               caption: variants[p].caption || variants[p].title || "",
               hashtags: tags,
             };
           }
         }
 
+        // Auto-fill YouTube video title and main topic prompt if empty
+        const generatedTitle = variants.youtube?.title || data.data?.summary;
+        if (generatedTitle) {
+          if (!updated.youtube) {
+            updated.youtube = { title: generatedTitle, caption: "", hashtags: "" };
+          } else {
+            updated.youtube.title = generatedTitle;
+          }
+
+          if (!topicPrompt.trim()) {
+            setTopicPrompt(generatedTitle);
+          }
+        }
+
         setPlatformContents(updated);
-        toast.success("Tailored captions and trending hashtags generated for each platform.");
+        toast.success("Tailored captions, YouTube video title, and hashtags generated automatically!");
       }
     } catch (err: any) {
       toast.dismiss();
@@ -628,9 +649,29 @@ export default function CreatePostPage() {
                     <span>YouTube Video Title</span>
                     <span className="text-[10px] text-red-500 font-mono font-medium">*Required by YouTube</span>
                   </label>
-                  <span className="text-[10px] font-mono text-muted-foreground">
-                    {(currentContent.title || "").length}/100
-                  </span>
+                  <div className="flex items-center gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const base =
+                          topicPrompt ||
+                          currentContent.caption.split("\n")[0] ||
+                          "Next-Gen Multi-Platform Automation";
+                        const clean = base.replace(/[#*]/g, "").trim().substring(0, 90);
+                        const autoYtTitle = clean.length > 5 ? clean : "Next-Gen AI Automation Showcase";
+                        updateCurrentTitle(autoYtTitle);
+                        toast.success("Generated YouTube Video Title!");
+                      }}
+                      className="text-[11px] font-medium text-emerald-500 hover:text-emerald-400 flex items-center gap-1 transition-colors"
+                      title="Generate a catchy YouTube video title automatically"
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      <span>Auto-Generate Title</span>
+                    </button>
+                    <span className="text-[10px] font-mono text-muted-foreground">
+                      {(currentContent.title || "").length}/100
+                    </span>
+                  </div>
                 </div>
                 <Input
                   maxLength={100}
