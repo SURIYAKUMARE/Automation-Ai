@@ -31,10 +31,10 @@ export async function GET(req: NextRequest) {
     // 2. Check encrypted cookie fallback
     const cookieAccounts = getConnectedAccountsFromCookie(req);
 
-    // Merge: start with cookie accounts, override with DB accounts if present
+    // Merge: only include cookie accounts that actually have a stored access token
     const map = new Map<string, any>();
     for (const ca of cookieAccounts) {
-      if (ca.status === 'active') {
+      if (ca.status === 'active' && (ca.encrypted_access_token || ca.accessToken)) {
         map.set(ca.platform, ca);
       }
     }

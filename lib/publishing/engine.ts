@@ -116,14 +116,16 @@ export async function executePostPublishing({
       } catch {}
     }
 
-    // Check cookie fallback if still not found
+    // Check cookie fallback if still not found (only accept accounts with tokens)
     if (!account && cookieAccounts) {
       const ca = cookieAccounts.find((a: any) => a.platform === platform);
-      if (ca) account = ca;
+      if (ca && (ca.encrypted_access_token || ca.accessToken)) {
+        account = ca;
+      }
     }
 
     if (!account) {
-      const err = `No connected account found for platform ${platform}. Connect your ${platform.toUpperCase()} account in Authentication tab.`;
+      const err = `No connected account found for ${platform.toUpperCase()}. Connect your ${platform.toUpperCase()} account in the Authentication tab first.`;
       results.push({ platform, success: false, errorMessage: err });
       failureCount++;
       continue;
@@ -158,6 +160,14 @@ export async function executePostPublishing({
           console.warn(`Failed to decrypt access token for platform ${platform}:`, decErr);
         }
       }
+
+      if (!accessToken) {
+        const err = `No active access token available for ${platform.toUpperCase()}. Please click '+ Connect ${platform.toUpperCase()}' in the Authentication tab to authorize.`;
+        results.push({ platform, success: false, errorMessage: err });
+        failureCount++;
+        continue;
+      }
+
       const adapter = getPlatformAdapter(platform);
 
       // Resolve signed or public URL for media if present

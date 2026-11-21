@@ -80,9 +80,13 @@ export async function POST(req: NextRequest) {
       if (accounts) targetAccounts = accounts;
     } catch {}
 
-    // Add cookie-backed accounts if not in DB
+    // Add cookie-backed accounts if not in DB and possessing valid access token
     for (const ca of cookieAccounts) {
-      if (targetPlatforms.includes(ca.platform) && !targetAccounts.some((a) => a.platform === ca.platform)) {
+      if (
+        targetPlatforms.includes(ca.platform) &&
+        !targetAccounts.some((a) => a.platform === ca.platform) &&
+        (ca.encrypted_access_token || ca.accessToken)
+      ) {
         targetAccounts.push(ca);
       }
     }

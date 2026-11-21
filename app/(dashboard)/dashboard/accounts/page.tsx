@@ -75,26 +75,29 @@ export default function ConnectedAccountsPage() {
           const data = await res.json();
           const realAccounts = data.accounts || [];
 
-          if (realAccounts.length > 0) {
-            setAccounts((prev) =>
-              prev.map((acc) => {
-                const found = realAccounts.find((r: any) => r.platform === acc.platform);
-                if (found) {
-                  return {
-                    ...acc,
-                    id: found.id || acc.id,
-                    accountName: found.account_name || found.account_id || "Connected Account",
-                    accountHandle: found.account_handle || `@${found.account_name || found.platform}`,
-                    status: found.status === "active" ? "active" : "not_connected",
-                    scopes: found.granted_scopes || acc.scopes,
-                    lastValidated: found.last_validated_at ? new Date(found.last_validated_at).toLocaleDateString() : "Active",
-                    expiresInDays: found.expires_in_days || 60,
-                  };
-                }
-                return acc;
-              })
-            );
-          }
+          setAccounts((prev) =>
+            prev.map((acc) => {
+              const found = realAccounts.find((r: any) => r.platform === acc.platform);
+              if (found && found.status === "active") {
+                return {
+                  ...acc,
+                  id: found.id || acc.id,
+                  accountName: found.account_name || found.account_id || "Connected Account",
+                  accountHandle: found.account_handle || `@${found.account_name || found.platform}`,
+                  status: "active",
+                  scopes: found.granted_scopes || acc.scopes,
+                  lastValidated: found.last_validated_at ? new Date(found.last_validated_at).toLocaleDateString() : "Active",
+                  expiresInDays: found.expires_in_days || 60,
+                };
+              }
+              return {
+                ...acc,
+                status: "not_connected",
+                accountName: "",
+                accountHandle: "",
+              };
+            })
+          );
         }
       } catch (err) {
         console.error("Failed to load accounts:", err);
