@@ -95,6 +95,8 @@ export async function GET(req: NextRequest) {
       avatar_url: profile.picture || null,
       status: 'active',
       granted_scopes: ['openid', 'email', 'profile', 'youtube.upload', 'youtube.readonly'],
+      encrypted_access_token: encryptToken(accessToken),
+      encrypted_refresh_token: refreshToken ? encryptToken(refreshToken) : null,
       last_validated_at: new Date().toISOString(),
       expires_in_days: 365,
     };

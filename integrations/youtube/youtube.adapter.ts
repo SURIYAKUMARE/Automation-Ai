@@ -137,6 +137,15 @@ export class YouTubeAdapter implements PlatformAdapter {
   async publish(request: PublishRequest): Promise<PublishResult> {
     const { text, title, mediaUrl, mediaType, tags = [], accessToken } = request;
 
+    if (!accessToken) {
+      return {
+        success: false,
+        errorCode: 'MISSING_ACCESS_TOKEN',
+        errorMessage: 'No access token available for YouTube publishing. Please connect your YouTube account in the Authentication tab.',
+        actionRequired: 'Connect or reauthorize your YouTube account in Authentication tab.',
+      };
+    }
+
     if (mediaType !== 'video' || !mediaUrl) {
       return {
         success: false,

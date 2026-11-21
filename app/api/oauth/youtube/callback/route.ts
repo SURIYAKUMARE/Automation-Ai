@@ -72,6 +72,8 @@ export async function GET(req: NextRequest) {
       avatar_url: tokenResult.avatarUrl || null,
       status: 'active',
       granted_scopes: tokenResult.grantedScopes,
+      encrypted_access_token: encryptedAccess,
+      encrypted_refresh_token: encryptedRefresh,
       last_validated_at: new Date().toISOString(),
       expires_in_days: 365,
     };

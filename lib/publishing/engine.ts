@@ -152,7 +152,11 @@ export async function executePostPublishing({
       // Decrypt stored access token or use raw token
       let accessToken = account.accessToken || '';
       if (!accessToken && account.encrypted_access_token) {
-        accessToken = decryptToken(account.encrypted_access_token);
+        try {
+          accessToken = decryptToken(account.encrypted_access_token);
+        } catch (decErr) {
+          console.warn(`Failed to decrypt access token for platform ${platform}:`, decErr);
+        }
       }
       const adapter = getPlatformAdapter(platform);
 

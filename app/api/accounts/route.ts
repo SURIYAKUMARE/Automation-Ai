@@ -52,7 +52,17 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const accounts = Array.from(map.values());
+    const accounts = Array.from(map.values()).map((a: any) => ({
+      id: a.id,
+      platform: a.platform,
+      account_name: a.account_name,
+      account_handle: a.account_handle,
+      avatar_url: a.avatar_url,
+      status: a.status,
+      granted_scopes: a.granted_scopes,
+      last_validated_at: a.last_validated_at,
+      expires_in_days: a.expires_in_days || 60,
+    }));
 
     return NextResponse.json({
       success: true,

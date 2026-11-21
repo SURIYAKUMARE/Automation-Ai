@@ -45,11 +45,31 @@ export default function CreatePostPage() {
   const [isVideo, setIsVideo] = React.useState(false);
 
   // Platform selection
-  const [selectedPlatforms, setSelectedPlatforms] = React.useState<SocialPlatform[]>([
-    "instagram",
-    "facebook",
-    "linkedin",
-  ]);
+  const [connectedPlatforms, setConnectedPlatforms] = React.useState<SocialPlatform[]>([]);
+  const [selectedPlatforms, setSelectedPlatforms] = React.useState<SocialPlatform[]>([]);
+
+  // Fetch real connected accounts on load
+  React.useEffect(() => {
+    async function loadAccounts() {
+      try {
+        const res = await fetch("/api/accounts");
+        if (res.ok) {
+          const data = await res.json();
+          const active = (data.accounts || [])
+            .filter((a: any) => a.status === "active")
+            .map((a: any) => a.platform as SocialPlatform);
+          setConnectedPlatforms(active);
+          if (active.length > 0) {
+            setSelectedPlatforms(active);
+            setActiveTab(active[0]);
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to fetch connected accounts for publish validation:", e);
+      }
+    }
+    loadAccounts();
+  }, []);
 
   // Active preview/edit platform tab
   const [activeTab, setActiveTab] = React.useState<SocialPlatform>("instagram");
@@ -210,6 +230,15 @@ export default function CreatePostPage() {
 
     if (selectedPlatforms.length === 0) {
       toast.error("Please select at least one platform");
+      return;
+    }
+
+    // Validate that chosen platforms are actually connected
+    const unconnected = selectedPlatforms.filter((p) => !connectedPlatforms.includes(p));
+    if (unconnected.length > 0 && !isDraft) {
+      toast.error(
+        `${unconnected.map((p) => p.toUpperCase()).join(", ")} is not connected. Please connect your account in the Authentication tab first.`
+      );
       return;
     }
 
@@ -403,6 +432,7 @@ export default function CreatePostPage() {
             <div className="grid grid-cols-2 gap-3">
               {PLATFORMS.map((platform) => {
                 const isSelected = selectedPlatforms.includes(platform.id);
+                const isConnected = connectedPlatforms.includes(platform.id);
                 return (
                   <button
                     key={platform.id}
@@ -415,7 +445,14 @@ export default function CreatePostPage() {
                     }`}
                   >
                     <div>
-                      <div className="text-xs font-semibold">{platform.name}</div>
+                      <div className="text-xs font-semibold flex items-center gap-1.5">
+                        <span>{platform.name}</span>
+                        {isConnected ? (
+                          <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" title="Connected & Active" />
+                        ) : (
+                          <span className="text-[10px] font-normal text-amber-500 font-mono">(Offline)</span>
+                        )}
+                      </div>
                       <div className="text-[10px] font-mono text-muted-foreground">
                         {platform.tag}
                       </div>
