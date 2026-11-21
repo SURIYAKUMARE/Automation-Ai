@@ -11,7 +11,7 @@ import { toast } from "sonner";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [fullName, setFullName] = React.useState("Jeffrey Rathinam");
+  const [fullName, setFullName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
   const [isLoading, setIsLoading] = React.useState(false);
@@ -113,7 +113,7 @@ export default function RegisterPage() {
                 required
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="Jeffrey Rathinam"
+                placeholder="Your Full Name"
                 className="text-xs h-10"
               />
             </div>

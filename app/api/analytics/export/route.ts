@@ -23,42 +23,14 @@ export async function GET(req: NextRequest) {
       'Engagement Rate',
     ];
 
-    const rows = (posts && posts.length > 0 ? posts : [
-      {
-        id: 'post-001',
-        title: 'Introducing SocialSync AI 2.0 Multi-Platform Distribution',
-        status: 'published',
-        created_at: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
-        impressions: '4,820',
-        reach: '3,950',
-        engagementRate: '8.6%',
-      },
-      {
-        id: 'post-002',
-        title: 'Autonomous Scheduling with Gemini 1.5 Multimodal Engine',
-        status: 'published',
-        created_at: new Date(Date.now() - 3600000 * 24 * 5).toISOString(),
-        impressions: '3,150',
-        reach: '2,600',
-        engagementRate: '7.4%',
-      },
-      {
-        id: 'post-003',
-        title: 'Engineering Postgram: Architecture & OAuth PKCE Deep Dive',
-        status: 'published',
-        created_at: new Date(Date.now() - 3600000 * 24 * 7).toISOString(),
-        impressions: '6,240',
-        reach: '5,120',
-        engagementRate: '10.2%',
-      },
-    ]).map((p: any) => [
+    const rows = (posts || []).map((p: any) => [
       `"${p.id}"`,
       `"${(p.title || 'Untitled Post').replace(/"/g, '""')}"`,
       `"${p.status}"`,
       `"${p.scheduled_for || p.created_at}"`,
-      `"${p.impressions || Math.floor(Math.random() * 2000 + 1000)}"`,
-      `"${p.reach || Math.floor(Math.random() * 1500 + 800)}"`,
-      `"${p.engagementRate || (Math.random() * 4 + 4).toFixed(1) + '%'}"`,
+      `"${p.impressions || 0}"`,
+      `"${p.reach || 0}"`,
+      `"${p.engagementRate || '0.0%'}"`,
     ]);
 
     const csvContent = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');

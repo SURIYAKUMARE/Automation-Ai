@@ -38,19 +38,11 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ comments: data.data || [] });
       }
     } catch {
-      // Fallback
+      // Return empty if API error
     }
 
     return NextResponse.json({
-      comments: [
-        {
-          id: 'fb_c_1',
-          message: 'Excited for this multi-platform release!',
-          from: { name: 'Dev Community Member' },
-          created_time: new Date().toISOString(),
-          like_count: 3,
-        },
-      ],
+      comments: [],
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

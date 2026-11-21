@@ -11,8 +11,8 @@ import { toast } from "sonner";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = React.useState("admin@socialsync.ai");
-  const [password, setPassword] = React.useState("password123");
+  const [email, setEmail] = React.useState("");
+  const [password, setPassword] = React.useState("");
   const [isLoading, setIsLoading] = React.useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -109,7 +109,7 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@socialsync.ai"
+                placeholder="you@example.com"
                 className="text-xs font-mono h-10"
               />
             </div>

@@ -40,22 +40,12 @@ export async function GET(req: NextRequest) {
         });
       }
     } catch {
-      // Fallback
+      // Return empty if API call fails
     }
 
     return NextResponse.json({
       connected: true,
-      media: [
-        {
-          id: '17951234567890',
-          caption: 'Intelligent multi-platform automation with Google Stitch UI.',
-          media_type: 'IMAGE',
-          permalink: 'https://www.instagram.com/p/DB123456/',
-          timestamp: new Date().toISOString(),
-          like_count: 84,
-          comments_count: 12,
-        },
-      ],
+      media: [],
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

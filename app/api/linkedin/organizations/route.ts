@@ -37,17 +37,11 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ organizations: data.elements || [] });
       }
     } catch {
-      // Fallback
+      // Return empty if API call fails
     }
 
     return NextResponse.json({
-      organizations: [
-        {
-          organizationalTarget: 'urn:li:organization:98765432',
-          role: 'ADMINISTRATOR',
-          name: 'SocialSync AI Corporation',
-        },
-      ],
+      organizations: [],
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

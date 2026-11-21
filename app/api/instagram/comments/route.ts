@@ -39,19 +39,11 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ comments: data.data || [] });
       }
     } catch {
-      // Fallback
+      // Return empty if API call fails
     }
 
     return NextResponse.json({
-      comments: [
-        {
-          id: 'comm_1',
-          text: 'The Google Stitch design looks so clean!',
-          username: 'tech_reviewer',
-          timestamp: new Date().toISOString(),
-          like_count: 5,
-        },
-      ],
+      comments: [],
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

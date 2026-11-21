@@ -37,15 +37,15 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ connected: true, insights: data.data || [] });
       }
     } catch {
-      // Fallback
+      // Return empty if API call fails
     }
 
     return NextResponse.json({
       connected: true,
       insights: {
-        page_impressions: 6120,
-        page_engaged_users: 890,
-        post_reach: 4300,
+        page_impressions: 0,
+        page_engaged_users: 0,
+        post_reach: 0,
         synced_at: new Date().toISOString(),
       },
     });

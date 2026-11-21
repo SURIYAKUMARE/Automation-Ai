@@ -17,15 +17,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      history: jobs || [
-        {
-          id: 'job_sample_1',
-          status: 'completed',
-          run_at: new Date(Date.now() - 7200000).toISOString(),
-          retry_count: 0,
-          posts: { title: 'SocialSync AI Milestone Launch', target_platforms: ['linkedin', 'instagram'] },
-        },
-      ],
+      history: jobs || [],
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

@@ -161,7 +161,7 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="mt-auto border-t border-border/80 py-8 px-4 text-center text-xs text-muted-foreground">
         <p>
-          SocialSync AI — Final Year Major Project • Developed by Jeffrey Rathinam • Powered by Google Gemini & Next.js
+          SocialSync AI — Intelligent Multi-Platform Social Media Automation System • Powered by Google Gemini & Next.js
         </p>
       </footer>
     </div>

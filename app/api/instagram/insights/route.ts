@@ -40,16 +40,16 @@ export async function GET(req: NextRequest) {
         });
       }
     } catch {
-      // Fallback
+      // Return empty if API call fails
     }
 
     return NextResponse.json({
       connected: true,
       metrics: {
-        impressions: 4890,
-        reach: 3240,
-        profile_views: 412,
-        followers_growth: '+14.2%',
+        impressions: 0,
+        reach: 0,
+        profile_views: 0,
+        followers_growth: '0%',
         synced_at: new Date().toISOString(),
       },
     });

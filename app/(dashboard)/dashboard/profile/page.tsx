@@ -8,11 +8,29 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
 export default function ProfilePage() {
-  const [fullName, setFullName] = React.useState("Jeffrey Rathinam");
-  const [email, setEmail] = React.useState("jeffrey@rathinam.in");
-  const [organization, setOrganization] = React.useState("Rathinam Group of Institutions");
+  const [fullName, setFullName] = React.useState("");
+  const [email, setEmail] = React.useState("");
+  const [organization, setOrganization] = React.useState("");
   const [timezone, setTimezone] = React.useState("Asia/Kolkata (UTC+5:30)");
   const [isSaving, setIsSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    async function loadUser() {
+      try {
+        const res = await fetch("/api/auth/session");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.user) {
+            setFullName(data.user.name || "");
+            setEmail(data.user.email || "");
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load session:", err);
+      }
+    }
+    loadUser();
+  }, []);
 
   const handleSave = () => {
     setIsSaving(true);
@@ -45,21 +63,21 @@ export default function ProfilePage() {
               <label className="font-semibold text-muted-foreground flex items-center gap-1.5">
                 <User className="h-3.5 w-3.5 text-primary" /> Full Name
               </label>
-              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} className="text-xs" />
+              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Enter your full name" className="text-xs" />
             </div>
 
             <div className="space-y-1.5">
               <label className="font-semibold text-muted-foreground flex items-center gap-1.5">
                 <Mail className="h-3.5 w-3.5 text-primary" /> Email Address
               </label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} disabled className="text-xs opacity-70" />
+              <Input value={email} onChange={(e) => setEmail(e.target.value)} disabled placeholder="user@example.com" className="text-xs opacity-70" />
             </div>
 
             <div className="space-y-1.5">
               <label className="font-semibold text-muted-foreground flex items-center gap-1.5">
                 <Building className="h-3.5 w-3.5 text-primary" /> Organization / College
               </label>
-              <Input value={organization} onChange={(e) => setOrganization(e.target.value)} className="text-xs" />
+              <Input value={organization} onChange={(e) => setOrganization(e.target.value)} placeholder="Enter organization or team" className="text-xs" />
             </div>
 
             <div className="space-y-1.5">

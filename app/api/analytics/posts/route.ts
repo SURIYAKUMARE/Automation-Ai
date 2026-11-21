@@ -28,59 +28,10 @@ export async function GET(req: NextRequest) {
       .limit(50);
 
     if (error || !posts || posts.length === 0) {
-      // Fallback realistic metrics if db table is empty
-      const defaultPostAnalytics = [
-        {
-          id: 'post-001',
-          title: 'Introducing SocialSync AI 2.0 Multi-Platform Distribution',
-          publishedAt: new Date(Date.now() - 3600000 * 24 * 2).toISOString(),
-          platforms: ['linkedin', 'instagram', 'facebook'],
-          metrics: {
-            impressions: 4820,
-            reach: 3950,
-            likes: 342,
-            comments: 29,
-            shares: 45,
-            clicks: 188,
-            engagementRate: '8.6%',
-          },
-        },
-        {
-          id: 'post-002',
-          title: 'Autonomous Scheduling with Gemini 1.5 Multimodal Engine',
-          publishedAt: new Date(Date.now() - 3600000 * 24 * 5).toISOString(),
-          platforms: ['linkedin', 'facebook'],
-          metrics: {
-            impressions: 3150,
-            reach: 2600,
-            likes: 215,
-            comments: 18,
-            shares: 31,
-            clicks: 104,
-            engagementRate: '7.4%',
-          },
-        },
-        {
-          id: 'post-003',
-          title: 'Engineering Postgram: Architecture & OAuth PKCE Deep Dive',
-          publishedAt: new Date(Date.now() - 3600000 * 24 * 7).toISOString(),
-          platforms: ['linkedin'],
-          metrics: {
-            impressions: 6240,
-            reach: 5120,
-            likes: 512,
-            comments: 64,
-            shares: 88,
-            clicks: 342,
-            engagementRate: '10.2%',
-          },
-        },
-      ];
-
       return NextResponse.json({
         success: true,
-        posts: defaultPostAnalytics,
-        total: defaultPostAnalytics.length,
+        posts: [],
+        total: 0,
       });
     }
 

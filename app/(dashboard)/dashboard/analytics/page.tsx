@@ -1,23 +1,20 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   BarChart3,
   TrendingUp,
   Eye,
   ThumbsUp,
-  MessageSquare,
   Share2,
-  Calendar,
-  Download,
-  Info,
+  ShieldAlert,
+  ArrowRight,
 } from "lucide-react";
 import {
   ResponsiveContainer,
   AreaChart,
   Area,
-  BarChart,
-  Bar,
   XAxis,
   YAxis,
   Tooltip,
@@ -27,25 +24,45 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
-const performanceData = [
-  { name: "Mon", linkedin: 450, instagram: 680, youtube: 1200, facebook: 340 },
-  { name: "Tue", linkedin: 580, instagram: 790, youtube: 1350, facebook: 410 },
-  { name: "Wed", linkedin: 720, instagram: 890, youtube: 1600, facebook: 520 },
-  { name: "Thu", linkedin: 690, instagram: 810, youtube: 1480, facebook: 480 },
-  { name: "Fri", linkedin: 850, instagram: 1100, youtube: 2100, facebook: 630 },
-  { name: "Sat", linkedin: 610, instagram: 1340, youtube: 2400, facebook: 710 },
-  { name: "Sun", linkedin: 530, instagram: 1250, youtube: 2200, facebook: 680 },
-];
-
-const platformTotals = [
-  { platform: "YouTube", impressions: "11,330", engagement: "9.2%", posts: 4, growth: "+24.5%" },
-  { platform: "Instagram", impressions: "6,860", engagement: "7.1%", posts: 12, growth: "+16.8%" },
-  { platform: "LinkedIn", impressions: "4,430", engagement: "5.8%", posts: 10, growth: "+12.1%" },
-  { platform: "Facebook", impressions: "3,770", engagement: "4.2%", posts: 8, growth: "+8.4%" },
-];
-
 export default function AnalyticsPage() {
   const [timeRange, setTimeRange] = React.useState("7d");
+  const [isLoading, setIsLoading] = React.useState(true);
+  const [overview, setOverview] = React.useState<any>(null);
+  const [connectedCount, setConnectedCount] = React.useState(0);
+
+  React.useEffect(() => {
+    async function loadAnalytics() {
+      try {
+        const [ovRes, accRes] = await Promise.all([
+          fetch("/api/analytics/overview"),
+          fetch("/api/accounts"),
+        ]);
+
+        if (ovRes.ok) {
+          const ovData = await ovRes.json();
+          setOverview(ovData.overview);
+        }
+
+        if (accRes.ok) {
+          const accData = await accRes.json();
+          const activeAccounts = (accData.accounts || []).filter((a: any) => a.status === "active");
+          setConnectedCount(activeAccounts.length);
+        }
+      } catch (err) {
+        console.error("Failed to load analytics:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+
+    loadAnalytics();
+  }, []);
+
+  const totalImpressions = overview?.totalImpressions || 0;
+  const avgEngagement = overview?.averageEngagementRate || "0.0%";
+  const totalPosts = overview?.totalPosts || 0;
+  const totalReach = overview?.totalReach || 0;
+  const dailyActivity = overview?.dailyActivity || [];
 
   return (
     <div className="space-y-6">
@@ -74,6 +91,27 @@ export default function AnalyticsPage() {
         </div>
       </div>
 
+      {connectedCount === 0 && (
+        <div className="rounded-xl border border-border bg-card p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-foreground text-sm">No Accounts Connected</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Connect your official social accounts in the Authentication tab to stream live impressions, audience reach, and real-time engagement data.
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/dashboard/accounts"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-black text-white dark:bg-white dark:text-black font-semibold text-xs whitespace-nowrap hover:opacity-90 transition-opacity"
+          >
+            <span>Connect Accounts</span>
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
+      )}
+
       {/* KPI Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card className="border-border/80">
@@ -84,9 +122,9 @@ export default function AnalyticsPage() {
             </div>
             <div className="mt-3 flex items-baseline gap-2">
               <span className="text-2xl font-bold tracking-tight font-mono tabular-nums text-foreground">
-                26,390
+                {totalImpressions.toLocaleString()}
               </span>
-              <span className="text-xs text-emerald-400 font-medium">+18.4%</span>
+              <span className="text-xs text-muted-foreground font-medium">live</span>
             </div>
           </CardContent>
         </Card>
@@ -99,9 +137,9 @@ export default function AnalyticsPage() {
             </div>
             <div className="mt-3 flex items-baseline gap-2">
               <span className="text-2xl font-bold tracking-tight font-mono tabular-nums text-foreground">
-                6.8%
+                {avgEngagement}
               </span>
-              <span className="text-xs text-emerald-400 font-medium">+1.2%</span>
+              <span className="text-xs text-muted-foreground font-medium">rate</span>
             </div>
           </CardContent>
         </Card>
@@ -109,14 +147,14 @@ export default function AnalyticsPage() {
         <Card className="border-border/80">
           <CardContent className="p-5">
             <div className="flex items-center justify-between text-muted-foreground text-xs">
-              <span>Total Interactions</span>
+              <span>Published Posts</span>
               <ThumbsUp className="h-4 w-4 text-emerald-400" />
             </div>
             <div className="mt-3 flex items-baseline gap-2">
               <span className="text-2xl font-bold tracking-tight font-mono tabular-nums text-foreground">
-                1,842
+                {totalPosts}
               </span>
-              <span className="text-xs text-emerald-400 font-medium">+14.7%</span>
+              <span className="text-xs text-muted-foreground font-medium">posts</span>
             </div>
           </CardContent>
         </Card>
@@ -124,92 +162,54 @@ export default function AnalyticsPage() {
         <Card className="border-border/80">
           <CardContent className="p-5">
             <div className="flex items-center justify-between text-muted-foreground text-xs">
-              <span>Audience Growth</span>
+              <span>Audience Reach</span>
               <Share2 className="h-4 w-4 text-pink-400" />
             </div>
             <div className="mt-3 flex items-baseline gap-2">
               <span className="text-2xl font-bold tracking-tight font-mono tabular-nums text-foreground">
-                +420
+                {totalReach.toLocaleString()}
               </span>
-              <span className="text-xs text-emerald-400 font-medium">followers</span>
+              <span className="text-xs text-muted-foreground font-medium">users</span>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Recharts Area Chart */}
+      {/* Chart Section */}
       <Card className="border-border/80">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Cross-Platform Reach Trends</CardTitle>
           <CardDescription>Daily impressions per connected channel</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={performanceData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="ytGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="instaGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ec4899" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#ec4899" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="liGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.4} />
-                    <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-                <XAxis dataKey="name" stroke="#64748b" fontSize={11} tickLine={false} />
-                <YAxis stroke="#64748b" fontSize={11} tickLine={false} />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#111827",
-                    borderColor: "#374151",
-                    borderRadius: "0.5rem",
-                    fontSize: "0.75rem",
-                  }}
-                />
-                <Area type="monotone" dataKey="youtube" stroke="#ef4444" fillOpacity={1} fill="url(#ytGrad)" />
-                <Area type="monotone" dataKey="instagram" stroke="#ec4899" fillOpacity={1} fill="url(#instaGrad)" />
-                <Area type="monotone" dataKey="linkedin" stroke="#0ea5e9" fillOpacity={1} fill="url(#liGrad)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+          {dailyActivity.length > 0 ? (
+            <div className="h-72 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={dailyActivity} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
+                  <XAxis dataKey="day" stroke="#64748b" fontSize={11} tickLine={false} />
+                  <YAxis stroke="#64748b" fontSize={11} tickLine={false} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#111827",
+                      borderColor: "#374151",
+                      borderRadius: "0.5rem",
+                      fontSize: "0.75rem",
+                    }}
+                  />
+                  <Area type="monotone" dataKey="impressions" stroke="#0ea5e9" fill="#0ea5e9" fillOpacity={0.2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <div className="h-48 flex flex-col items-center justify-center text-center p-6 text-xs text-muted-foreground">
+              <BarChart3 className="h-8 w-8 text-muted-foreground/40 mb-2" />
+              <p className="font-semibold text-foreground">No Reach Activity Logged</p>
+              <p className="mt-1">Publish content across connected platforms to begin tracking performance metrics.</p>
+            </div>
+          )}
         </CardContent>
       </Card>
-
-      {/* Platform Breakdown Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {platformTotals.map((item) => (
-          <Card key={item.platform} className="border-border/80">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-semibold">{item.platform}</CardTitle>
-                <Badge variant="success" className="text-[10px]">
-                  {item.growth}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-1.5 text-xs">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Impressions:</span>
-                <span className="font-mono font-medium text-foreground">{item.impressions}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Engagement:</span>
-                <span className="font-mono font-medium text-foreground">{item.engagement}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Total Posts:</span>
-                <span className="font-mono font-medium text-foreground">{item.posts}</span>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
     </div>
   );
 }
