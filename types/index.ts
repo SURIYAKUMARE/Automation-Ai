@@ -189,6 +189,11 @@ export interface NotificationItem {
 // Gemini AI Generation Types
 // -----------------------------------------------------------------------------
 export interface GeminiPlatformContent {
+  alternatives?: string[];
+  rationale?: string;
+  keywords?: string[];
+  suggested_category?: string;
+  thumbnail_recommendation?: string;
   caption: string;
   title?: string;
   hashtags: string[];
@@ -213,4 +218,4 @@ export interface GeminiAnalysisResult {
 }
 
 export type SupportedLanguage = 'English' | 'Tamil' | 'Tanglish';
-export type SupportedTone = 'Professional' | 'Friendly' | 'Creative' | 'Educational' | 'Minimal' | 'Promotional';
+export type SupportedTone = 'Professional' | 'Friendly' | 'Creative' | 'Educational' | 'Minimal' | 'Promotional' | 'Funny' | 'Motivational' | 'Marketing' | 'Viral-style';

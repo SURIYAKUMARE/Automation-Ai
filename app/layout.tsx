@@ -4,9 +4,9 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: "SocialSync AI — Intelligent Multi-Platform Social Media Automation System",
+  title: "SocialFlow AI — Intelligent Multi-Platform Social Media Automation System",
   description:
-    "Production-grade intelligent multi-platform social media automation system powered by Google Gemini multimodal AI and official platform APIs for LinkedIn, YouTube, Instagram, and Facebook.",
+    "Write, review, schedule, and track social posts for LinkedIn, YouTube, Instagram, and Facebook.",
   icons: {
     icon: [
       { url: "/favicon.ico" },

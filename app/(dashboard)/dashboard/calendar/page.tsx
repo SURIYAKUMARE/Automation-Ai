@@ -1,206 +1,142 @@
 "use client";
 
-import * as React from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  Calendar as CalendarIcon,
-  ChevronLeft,
-  ChevronRight,
-  Clock,
-  Plus,
-  Play,
-  Share2,
-  CheckCircle2,
-  AlertTriangle,
-} from "lucide-react";
+import { addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, startOfMonth, startOfWeek } from "date-fns";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { SocialPlatform } from "@/types";
+import { ContentPlanner } from "@/components/dashboard/content-planner";
 
-interface ScheduledEvent {
-  id: string;
-  title: string;
-  date: string;
-  time: string;
-  platforms: SocialPlatform[];
-  status: "scheduled" | "published" | "pending_approval";
-  previewText: string;
-}
+type Event = { id: string; title: string; scheduled_for: string; target_platforms: string[]; post_variants: { id: string; caption: string; platform: string }[] };
 
 export default function PublishingCalendarPage() {
-  const [selectedFilter, setSelectedFilter] = React.useState<string>("all");
-  const [isTriggering, setIsTriggering] = React.useState<string | null>(null);
-  const [events, setEvents] = React.useState<ScheduledEvent[]>([]);
-
-  React.useEffect(() => {
-    async function loadScheduledPosts() {
-      try {
-        const res = await fetch("/api/posts?status=scheduled");
-        if (res.ok) {
-          const data = await res.json();
-          const posts = data.posts || [];
-          setEvents(
-            posts.map((p: any) => {
-              const dt = p.scheduled_for ? new Date(p.scheduled_for) : new Date();
-              return {
-                id: p.id,
-                title: p.title || "Scheduled Campaign",
-                date: dt.toLocaleDateString(),
-                time: dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-                platforms: p.target_platforms || ["linkedin"],
-                status: "scheduled",
-                previewText: p.post_variants?.[0]?.caption || "Scheduled automated broadcast",
-              };
-            })
-          );
-        }
-      } catch (err) {
-        console.error("Failed to load scheduled posts:", err);
-      }
+  const [month, setMonth] = useState(() => startOfMonth(new Date()));
+  const [selected, setSelected] = useState("");
+  const [posts, setPosts] = useState<Event[]>([]);
+  const [pending, setPending] = useState("");
+  const [jobs, setJobs] = useState<{ id: string; run_at: string; status: string; retry_count: number; posts: { title?: string } | null }[]>([]);
+  const [edit, setEdit] = useState<Event>();
+  const [time, setTime] = useState("");
+  const [timezone, setTimezone] = useState("");
+  const reload = useCallback(async () => {
+    try {
+      const [response, queue] = await Promise.all([fetch("/api/posts?status=scheduled&limit=100"), fetch("/api/scheduler/jobs")]);
+      if (queue.ok) setJobs((await queue.json()).jobs);
+      if (!response.ok) throw new Error();
+      setPosts((await response.json()).posts);
+    } catch {
+      toast.error("Could not load scheduled posts.");
     }
-    loadScheduledPosts();
   }, []);
+  useEffect(() => {
+    setTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    void reload();
+    const refresh = window.setInterval(reload, 15_000);
+    return () => window.clearInterval(refresh);
+  }, [reload]);
 
-  const handleRunNow = async (id: string, title: string) => {
-    setIsTriggering(id);
-    toast.loading(`Triggering immediate publishing for "${title}"...`);
+  async function submit(post: Event, action: "publish" | "schedule" | "cancel" | "edit") {
+    if (action === "schedule" && (!time || !Number.isFinite(Date.parse(time)))) {
+      toast.error("Choose a date and time.");
+      return;
+    }
+    setPending(post.id);
+    try {
+      const path = action === "cancel" || action === "edit" ? "/api/posts/" + post.id : "/api/posts/" + action;
+      const response = await fetch(path, {
+        method: action === "cancel" ? "DELETE" : action === "edit" ? "PUT" : "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(action === "edit" ? { title: post.title, variants: post.post_variants } : {
+          postId: post.id, scheduledFor: action === "schedule" ? new Date(time).toISOString() : undefined,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      toast.success({ publish: "Queued for publishing", schedule: "Schedule updated", cancel: "Schedule cancelled", edit: "Post updated" }[action]);
+      setEdit(undefined);
+      await reload();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update the schedule");
+    } finally {
+      setPending("");
+    }
+  }
 
-    setTimeout(() => {
-      setIsTriggering(null);
-      toast.dismiss();
-      toast.success(`Published "${title}" to connected platforms!`);
-    }, 1500);
-  };
-
-  const filteredEvents =
-    selectedFilter === "all"
-      ? events
-      : events.filter((e) => e.platforms.includes(selectedFilter as SocialPlatform));
-
+  const days = eachDayOfInterval({ start: startOfWeek(month), end: endOfWeek(endOfMonth(month)) });
+  const grouped = new Map<string, Event[]>();
+  for (const post of posts) {
+    if (!post.scheduled_for) continue;
+    const key = format(new Date(post.scheduled_for), "yyyy-MM-dd");
+    grouped.set(key, [...(grouped.get(key) || []), post]);
+  }
+  const agenda = selected ? grouped.get(selected) || [] : posts.filter((post) => post.scheduled_for && format(new Date(post.scheduled_for), "yyyy-MM") === format(month, "yyyy-MM"));
   return (
     <div className="space-y-6">
-      {/* Calendar Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-2 border-b border-border gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Schedules
-          </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            View scheduled campaigns, adjust publishing timelines, and trigger instant releases.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Link href="/dashboard/create-post">
-            <Button size="sm" className="gap-1.5 bg-black text-white hover:bg-neutral-800 dark:bg-white dark:text-black">
-              <Plus className="h-4 w-4" />
-              <span>Schedule New Post</span>
-            </Button>
-          </Link>
-        </div>
+      <div className="flex flex-wrap justify-between gap-4">
+        <div><h1 className="text-2xl font-bold">Publishing calendar</h1>
+          <p className="text-sm text-muted-foreground">Times shown in {timezone || "your local timezone"}.</p></div>
+        <Link className="rounded-lg bg-primary px-3 py-2 text-sm text-primary-foreground self-start" href="/dashboard/create-post">Create a post</Link>
       </div>
-
-      {/* Filter Tabs */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/80 pb-3">
-        <div className="flex items-center gap-2">
-          {["all", "linkedin", "youtube", "instagram", "facebook"].map((p) => (
-            <button
-              key={p}
-              type="button"
-              onClick={() => setSelectedFilter(p)}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition-all ${
-                selectedFilter === p
-                  ? "bg-primary text-primary-foreground shadow-sm"
-                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
-              }`}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
-          <span>Timezone:</span>
-          <Badge variant="outline" className="font-mono text-xs">UTC</Badge>
-        </div>
-      </div>
-
-      {/* Events Agenda Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredEvents.length === 0 ? (
-          <Card className="border-dashed border-border p-12 text-center col-span-full">
-            <p className="text-xs text-muted-foreground">
-              No scheduled events found. Go to Publish Now and toggle &quot;Schedule for Later&quot; to queue posts.
-            </p>
-          </Card>
-        ) : (
-          filteredEvents.map((ev) => (
-          <Card key={ev.id} className="border-border/80 flex flex-col justify-between">
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm text-foreground line-clamp-1">{ev.title}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground font-mono">
-                    <Clock className="h-3.5 w-3.5 text-primary" />
-                    <span>{ev.date} at {ev.time}</span>
-                  </div>
-                </div>
-
-                {ev.status === "scheduled" && (
-                  <Badge variant="info" dot className="text-xs shrink-0">
-                    Scheduled
-                  </Badge>
-                )}
-                {ev.status === "pending_approval" && (
-                  <Badge variant="warning" dot className="text-xs shrink-0">
-                    Needs Approval
-                  </Badge>
-                )}
-              </div>
-            </CardHeader>
-
-            <CardContent className="space-y-3 pt-0">
-              <p className="text-xs text-muted-foreground line-clamp-2 bg-accent/30 p-2.5 rounded-lg border border-border/40">
-                "{ev.previewText}"
-              </p>
-
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-muted-foreground font-semibold">Targets:</span>
-                <div className="flex gap-1">
-                  {ev.platforms.map((p) => (
-                    <span
-                      key={p}
-                      className="rounded bg-slate-800 text-slate-300 px-2 py-0.5 text-[10px] font-mono capitalize border border-slate-700"
-                    >
-                      {p}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </CardContent>
-
-            <div className="border-t border-border/60 p-3 flex items-center justify-between">
-              <span className="text-[11px] text-muted-foreground font-mono">ID: {ev.id}</span>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleRunNow(ev.id, ev.title)}
-                  disabled={isTriggering === ev.id}
-                  className="h-7 text-xs gap-1.5 text-indigo-400 hover:text-indigo-300 border-indigo-500/30"
-                >
-                  <Play className={`h-3 w-3 ${isTriggering === ev.id ? "animate-spin" : ""}`} />
-                  <span>Publish Now</span>
-                </Button>
-              </div>
+      <Card>
+        <CardHeader className="flex-row items-center justify-between">
+          <Button aria-label="Previous month" size="sm" variant="outline" onClick={() => { setMonth(addMonths(month, -1)); setSelected(""); }}><ChevronLeft className="h-4 w-4" /></Button>
+          <CardTitle className="text-base">{format(month, "MMMM yyyy")}</CardTitle>
+          <Button aria-label="Next month" size="sm" variant="outline" onClick={() => { setMonth(addMonths(month, 1)); setSelected(""); }}><ChevronRight className="h-4 w-4" /></Button>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-7 gap-1">
+            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span key={day} className="text-center text-xs text-muted-foreground">{day}</span>)}
+            {days.map((day) => {
+              const key = format(day, "yyyy-MM-dd");
+              const count = grouped.get(key)?.length ?? 0;
+              return <button type="button" key={key} aria-pressed={key === selected} aria-label={format(day, "PPP") + ", " + count + " scheduled posts"}
+                className={"flex min-h-10 items-center justify-center gap-1 rounded-md border text-xs " + (selected === key ? "bg-primary text-primary-foreground" : "hover:bg-muted")}
+                onClick={() => setSelected(key === selected ? "" : key)}>
+                {format(day, "d")}{count > 0 && <span className="rounded bg-muted px-1 text-foreground">{count}</span>}
+              </button>;
+            })}
+          </div>
+        </CardContent>
+      </Card>
+      <div className="grid gap-4 md:grid-cols-2">
+        {agenda.length === 0 && <p className="text-sm text-muted-foreground">No posts scheduled for this selection.</p>}
+        {agenda.map((post) => <Card key={post.id}>
+          <CardHeader><CardTitle className="text-base">{post.title}</CardTitle>
+            <p className="text-sm text-muted-foreground">{new Date(post.scheduled_for).toLocaleString()} · {post.target_platforms.join(", ")}</p></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" disabled={Boolean(pending)} onClick={() => { setEdit(post); setTime(format(new Date(post.scheduled_for), "yyyy-MM-dd'T'HH:mm")); }}>Edit</Button>
+              <Button size="sm" variant="outline" disabled={Boolean(pending)} onClick={() => void submit(post, "publish")}>Publish now</Button>
+              <Button size="sm" variant="outline" disabled={Boolean(pending)} onClick={() => void submit(post, "cancel")}>Cancel schedule</Button>
             </div>
-          </Card>
-        )))}
+            {edit?.id === post.id && <div className="space-y-2 border-t pt-3">
+              <label className="block text-sm">Title<Input value={edit.title} onChange={(event) => setEdit({ ...edit, title: event.target.value })} /></label>
+              {edit.post_variants.map((variant) => <label key={variant.id} className="block text-sm capitalize">{variant.platform}
+                <textarea value={variant.caption} className="block w-full rounded border bg-background p-2" onChange={(event) => setEdit({
+                  ...edit, post_variants: edit.post_variants.map((item) => item.id === variant.id ? { ...item, caption: event.target.value } : item),
+                })} /></label>)}
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" disabled={Boolean(pending)} onClick={() => void submit(edit, "edit")}>Save copy</Button>
+                <Input aria-label="New time" type="datetime-local" value={time} onChange={(event) => setTime(event.target.value)} />
+                <Button size="sm" disabled={Boolean(pending)} onClick={() => void submit(edit, "schedule")}>Save new time</Button>
+              </div>
+            </div>}
+          </CardContent>
+        </Card>)}
       </div>
+      <Card>
+        <CardHeader><CardTitle className="text-base">Publishing queue</CardTitle></CardHeader>
+        <CardContent className="text-sm">
+          {jobs.length ? <ul className="space-y-2">{jobs.slice(0, 15).map((job) => <li key={job.id} className="rounded border p-2">
+            <span className="font-medium">{job.posts?.title || "Untitled post"}</span>
+            <span className="ml-2 capitalize text-muted-foreground">{job.status} · {new Date(job.run_at).toLocaleString()}{job.retry_count > 0 ? " · Retry " + job.retry_count : ""}</span>
+          </li>)}</ul> : <p className="text-muted-foreground">No queued or running jobs.</p>}
+        </CardContent>
+      </Card>
+      <ContentPlanner />
     </div>
   );
 }

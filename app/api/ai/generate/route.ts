@@ -1,60 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { generateSocialContentWithGemini } from '@/lib/ai/gemini';
-import { SupportedLanguage, SupportedTone } from '@/types';
+import { authorizeAI } from '@/lib/ai/request';
+import { platformSchema } from '@/lib/publishing/campaign';
+import { matchesMediaSignature } from '@/lib/publishing/media';
 
-const GenerateRequestSchema = z.object({
-  userPrompt: z.string().optional(),
-  prompt: z.string().optional(),
+const Generate = z.object({
+  prompt: z.string().trim().max(4000).optional(),
+  userPrompt: z.string().trim().max(4000).optional(),
   language: z.enum(['English', 'Tamil', 'Tanglish']).default('English'),
-  tone: z.enum(['Professional', 'Friendly', 'Creative', 'Educational', 'Minimal', 'Promotional']).default('Professional'),
-  mediaBase64: z.string().optional(),
-  mimeType: z.string().optional(),
-  isMediaVideo: z.boolean().optional().default(false),
-  targetPlatforms: z.array(z.string()).optional(),
+  tone: z.enum(['Professional', 'Friendly', 'Funny', 'Motivational', 'Educational', 'Marketing', 'Viral-style',
+    'Creative', 'Minimal', 'Promotional']).default('Professional'),
+  mediaBase64: z.string().max(4_000_000).optional(),
+  mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']).optional(),
+  isMediaVideo: z.boolean().default(false),
+  targetPlatforms: z.array(platformSchema).min(1).max(4).optional(),
+  alternatives: z.boolean().default(false),
 });
 
 export async function POST(req: NextRequest) {
+  const access = await authorizeAI(req);
+  if (access.response) return access.response;
+  if (Number(req.headers.get('content-length')) > 4_100_000) {
+    return NextResponse.json({ error: 'AI preview exceeds the size limit' }, { status: 413 });
+  }
+  const request = Generate.safeParse(await req.json().catch(() => null));
+  if (!request.success) return NextResponse.json({ error: 'Invalid generation request' }, { status: 400 });
+  const { mediaBase64, mimeType, prompt, userPrompt, ...options } = request.data;
+  const context = userPrompt || prompt;
+  const bytes = mediaBase64 ? Buffer.from(mediaBase64.replace(/^data:[^;]+;base64,/, ''), 'base64') : undefined;
+  if ((!context && !bytes) || (bytes && (!mimeType || !matchesMediaSignature(bytes, mimeType)))) {
+    return NextResponse.json({ error: 'Add text context or a valid image or video preview' }, { status: 400 });
+  }
   try {
-    const json = await req.json();
-    const parsed = GenerateRequestSchema.safeParse(json);
-
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: 'Invalid input parameters', details: parsed.error.format() },
-        { status: 400 }
-      );
-    }
-
-    const { userPrompt, prompt, language, tone, mediaBase64, mimeType, isMediaVideo } = parsed.data;
-    const effectivePrompt = userPrompt || prompt || '';
-
-    let mediaBuffer: Buffer | undefined;
-    if (mediaBase64) {
-      // Strip data:image/png;base64, prefix if included
-      const cleaned = mediaBase64.replace(/^data:[^;]+;base64,/, '');
-      mediaBuffer = Buffer.from(cleaned, 'base64');
-    }
-
-    const result = await generateSocialContentWithGemini({
-      mediaBuffer,
-      mimeType,
-      userPrompt: effectivePrompt,
-      language: language as SupportedLanguage,
-      tone: tone as SupportedTone,
-      isMediaVideo,
+    const data = await generateSocialContentWithGemini({
+      ...options, userPrompt: context, mediaBuffer: bytes, mimeType, brand: access.brand,
     });
-
-    return NextResponse.json({
-      success: true,
-      data: result,
-      variants: result.platforms,
-    });
-  } catch (err: any) {
-    console.error('API /api/ai/generate error:', err);
-    return NextResponse.json(
-      { error: err.message || 'Internal server error generating AI captions' },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: true, data, variants: data.platforms, source: 'Gemini', hashtagSource: 'AI relevance' });
+  } catch {
+    return NextResponse.json({ error: 'Gemini could not generate captions. Verify the API configuration and quota, or try again.' }, { status: 502 });
   }
 }

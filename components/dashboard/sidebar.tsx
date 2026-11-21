@@ -62,13 +62,15 @@ export function Sidebar({
         {/* Brand Header */}
         <div className="flex h-16 items-center justify-between border-b border-border px-4">
           <Link href="/dashboard" className="flex items-center gap-2.5 overflow-hidden">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground font-bold text-sm">
-              S
-            </div>
+            <img
+              src="/icon.png"
+              alt="SocialFlow AI Logo"
+              className="h-8 w-8 rounded-lg object-contain shrink-0 shadow-sm"
+            />
             {!isCollapsed && (
               <div className="flex flex-col">
                 <span className="text-sm font-bold tracking-tight text-foreground">
-                  SocialSync AI
+                  SocialFlow AI
                 </span>
                 <span className="text-[10px] text-muted-foreground font-mono">
                   Publishing Engine

@@ -1,332 +1,130 @@
 import { createAdminClient } from '@/lib/supabase/admin';
-import { decryptToken } from '@/lib/security/encryption';
+import { decryptToken, encryptToken } from '@/lib/security/encryption';
 import { getPlatformAdapter } from '@/integrations';
-import { SocialPlatform, PostStatus } from '@/types';
+import { PublishResult } from '@/integrations/types';
+import { signMedia } from '@/lib/publishing/media';
+import { SocialPlatform } from '@/types';
 
-interface ExecutePublishOptions {
-  postId: string;
-  userId: string;
-  cookieAccounts?: any[];
-  postOverride?: any;
-  variantsOverride?: any[];
-  mediaUrlOverride?: string;
-  mediaTypeOverride?: 'image' | 'video';
-  targetPlatformsOverride?: SocialPlatform[];
+type Database = ReturnType<typeof createAdminClient>;
+export interface ClaimedJob {
+  id: string;
+  post_id: string;
+  user_id: string;
+  retry_count: number;
+  max_retries: number;
 }
 
-export interface PublishExecutionSummary {
-  postId: string;
-  totalTargets: number;
-  successCount: number;
-  failureCount: number;
-  results: Array<{
-    platform: SocialPlatform;
-    success: boolean;
-    externalPostId?: string;
-    externalPostUrl?: string;
-    errorMessage?: string;
-    actionRequired?: string;
-  }>;
+type Account = {
+  id: string;
+  user_id: string;
+  platform: SocialPlatform;
+  status: string;
+  external_account_id: string;
+  encrypted_access_token: string;
+  encrypted_refresh_token?: string;
+  token_expires_at?: string;
+  metadata?: Record<string, unknown>;
+};
+
+export async function getAccountAccessToken(db: Database, account: Account) {
+  if (!account.token_expires_at || Date.parse(account.token_expires_at) > Date.now() + 60_000) {
+    return decryptToken(account.encrypted_access_token);
+  }
+  const adapter = getPlatformAdapter(account.platform);
+  if (!adapter.refreshAccessToken || !account.encrypted_refresh_token) return null;
+  const refreshed = await adapter.refreshAccessToken(decryptToken(account.encrypted_refresh_token));
+  if (!refreshed.accessToken) return null;
+  const { data, error } = await db.from('social_accounts').update({
+    encrypted_access_token: encryptToken(refreshed.accessToken),
+    ...(refreshed.refreshToken ? { encrypted_refresh_token: encryptToken(refreshed.refreshToken) } : {}),
+    token_expires_at: refreshed.expiresInSeconds ? new Date(Date.now() + refreshed.expiresInSeconds * 1000).toISOString() : null,
+    updated_at: new Date().toISOString(),
+  }).eq('id', account.id).eq('status', 'active').eq('encrypted_access_token', account.encrypted_access_token).select('id');
+  if (error || !data.length) return null;
+  return refreshed.accessToken;
 }
 
-/**
- * Core publishing engine that resolves accounts, decrypts credentials,
- * calls official provider adapters, and logs immutable publishing attempts.
- */
-export async function executePostPublishing({
-  postId,
-  userId,
-  cookieAccounts,
-  postOverride,
-  variantsOverride,
-  mediaUrlOverride,
-  mediaTypeOverride,
-  targetPlatformsOverride,
-}: ExecutePublishOptions): Promise<PublishExecutionSummary> {
-  const supabase = createAdminClient();
+const eligible = ['draft', 'ready', 'approved', 'scheduled', 'pending_approval', 'failed', 'reauthorization_required'];
 
-  // 1. Fetch Post, Variants, Targets, and Media Asset
-  let post = postOverride;
-  if (!post) {
-    try {
-      const { data, error: postErr } = await supabase
-        .from('posts')
-        .select(`
-          *,
-          media:media_assets(*),
-          variants:post_variants(*),
-          targets:post_targets(
-            *,
-            account:social_accounts(*)
-          )
-        `)
-        .eq('id', postId)
-        .eq('user_id', userId)
-        .single();
-      if (!postErr && data) post = data;
-    } catch (e) {
-      console.warn('Could not query post from Supabase, attempting fallback:', e);
-    }
-  }
+export async function executePostPublishing(db: Database, job: ClaimedJob) {
+  const { data: post, error } = await db.from('posts')
+    .select('*, media:media_assets(*), variants:post_variants(*), targets:post_targets(*, account:social_accounts(*))')
+    .eq('id', job.post_id).eq('user_id', job.user_id).single();
+  if (error || !post) throw new Error('Could not load the queued post');
 
-  if (!post) {
-    post = {
-      id: postId,
-      user_id: userId,
-      title: 'SocialSync Post',
-      publishing_mode: 'automatic',
-      targets: (targetPlatformsOverride || []).map((p) => ({ platform: p, id: `tgt_${p}` })),
-      variants: variantsOverride || [],
-    };
-  }
-
-  // Update status to 'publishing' in DB if available
-  try {
-    await supabase
-      .from('posts')
-      .update({ status: 'publishing' as PostStatus, updated_at: new Date().toISOString() })
-      .eq('id', postId);
-  } catch {}
-
-  const targets = (post.targets && post.targets.length > 0)
-    ? post.targets
-    : (targetPlatformsOverride || []).map((p) => ({ platform: p, id: `tgt_${p}` }));
-  const variants = (post.variants && post.variants.length > 0) ? post.variants : (variantsOverride || []);
   const media = post.media;
+  const mediaUrl = media?.user_id === job.user_id
+    ? await signMedia(media.file_path, job.user_id).catch(() => undefined)
+    : undefined;
 
-  const results: PublishExecutionSummary['results'] = [];
-  let successCount = 0;
-  let failureCount = 0;
+  const targetStatuses = job.retry_count > 0 ? ['scheduled'] : eligible;
+  const results = await Promise.all(post.targets.filter((target: { status: string }) => targetStatuses.includes(target.status))
+    .map(async (target: { id: string; platform: SocialPlatform; account: Account | null }) => {
+      const claimed = await db.from('post_targets').update({ status: 'publishing', updated_at: new Date().toISOString() })
+        .eq('id', target.id).eq('post_id', post.id).in('status', eligible).select('id').maybeSingle();
+      if (claimed.error) throw claimed.error;
+      if (!claimed.data) return false;
 
-  for (const target of targets) {
-    const platform = target.platform as SocialPlatform;
-    let account = target.account;
-
-    // If account was not resolved through DB join, check social_accounts table directly
-    if (!account) {
-      try {
-        const { data: dbAcc } = await supabase
-          .from('social_accounts')
-          .select('*')
-          .eq('user_id', userId)
-          .eq('platform', platform)
-          .eq('status', 'active')
-          .maybeSingle();
-        if (dbAcc) account = dbAcc;
-      } catch {}
-    }
-
-    // Check cookie fallback if still not found (only accept accounts with tokens)
-    if (!account && cookieAccounts) {
-      const ca = cookieAccounts.find((a: any) => a.platform === platform);
-      if (ca && (ca.encrypted_access_token || ca.accessToken)) {
-        account = ca;
-      }
-    }
-
-    if (!account) {
-      const err = `No connected account found for ${platform.toUpperCase()}. Connect your ${platform.toUpperCase()} account in the Authentication tab first.`;
-      results.push({ platform, success: false, errorMessage: err });
-      failureCount++;
-      continue;
-    }
-
-    // Match variant for platform (or fallback to any available variant)
-    const variant = variants.find((v: any) => v.platform === platform) || variants[0];
-    const captionText = variant ? variant.caption : post.title || 'SocialSync AI Update';
-    const hashtags = variant?.hashtags ? variant.hashtags.map((h: string) => (h.startsWith('#') ? h : `#${h}`)).join(' ') : '';
-    const fullText = hashtags ? `${captionText}\n\n${hashtags}` : captionText;
-
-    // Check Manual Approval requirement: if in manual mode, verify variant approval
-    if (post.publishing_mode === 'manual_approval' && variant && !variant.is_approved) {
-      const err = `Manual approval required: Variant for ${platform} has not been approved.`;
-      results.push({
-        platform,
-        success: false,
-        errorMessage: err,
-        actionRequired: 'Review and click Approve in Approval Center before publishing.',
-      });
-      failureCount++;
-      continue;
-    }
-
-    try {
-      // Decrypt stored access token or use raw token
-      let accessToken = account.accessToken || '';
-      if (!accessToken && account.encrypted_access_token) {
-        try {
-          accessToken = decryptToken(account.encrypted_access_token);
-        } catch (decErr) {
-          console.warn(`Failed to decrypt access token for platform ${platform}:`, decErr);
-        }
-      }
-
-      if (!accessToken) {
-        const err = `No active access token available for ${platform.toUpperCase()}. Please click '+ Connect ${platform.toUpperCase()}' in the Authentication tab to authorize.`;
-        results.push({ platform, success: false, errorMessage: err });
-        failureCount++;
-        continue;
-      }
-
-      const adapter = getPlatformAdapter(platform);
-
-      // Resolve signed or public URL for media if present
-      let mediaUrl: string | undefined = mediaUrlOverride;
-      let resolvedMediaType = mediaTypeOverride || (media?.media_type === 'video' ? 'video' : 'image');
-
-      if (!mediaUrl && media?.file_path) {
-        if (media.file_path.startsWith('http')) {
-          mediaUrl = media.file_path;
+      const platform = target.platform;
+      const account = target.account;
+      const variant = post.variants.filter((item: { platform: string }) => item.platform === platform)
+        .sort((a: { version: number }, b: { version: number }) => b.version - a.version)[0];
+      let result: PublishResult = { success: false, errorMessage: 'An approved platform caption is required.' };
+      let ambiguous = false;
+      let stagingFailure = false;
+      if (variant && variant.caption && (post.publishing_mode === 'automatic' || variant.is_approved)) {
+        if (!account || account.user_id !== job.user_id || account.status !== 'active' || account.platform !== platform) {
+          result = { success: false, errorCode: 'RECONNECT', errorMessage: 'Reconnect the destination account before retrying.' };
+        } else if (post.media_asset_id && !mediaUrl || platform === 'youtube' && media?.media_type !== 'video' ||
+                   platform === 'instagram' && !mediaUrl) {
+          result = { success: false, errorMessage: 'The required uploaded media is missing or unavailable.' };
         } else {
-          try {
-            const { data: signedData } = await supabase.storage
-              .from('media-assets')
-              .createSignedUrl(media.file_path, 86400);
-            mediaUrl = signedData?.signedUrl;
-          } catch {}
-        }
-      }
-
-      if (!mediaUrl && post.media_asset_id) {
-        try {
-          const { data: ma } = await supabase
-            .from('media_assets')
-            .select('file_path, media_type')
-            .eq('id', post.media_asset_id)
-            .maybeSingle();
-          if (ma) {
-            if (!mediaTypeOverride && ma.media_type) {
-              resolvedMediaType = ma.media_type === 'video' ? 'video' : 'image';
-            }
-            if (ma.file_path.startsWith('http')) {
-              mediaUrl = ma.file_path;
-            } else {
-              const { data: signedData } = await supabase.storage
-                .from('media-assets')
-                .createSignedUrl(ma.file_path, 86400);
-              mediaUrl = signedData?.signedUrl;
+          const token = await getAccountAccessToken(db, account).catch(() => null);
+          if (!token) {
+            result = { success: false, errorCode: 'RECONNECT', errorMessage: 'The connection expired. Reconnect the account and retry.' };
+          } else {
+            const tags = (variant.hashtags as string[] | null) ?? [];
+            const text = [variant.caption, tags.map((tag) => tag.startsWith('#') ? tag : '#' + tag).join(' ')]
+              .filter(Boolean).join('\n\n');
+            try {
+              result = await getPlatformAdapter(platform).publish({
+                text, title: variant.title || post.title,
+                tags: platform === 'youtube' && variant.keywords?.length ? variant.keywords : tags, mediaUrl,
+                mediaType: media?.media_type === 'video' ? 'video' : mediaUrl ? 'image' : undefined,
+                accessToken: token, accountId: account.external_account_id, metadata: account.metadata,
+              });
+              stagingFailure = Boolean(result.errorCode?.match(/^(?:IG_CONTAINER_FAILED_5\d\d|YOUTUBE_INIT_FAILED_5\d\d|MEDIA_DOWNLOAD_FAILED)$/));
+              ambiguous = (!stagingFailure && Boolean(result.errorCode?.match(/(?:EXCEPTION|NETWORK_ERROR|_5\d\d)$/))) ||
+                Boolean(result.success && !result.externalPostId);
+            } catch {
+              ambiguous = true;
             }
           }
-        } catch {}
-      }
-
-      // Execute publish through official platform adapter
-      const publishResult = await adapter.publish({
-        text: fullText,
-        title: variant?.title || post.title || undefined,
-        mediaUrl,
-        mediaType: resolvedMediaType,
-        tags: variant?.hashtags || [],
-        accessToken,
-        accountId: account.external_account_id,
-        metadata: account.metadata,
-      });
-
-      // Record immutable publishing attempt in database if available
-      try {
-        await supabase.from('publishing_attempts').insert({
-          post_id: postId,
-          social_account_id: account.id || null,
-          platform,
-          status: publishResult.success ? ('published' as PostStatus) : ('failed' as PostStatus),
-          error_code: publishResult.errorCode || null,
-          error_message: publishResult.errorMessage || null,
-          external_post_id: publishResult.externalPostId || null,
-          external_post_url: publishResult.externalPostUrl || null,
-        });
-
-        if (target.id && !target.id.startsWith('tgt_')) {
-          await supabase
-            .from('post_targets')
-            .update({
-              status: publishResult.success ? ('published' as PostStatus) : ('failed' as PostStatus),
-              external_post_id: publishResult.externalPostId || null,
-              external_post_url: publishResult.externalPostUrl || null,
-              error_message: publishResult.errorMessage || null,
-              published_at: publishResult.success ? new Date().toISOString() : null,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', target.id);
         }
-      } catch {}
-
-      if (publishResult.success) {
-        successCount++;
-        results.push({
-          platform,
-          success: true,
-          externalPostId: publishResult.externalPostId,
-          externalPostUrl: publishResult.externalPostUrl,
-        });
-      } else {
-        failureCount++;
-        results.push({
-          platform,
-          success: false,
-          errorMessage: publishResult.errorMessage,
-          actionRequired: publishResult.actionRequired,
-        });
       }
-    } catch (err: any) {
-      failureCount++;
-      const errMsg = err.message || 'Unexpected publishing exception';
-
-      await supabase.from('publishing_attempts').insert({
-        post_id: postId,
-        social_account_id: account.id,
-        platform,
-        status: 'failed' as PostStatus,
-        error_message: errMsg,
+      const limited = Boolean(result.errorCode?.endsWith('_429'));
+      const retryable = limited || stagingFailure;
+      const reconnect = result.errorCode === 'RECONNECT' || result.errorCode?.endsWith('_401');
+      const status = ambiguous ? 'processing' : result.success ? 'published' : reconnect ? 'reauthorization_required' : 'failed';
+      const message = ambiguous ? 'Provider outcome is unknown. Check the destination before posting again.' :
+        limited ? 'Provider rate limit reached.' : stagingFailure ? 'Temporary failure while preparing the media.' :
+        reconnect ? 'Reconnect the destination and retry.' :
+        result.success ? null : (result.actionRequired || (result.errorCode
+          ? 'Provider rejected this post (' + result.errorCode + '). Check permissions and media requirements.'
+          : result.errorMessage || 'Provider rejected this post.'));
+      const recorded = await db.rpc('record_publishing_result', {
+        job: job.id, target_id: target.id, result: {
+          status, error_code: result.errorCode, error_message: message, retryable,
+          external_post_id: result.externalPostId, external_post_url: result.externalPostUrl,
+        },
       });
+      if (recorded.error) throw recorded.error;
+      return retryable;
+    }));
 
-      await supabase
-        .from('post_targets')
-        .update({
-          status: 'failed' as PostStatus,
-          error_message: errMsg,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', target.id);
-
-      results.push({
-        platform,
-        success: false,
-        errorMessage: errMsg,
-      });
-    }
-  }
-
-  // Update final overall post status
-  let finalStatus: PostStatus = 'published';
-  if (successCount === 0 && failureCount > 0) {
-    finalStatus = 'failed';
-  } else if (failureCount > 0 && successCount > 0) {
-    finalStatus = 'published'; // Partial success
-  }
-
-  await supabase
-    .from('posts')
-    .update({
-      status: finalStatus,
-      published_at: successCount > 0 ? new Date().toISOString() : null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', postId);
-
-  // Send notification to user
-  await supabase.from('notifications').insert({
-    user_id: userId,
-    title: finalStatus === 'published' ? 'Post Published Successfully' : 'Publishing Warning / Failure',
-    message: `Post completed with ${successCount} published and ${failureCount} failed across connected channels.`,
-    type: finalStatus === 'published' ? 'success' : 'error',
-    link: `/dashboard/history?post=${postId}`,
-  });
-
-  return {
-    postId,
-    totalTargets: targets.length,
-    successCount,
-    failureCount,
-    results,
-  };
+  const retry = results.some(Boolean) && job.retry_count < job.max_retries;
+  const nextRun = retry ? new Date(Date.now() + 60_000 * 2 ** job.retry_count).toISOString() : null;
+  const finished = await db.rpc('finish_publishing_job', { job: job.id, next_run: nextRun });
+  if (finished.error) throw finished.error;
+  return { jobId: job.id, postId: job.post_id, retryAt: nextRun, status: finished.data };
 }

@@ -1,3 +1,4 @@
+import { readMetaPermissions } from '../meta-permissions';
 import { PlatformAdapter, OAuthUrlParams, OAuthTokenResult, PublishRequest, PublishResult } from '../types';
 
 export class FacebookAdapter implements PlatformAdapter {
@@ -23,6 +24,7 @@ export class FacebookAdapter implements PlatformAdapter {
       'public_profile',
     ];
 
+    if (process.env.META_ENABLE_INSIGHTS === "true") scopes.push("read_insights");
     const params = new URLSearchParams({
       client_id: this.appId,
       redirect_uri: redirectUri,
@@ -31,7 +33,7 @@ export class FacebookAdapter implements PlatformAdapter {
       scope: scopes.join(','),
     });
 
-    return `https://www.facebook.com/v21.0/dialog/oauth?${params.toString()}`;
+    return `https://www.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/dialog/oauth?${params.toString()}`;
   }
 
   async exchangeCodeForToken(code: string, redirectUri: string): Promise<OAuthTokenResult> {
@@ -42,7 +44,7 @@ export class FacebookAdapter implements PlatformAdapter {
       code: code,
     });
 
-    const tokenRes = await fetch(`https://graph.facebook.com/v21.0/oauth/access_token?${params.toString()}`);
+    const tokenRes = await fetch(`https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/oauth/access_token?${params.toString()}`);
     if (!tokenRes.ok) {
       const err = await tokenRes.text();
       throw new Error(`Facebook OAuth Token Exchange Failed: ${tokenRes.status} - ${err}`);
@@ -59,13 +61,14 @@ export class FacebookAdapter implements PlatformAdapter {
       fb_exchange_token: userAccessToken,
     });
 
-    const longLivedRes = await fetch(`https://graph.facebook.com/v21.0/oauth/access_token?${longLivedParams.toString()}`);
+    const longLivedRes = await fetch(`https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/oauth/access_token?${longLivedParams.toString()}`);
     const longLivedData = longLivedRes.ok ? await longLivedRes.json() : tokenData;
     const finalUserToken = longLivedData.access_token || userAccessToken;
 
+    const grantedScopes = await readMetaPermissions(finalUserToken, ["pages_show_list", "pages_read_engagement", "pages_manage_posts"]);
     // Discover Facebook Pages managed by user
     const pagesRes = await fetch(
-      `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,access_token,category,picture&access_token=${finalUserToken}`
+      `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/me/accounts?fields=id,name,access_token,category,picture,tasks&access_token=${finalUserToken}`
     );
 
     if (!pagesRes.ok) {
@@ -78,7 +81,9 @@ export class FacebookAdapter implements PlatformAdapter {
     }
 
     // Select primary page (or first available)
-    const primaryPage = pagesData.data[0];
+    const primaryPage = pagesData.data.find((page: { access_token?: string; tasks?: string[] }) =>
+      page.access_token && page.tasks?.some((task) => task === "CREATE_CONTENT" || task === "MANAGE"));
+    if (!primaryPage) throw new Error("No Facebook Page grants content publishing access");
     const pageAccessToken = primaryPage.access_token;
     const pageId = primaryPage.id;
     const pageName = primaryPage.name;
@@ -86,20 +91,19 @@ export class FacebookAdapter implements PlatformAdapter {
 
     return {
       accessToken: pageAccessToken, // Use Page Access Token so publishing is perpetual and authorized for the Page
-      refreshToken: finalUserToken, // Save user token in refresh slot
       expiresInSeconds: 0, // Page tokens obtained from 60-day user tokens do not expire
       externalAccountId: pageId,
       accountName: `${pageName} (Page)`,
       accountHandle: `@${pageName.replace(/\s+/g, '').toLowerCase()}`,
       avatarUrl,
-      grantedScopes: ['pages_show_list', 'pages_read_engagement', 'pages_manage_posts'],
-      rawMetadata: { pageId, pageName, allPages: pagesData.data },
+      grantedScopes,
+      rawMetadata: { pageId, pageName },
     };
   }
 
   async validateToken(accessToken: string, accountId: string): Promise<boolean> {
     try {
-      const res = await fetch(`https://graph.facebook.com/v21.0/${accountId}?fields=id,name&access_token=${accessToken}`);
+      const res = await fetch(`https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${accountId}?fields=id,name&access_token=${accessToken}`);
       return res.ok;
     } catch {
       return false;
@@ -110,18 +114,56 @@ export class FacebookAdapter implements PlatformAdapter {
     const { text, mediaUrl, mediaType, accessToken, accountId } = request;
 
     try {
-      let endpoint = `https://graph.facebook.com/v21.0/${accountId}/feed`;
+      let endpoint = `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${accountId}/feed`;
       const bodyParams = new URLSearchParams({
         access_token: accessToken,
       });
 
       if (mediaUrl) {
         if (mediaType === 'video') {
-          endpoint = `https://graph.facebook.com/v21.0/${accountId}/videos`;
+          endpoint = `https://graph-video.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${accountId}/videos`;
           bodyParams.append('description', text);
           bodyParams.append('file_url', mediaUrl);
+        } else if (mediaUrl.startsWith('data:')) {
+          endpoint = `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${accountId}/photos`;
+          const commaIdx = mediaUrl.indexOf(',');
+          const header = mediaUrl.substring(0, commaIdx);
+          const b64 = mediaUrl.substring(commaIdx + 1);
+          let mime = 'image/jpeg';
+          const mimeMatch = header.match(/data:([^;]+)/);
+          if (mimeMatch) mime = mimeMatch[1];
+          const buf = Buffer.from(b64, 'base64');
+          const blob = new Blob([buf], { type: mime });
+          const formData = new FormData();
+          formData.append('access_token', accessToken);
+          formData.append('caption', text);
+          formData.append('source', blob, 'post-image.jpg');
+
+          const res = await fetch(endpoint, {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (!res.ok) {
+            const errJson = await res.json().catch(() => ({}));
+            return {
+              success: false,
+              errorCode: `FB_PUBLISH_FAILED_${res.status}`,
+              errorMessage: errJson.error?.message || `Facebook publishing failed with status ${res.status}`,
+              rawResponse: errJson,
+            };
+          }
+
+          const data = await res.json();
+          const postId = data.post_id || data.id;
+          return {
+            success: true,
+            externalPostId: postId,
+            externalPostUrl: `https://www.facebook.com/${postId}`,
+            rawResponse: data,
+          };
         } else {
-          endpoint = `https://graph.facebook.com/v21.0/${accountId}/photos`;
+          endpoint = `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${accountId}/photos`;
           bodyParams.append('caption', text);
           bodyParams.append('url', mediaUrl);
         }
@@ -150,7 +192,7 @@ export class FacebookAdapter implements PlatformAdapter {
       }
 
       const data = await res.json();
-      const postId = data.id || data.post_id;
+      const postId = data.post_id || data.id;
       const externalPostUrl = `https://www.facebook.com/${postId}`;
 
       return {

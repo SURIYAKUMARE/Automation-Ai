@@ -1,3 +1,4 @@
+import { authorizeAI } from '@/lib/ai/request';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { generateSocialContentWithGemini } from '@/lib/ai/gemini';
@@ -7,6 +8,8 @@ const SummarizeSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  const access = await authorizeAI(req);
+  if (access.response) return access.response;
   try {
     const json = await req.json();
     const parsed = SummarizeSchema.safeParse(json);
@@ -16,6 +19,7 @@ export async function POST(req: NextRequest) {
 
     const { content } = parsed.data;
     const result = await generateSocialContentWithGemini({
+      brand: access.brand,
       userPrompt: `Summarize this text into a concise, high-impact social media takeaway:\n\n${content}`,
     });
 
@@ -23,7 +27,7 @@ export async function POST(req: NextRequest) {
       success: true,
       summary: result.summary,
       keyTakeaways: result.topics,
-      socialPost: result.platforms.linkedin.caption,
+      socialPost: result.platforms.linkedin!.caption,
     });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

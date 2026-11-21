@@ -186,7 +186,7 @@ export function Header({
           {profileOpen && (
             <div className="absolute right-0 mt-2 w-52 rounded-lg border border-border bg-card p-2 shadow-lg z-50 animate-in fade-in zoom-in-95 duration-100">
               <div className="border-b border-border px-2.5 py-1.5">
-                <p className="text-xs font-semibold text-foreground">SocialSync Admin</p>
+                <p className="text-xs font-semibold text-foreground">SocialFlow Admin</p>
                 <p className="text-[11px] text-muted-foreground font-mono truncate">admin@socialsync.ai</p>
               </div>
               <div className="py-1">

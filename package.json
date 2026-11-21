@@ -1,14 +1,16 @@
 {
-  "name": "socialsync-ai",
+  "name": "socialflow-ai",
   "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint app components integrations lib types",
     "typecheck": "tsc --noEmit",
-    "test": "node --test tests/unit/*.test.js"
+    "test": "node --test tests/unit/*.test.js tests/integration/*.test.cjs",
+    "test:e2e": "node --test tests/e2e/*.test.cjs",
+    "worker": "node --env-file-if-exists=.env.local scripts/publishing-worker.cjs"
   },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
@@ -19,24 +21,31 @@
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
-    "lucide-react": "^0.454.0",
-    "next": "14.2.15",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
+    "lucide-react": "0.577.0",
+    "next": "16.4.6",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "react-hook-form": "^7.53.1",
     "recharts": "^2.13.3",
     "sonner": "^1.7.0",
     "tailwind-merge": "^2.5.4",
-    "zod": "^3.23.8"
+    "zod": "4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.17",
     "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^20.17.6",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "autoprefixer": "^10.4.20",
-    "postcss": "^8.4.47",
+    "eslint": "9.39.5",
+    "eslint-config-next": "16.4.6",
+    "playwright": "1.65.1",
+    "postcss": "8.5.33",
     "tailwindcss": "^3.4.14",
     "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

@@ -19,9 +19,9 @@ import { toast } from "sonner";
 export default function SecuritySettingsPage() {
   const securityAudits = [
     { title: "AES-256-GCM Token Encryption", status: "Active", desc: "All OAuth tokens encrypted with 32-byte cryptographic key at rest" },
-    { title: "Supabase Row Level Security (RLS)", status: "Active", desc: "12 tables isolated per user; client queries cannot view other tenant records" },
+    { title: "Supabase Row Level Security (RLS)", status: "Active", desc: "Server-managed records are scoped to the signed-in account" },
     { title: "Zero Password Architecture", status: "Enforced", desc: "No social media user passwords ever requested or collected" },
-    { title: "CSRF & HMAC State Nonce", status: "Active", desc: "OAuth state tokens cryptographically signed to prevent CSRF attacks" },
+    { title: "OAuth State Validation", status: "Active", desc: "OAuth callbacks match short-lived, browser-bound state values" },
   ];
 
   return (

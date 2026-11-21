@@ -1,3 +1,4 @@
+import { readMetaPermissions } from '../meta-permissions';
 import { PlatformAdapter, OAuthUrlParams, OAuthTokenResult, PublishRequest, PublishResult } from '../types';
 
 export class InstagramAdapter implements PlatformAdapter {
@@ -23,6 +24,7 @@ export class InstagramAdapter implements PlatformAdapter {
       'pages_read_engagement',
     ];
 
+    if (process.env.META_ENABLE_INSIGHTS === "true") scopes.push("instagram_manage_insights", "read_insights");
     const params = new URLSearchParams({
       client_id: this.appId,
       redirect_uri: redirectUri,
@@ -31,7 +33,7 @@ export class InstagramAdapter implements PlatformAdapter {
       scope: scopes.join(','),
     });
 
-    return `https://www.facebook.com/v21.0/dialog/oauth?${params.toString()}`;
+    return `https://www.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/dialog/oauth?${params.toString()}`;
   }
 
   async exchangeCodeForToken(code: string, redirectUri: string): Promise<OAuthTokenResult> {
@@ -42,7 +44,7 @@ export class InstagramAdapter implements PlatformAdapter {
       code: code,
     });
 
-    const tokenRes = await fetch(`https://graph.facebook.com/v21.0/oauth/access_token?${params.toString()}`);
+    const tokenRes = await fetch(`https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/oauth/access_token?${params.toString()}`);
     if (!tokenRes.ok) {
       const err = await tokenRes.text();
       throw new Error(`Meta OAuth Token Exchange Failed: ${tokenRes.status} - ${err}`);
@@ -59,13 +61,14 @@ export class InstagramAdapter implements PlatformAdapter {
       fb_exchange_token: userAccessToken,
     });
 
-    const longLivedRes = await fetch(`https://graph.facebook.com/v21.0/oauth/access_token?${longLivedParams.toString()}`);
+    const longLivedRes = await fetch(`https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/oauth/access_token?${longLivedParams.toString()}`);
     const longLivedData = longLivedRes.ok ? await longLivedRes.json() : tokenData;
     const finalAccessToken = longLivedData.access_token || userAccessToken;
 
+    const grantedScopes = await readMetaPermissions(finalAccessToken, ["pages_show_list", "instagram_basic", "instagram_content_publish"]);
     // Discover connected Instagram Business / Creator account via Facebook Pages
     const pagesRes = await fetch(
-      `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,instagram_business_account{id,username,profile_picture_url}&access_token=${finalAccessToken}`
+      `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/me/accounts?fields=id,name,tasks,instagram_business_account{id,username,profile_picture_url}&access_token=${finalAccessToken}`
     );
 
     if (!pagesRes.ok) {
@@ -77,7 +80,7 @@ export class InstagramAdapter implements PlatformAdapter {
 
     if (pagesData.data && pagesData.data.length > 0) {
       for (const page of pagesData.data) {
-        if (page.instagram_business_account) {
+        if (page.instagram_business_account && page.tasks?.some((task: string) => task === "CREATE_CONTENT" || task === "MANAGE")) {
           igAccount = page.instagram_business_account;
           break;
         }
@@ -97,14 +100,14 @@ export class InstagramAdapter implements PlatformAdapter {
       accountName: igAccount.username || 'Instagram Professional',
       accountHandle: `@${igAccount.username}`,
       avatarUrl: igAccount.profile_picture_url,
-      grantedScopes: ['instagram_basic', 'instagram_content_publish'],
+      grantedScopes,
       rawMetadata: igAccount,
     };
   }
 
   async validateToken(accessToken: string, accountId: string): Promise<boolean> {
     try {
-      const res = await fetch(`https://graph.facebook.com/v21.0/${accountId}?fields=id,username&access_token=${accessToken}`);
+      const res = await fetch(`https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${accountId}?fields=id,username&access_token=${accessToken}`);
       return res.ok;
     } catch {
       return false;
@@ -138,7 +141,7 @@ export class InstagramAdapter implements PlatformAdapter {
       }
 
       const createRes = await fetch(
-        `https://graph.facebook.com/v21.0/${accountId}/media`,
+        `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${accountId}/media`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -173,7 +176,7 @@ export class InstagramAdapter implements PlatformAdapter {
         await new Promise((r) => setTimeout(r, 2000));
 
         const statusRes = await fetch(
-          `https://graph.facebook.com/v21.0/${creationId}?fields=status_code&access_token=${accessToken}`
+          `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${creationId}?fields=status_code&access_token=${accessToken}`
         );
 
         if (statusRes.ok) {
@@ -197,7 +200,7 @@ export class InstagramAdapter implements PlatformAdapter {
       });
 
       const publishRes = await fetch(
-        `https://graph.facebook.com/v21.0/${accountId}/media_publish`,
+        `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${accountId}/media_publish`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -221,7 +224,7 @@ export class InstagramAdapter implements PlatformAdapter {
       // Step 4: Retrieve post permalink
       let permalink: string | undefined;
       const mediaInfoRes = await fetch(
-        `https://graph.facebook.com/v21.0/${mediaId}?fields=permalink&access_token=${accessToken}`
+        `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${mediaId}?fields=permalink&access_token=${accessToken}`
       );
       if (mediaInfoRes.ok) {
         const mediaInfo = await mediaInfoRes.json();

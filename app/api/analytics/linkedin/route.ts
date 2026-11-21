@@ -1,22 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getSessionUser } from '@/lib/auth/session';
+import { getPostMetrics } from '@/lib/publishing/metrics';
 
 export async function GET(req: NextRequest) {
-  return NextResponse.json({
-    success: true,
-    platform: 'linkedin',
-    metrics: {
-      networkFollowers: 2890,
-      impressions30d: 24320,
-      uniqueVisitors: 6420,
-      ctr: '4.6%',
-      averageReactionsPerPost: 48,
-      topPost: {
-        id: 'li_post_top',
-        title: 'Architecting Enterprise SaaS Multi-Channel Automation',
-        impressions: 4890,
-        reactions: 182,
-        comments: 44,
-      },
-    },
-  });
+  const user = await getSessionUser(req);
+  if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+  try {
+    const posts = (await getPostMetrics(user.id)).filter((post) => post.platform === 'linkedin');
+    return NextResponse.json({ success: true, platform: 'linkedin', posts });
+  } catch {
+    return NextResponse.json({ error: 'Provider metrics unavailable' }, { status: 503 });
+  }
 }

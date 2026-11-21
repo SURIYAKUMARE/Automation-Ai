@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { SocialPlatform } from "@/types";
+import { PlatformIcon } from "@/components/platform-icon";
 
 interface PendingApprovalItem {
   id: string;
@@ -79,8 +80,8 @@ export default function ApprovalCenterPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: "00000000-0000-0000-0000-000000000001",
           action: "approved",
+          captions: Object.fromEntries(Object.entries(editingCaptions).filter(([id]) => items.find((item) => item.id === postId)?.variants.some((variant) => variant.id === id))),
           publishImmediately: publishNow,
         }),
       });
@@ -89,7 +90,7 @@ export default function ApprovalCenterPage() {
       if (!res.ok) throw new Error(json.error || "Approval failed");
 
       toast.dismiss();
-      toast.success(publishNow ? "Post approved and published live!" : "Post approved for queue.");
+      toast.success(publishNow ? "Post approved and queued" : "Post approved");
       setItems((prev) => prev.filter((item) => item.id !== postId));
     } catch (err: any) {
       toast.dismiss();
@@ -107,7 +108,6 @@ export default function ApprovalCenterPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userId: "00000000-0000-0000-0000-000000000001",
           action: "rejected",
         }),
       });
@@ -185,13 +185,14 @@ export default function ApprovalCenterPage() {
                               [post.id]: v.platform,
                             }))
                           }
-                          className={`rounded-lg px-2.5 py-1 text-xs font-semibold capitalize transition-all ${
+                          className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold capitalize transition-all ${
                             currentTab === v.platform
                               ? "bg-primary text-primary-foreground shadow-sm"
                               : "bg-card text-muted-foreground hover:bg-accent"
                           }`}
                         >
-                          {v.platform}
+                          <PlatformIcon platform={v.platform} className="h-3.5 w-3.5" />
+                          <span>{v.platform}</span>
                         </button>
                       ))}
                     </div>

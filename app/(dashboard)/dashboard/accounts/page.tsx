@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { SocialPlatform } from "@/types";
+import { PlatformIcon } from "@/components/platform-icon";
 
 interface AccountDisplay {
   id: string;
@@ -87,7 +88,7 @@ export default function ConnectedAccountsPage() {
                   status: "active",
                   scopes: found.granted_scopes || acc.scopes,
                   lastValidated: found.last_validated_at ? new Date(found.last_validated_at).toLocaleDateString() : "Active",
-                  expiresInDays: found.expires_in_days || 60,
+                  expiresInDays: found.expires_in_days ?? undefined,
                 };
               }
               return {
@@ -125,17 +126,7 @@ export default function ConnectedAccountsPage() {
 
   const handleConnect = async (platform: SocialPlatform) => {
     toast.loading(`Redirecting to official ${platform.toUpperCase()} OAuth consent screen...`);
-    let userId = "00000000-0000-0000-0000-000000000001";
-    try {
-      const res = await fetch("/api/auth/session");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.user?.id) {
-          userId = data.user.id;
-        }
-      }
-    } catch {}
-    window.location.href = `/api/oauth/${platform}?userId=${encodeURIComponent(userId)}`;
+    window.location.assign(new URL(`/api/oauth/${platform}`, window.location.origin));
   };
 
   const handleDisconnect = async (accountId: string, platform: SocialPlatform) => {
@@ -207,7 +198,7 @@ export default function ConnectedAccountsPage() {
         <div className="space-y-1">
           <p className="font-semibold text-foreground">Zero-Password Architecture</p>
           <p>
-            Connect each platform manually below. SocialSync AI uses official OAuth 2.0 authorization flows. We never store or ask for your social media passwords.
+            Connect each platform manually below. SocialFlow AI uses official OAuth 2.0 authorization flows. We never store or ask for your social media passwords.
           </p>
         </div>
       </div>
@@ -221,8 +212,8 @@ export default function ConnectedAccountsPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent font-bold text-base capitalize">
-                      {acc.platform.charAt(0)}
+                    <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-accent/70 p-2 shadow-sm border border-border/60">
+                      <PlatformIcon platform={acc.platform} className="h-7 w-7" />
                     </div>
                     <div>
                       <CardTitle className="capitalize text-base flex items-center gap-2">

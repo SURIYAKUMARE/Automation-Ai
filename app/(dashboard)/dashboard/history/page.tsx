@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import {
   History as HistoryIcon,
   Search,
@@ -19,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { SocialPlatform, PostStatus } from "@/types";
+import { PlatformIcon } from "@/components/platform-icon";
 
 interface PostHistoryEntry {
   id: string;
@@ -55,7 +57,7 @@ export default function PostHistoryPage() {
               id: p.id,
               title: p.title || "Untitled Campaign",
               date: p.published_at || p.created_at ? new Date(p.published_at || p.created_at).toLocaleString() : "Recently",
-              status: p.status || "published",
+              status: p.status,
               mode: p.publishing_mode || "automatic",
               targets: (p.post_targets || []).map((t: any) => ({
                 platform: t.platform,
@@ -74,7 +76,27 @@ export default function PostHistoryPage() {
       }
     }
     loadHistory();
+    const refresh = window.setInterval(loadHistory, 8000);
+    return () => window.clearInterval(refresh);
   }, []);
+
+  const [pending, setPending] = React.useState("");
+  async function queuePost(post: PostHistoryEntry) {
+    setPending(post.id);
+    try {
+      const response = await fetch("/api/posts/publish", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ postId: post.id }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      setPosts((current) => current.map((item) => item.id === post.id ? { ...item, status: data.post.status } : item));
+      toast.success("Post queued");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not queue the post");
+    } finally {
+      setPending("");
+    }
+  }
 
   const filteredPosts = posts.filter((p) => {
     const matchesSearch = p.title.toLowerCase().includes(searchTerm.toLowerCase());
@@ -93,7 +115,7 @@ export default function PostHistoryPage() {
             Execution Logs
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Immutable audit record of all multi-platform publishing attempts, response IDs, and logs.
+            Track drafts, queued posts and publishing outcomes for each destination.
           </p>
         </div>
       </div>
@@ -175,17 +197,18 @@ export default function PostHistoryPage() {
                     </span>
                   </td>
                   <td className="p-3.5">
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1.5">
                       {post.targets.map((t, idx) => (
                         <div key={idx} className="flex items-center gap-1">
                           <span
-                            className={`rounded px-1.5 py-0.5 text-[10px] font-mono uppercase border ${
+                            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono uppercase border ${
                               t.status === "published"
                                 ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
                                 : "bg-rose-500/10 text-rose-400 border-rose-500/20"
                             }`}
                           >
-                            {t.platform}
+                            <PlatformIcon platform={t.platform} className="h-3 w-3" />
+                            <span>{t.platform}</span>
                           </span>
                           {t.externalPostUrl && (
                             <a
@@ -203,18 +226,16 @@ export default function PostHistoryPage() {
                     </div>
                   </td>
                   <td className="p-3.5">
-                    {post.status === "published" && (
-                      <Badge variant="success" dot className="text-[11px]">
-                        Published
-                      </Badge>
-                    )}
-                    {post.status === "failed" && (
-                      <Badge variant="error" dot className="text-[11px]">
-                        Failed
-                      </Badge>
-                    )}
+                    <Badge variant={post.status === "published" ? "success" : post.status === "failed" ? "error" : "outline"} dot className="text-[11px] capitalize">
+                      {post.status === "approved" ? "Approved" : post.status.replaceAll("_", " ")}
+                    </Badge>
                   </td>
                   <td className="p-3.5 text-right">
+                    {post.status === "draft" && <Link className="mr-2 text-sm underline" href={"/dashboard/create-post?draft=" + post.id}>Edit draft</Link>}
+                    {((post.status === "failed" && post.targets.some((target) => target.status === "failed" || target.status === "reauthorization_required")) || post.status === "approved") &&
+                      <Button variant="outline" size="sm" disabled={Boolean(pending)} onClick={() => void queuePost(post)}>
+                        {post.status === "failed" ? "Retry failed targets" : "Queue now"}
+                      </Button>}
                     <Button
                       variant="ghost"
                       size="sm"

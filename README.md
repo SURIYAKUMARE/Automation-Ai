@@ -1,177 +1,56 @@
-# SocialSync AI — Intelligent Multi-Platform Social Media Automation System
+# SocialFlow AI
 
-> **Final Year Major Project**  
-> **Lead Full-Stack & AI Engineer**: Jeffrey Rathinam  
-> **Institution**: Rathinam Group of Institutions  
-> **UI/UX Design Framework**: Google Stitch Design System  
-> **Tech Stack**: Next.js 14 (App Router), TypeScript, Tailwind CSS, Supabase (PostgreSQL, Auth, Storage, RLS), Google Gemini Multimodal AI, Official OAuth 2.0 (LinkedIn, YouTube, Instagram, Facebook).
+SocialFlow AI extends the existing Next.js dashboard and Supabase data model. Creators can upload media or start from text, generate and edit platform copy, save a draft, request approval, and queue a release. The publishing worker submits each destination independently and records its response in History.
 
----
+## Repository audit
 
-## 1. Executive Summary
+The existing project had account, studio, calendar, approval and analytics screens, a Supabase schema, Gemini generation, and four official provider adapters. It also had shared demo authentication, storage and post creation that could acknowledge failed writes, competing scheduler endpoints, credential-cookie fallbacks, and simulated calendar and analytics results. The implementation retains the dashboard and adapters, moves state transitions into Postgres, and routes provider publishing through one authenticated worker.
 
-**SocialSync AI** is a production-grade, multi-user autonomous social media distribution platform. Users upload visual media (posters, banners, flyers, videos, or reels) once. **Google Gemini Multimodal AI** inspects visual elements, extracts embedded typography via OCR, assesses sentiment and color aesthetics, and generates distinct, platform-optimized captions, titles, and hashtags for **LinkedIn, YouTube, Instagram, and Facebook**.
+## Local setup
 
-The system features two operational paradigms:
-1. **Mode A — Fully Automatic**: Upload → Vision Analysis → Multimodal Synthesis → Rule Validation → Queue → Autonomous Publish → Diagnostics.
-2. **Mode B — Manual Approval**: Upload → Synthesis → Human-in-the-Loop Review → Multi-Platform Editing → One-Click Authorization → Scheduled / Immediate Release.
+1. Use Node.js 24 and run `npm ci`.
+2. Copy `.env.example` to `.env.local` and set the server configuration. Generate unique random values for the session, token encryption and worker secrets.
+3. Apply the SQL migrations in `supabase/migrations` in filename order with the Supabase CLI. For an existing project, check its migration history first and apply only unapplied migrations. The second migration creates or makes the media bucket private, grants publishing functions to the service role, and extends the existing tables.
+4. Run `npm run dev`. In a second terminal, run `npm run worker`.
+5. Open `http://localhost:3000`. Create a Supabase account or sign in with Google, connect destinations, and open **Publish Now**.
+6. Add media or text context, choose the target platforms, and generate or write captions. Review each platform tab before sending to Approval Center, queuing immediately, or scheduling. Open **History** for confirmed outcomes and **Schedules** for editing, cancellation, and weekly occurrences.
 
----
+For a bucket provisioned on a project with a smaller storage limit, the provider limit takes precedence. The application accepts up to 15 MB for images and 100 MB for video on hosts that permit those request sizes. Videos are analyzed using a representative frame prepared by the browser.
 
-## 2. Google Stitch Design System Integration
+## Provider setup
 
-The application faithfully implements Google Stitch's SaaS design tokens and component specifications:
+Register the callback URL exactly as shown with the provider, using your deployed `APP_URL` as the origin. Google sign-in and the YouTube connection use separate grants.
 
-- **Color Tokens**:
-  - **Brand Accent**: Deep Indigo (`#4f46e5`, `#6366f1`) & Electric Violet (`#8b5cf6`, `#7c3aed`).
-  - **Dark Canvas (Obsidian)**: `#0b0f19` (Canvas), `#111827` (Card Surface), `#1e293b` (Raised Panels), `#1f2937` (Subtle Borders).
-  - **Light Canvas**: `#f8fafc` (Slate 50), `#ffffff` (Pure White Cards), `#e2e8f0` (Borders).
-  - **Status Tokens**: Emerald (`#10b981`), Amber (`#f59e0b`), Rose (`#ef4444`), Sky (`#3b82f6`).
-- **Typography & Numerals**: `Inter` font stack with `tabular-nums font-mono` for all KPIs, percentages, and timestamps.
-- **Component Geometry**: 8px buttons/inputs (`rounded-lg`), 12px cards (`rounded-xl`), 16px modals (`rounded-2xl`), 9999px status badges with animated pulse dots.
-- **Responsive Layout**: Desktop collapsible sidebar, sticky top header with multi-platform API health indicator, touch-optimized mobile drawers.
+| Provider | Callback path | Requirements and current coverage |
+| --- | --- | --- |
+| Google sign-in | `/api/auth/google/callback` | OAuth client for OpenID, email and profile. |
+| Facebook | `/api/oauth/facebook/callback` | Eligible Page, content-publishing Page task, and Meta access for `pages_show_list`, `pages_read_engagement`, and `pages_manage_posts`. Text, image and supported video. [Meta Page Feed](https://developers.facebook.com/docs/graph-api/reference/page/feed/) |
+| Instagram | `/api/oauth/instagram/callback` | Professional account linked to a managed Page. The adapter requests `instagram_basic` and `instagram_content_publish`. JPEG and supported MP4/MOV Reels. [Meta Content Publishing](https://developers.facebook.com/docs/instagram-platform/content-publishing/) |
+| LinkedIn | `/api/oauth/linkedin/callback` | LinkedIn sign-in and Share on LinkedIn product for member publishing. Text, JPEG and PNG. MP4 uses the existing legacy asset path and depends on provider access. Member analytics requires separately approved `r_member_postAnalytics`. [Posts API](https://learn.microsoft.com/en-us/linkedin/marketing/community-management/shares/posts-api) |
+| YouTube | `/api/oauth/youtube/callback` | YouTube Data API v3, an eligible channel, and `youtube.upload` plus `youtube.readonly`. Unverified upload projects may have visibility restricted by YouTube. [Video upload requirements](https://developers.google.com/youtube/data/reference/rest/v3/videos/insert) |
 
----
+Meta discovery connects the first eligible destination returned by the provider. Dedicated destination selection inside the provider connection flow and LinkedIn organization publishing are pending. Reconnect older cookie-only accounts and any account whose original grant has expired. Rotate the Gemini key and webhook verification tokens that appeared in source, and review older Facebook Page grants if the project used the old metadata storage. Keep the encryption key available if existing encrypted connection rows must be retained.
 
-## 3. High-Level Architecture
+Configure Gemini with a valid API key and model available for that project. Live caption generation requires quota. The YouTube chart requires an optional restricted server API key and covers only the entries YouTube returns for a region. Gemini hashtag suggestions are ranked by relevance and labeled separately. [Gemini structured outputs](https://ai.google.dev/gemini-api/docs/structured-output) · [YouTube chart](https://developers.google.com/youtube/data/reference/rest/v3/videos/list)
 
-```mermaid
-flowchart TD
-    User([User / Content Creator]) -->|Uploads Media / Custom Prompt| WebUI[Next.js App Router Web UI]
-    WebUI -->|Store Media| SupaStorage[Supabase Storage: media-assets]
-    WebUI -->|Extract & Synthesize| Gemini[Google Gemini 1.5 Multimodal AI]
-    
-    subgraph AI Engine
-        Gemini -->|Visual OCR & Scene Analysis| StructuredJSON[Zod Validated Platform Content]
-    end
+## Production deployment
 
-    StructuredJSON --> ModeDecision{Publishing Mode}
-    ModeDecision -->|Mode A: Fully Automatic| AutoEngine[Automation Guardrails Engine]
-    ModeDecision -->|Mode B: Manual Approval| ApprovalCenter[Approval Center UI]
-    
-    ApprovalCenter -->|User Approves / Edits| AutoEngine
-    
-    subgraph Security & Storage Layer
-        AutoEngine -->|Decrypt Token AES-256-GCM| TokenStore[(Supabase PostgreSQL + RLS)]
-    end
+- Apply migrations before starting the app. Keep a database backup and verify the service-role connection and media bucket using a staging project.
+- Use `npm ci && npm run build && npm start` on a Node host, or build the included Docker image. Configure HTTPS, the exact OAuth origin, and a proxy request-body limit above the allowed media size. Set platform API versions supported by your developer projects.
+- Run `npm run worker` as a supervised process, or call `POST /api/scheduler/execute` on a managed schedule with `Authorization: Bearer <CRON_SECRET>`. The database is the durable queue. Each worker call claims one due post. Parallel workers use row locks, and successful destinations are retained when other targets fail.
+- For rate-limit rejections and transient errors before the final provider submission, the worker schedules bounded exponential retries. For an unreconciled submission, History shows an unknown outcome and the destination must be checked before another attempt. Run multiple worker instances if queue latency requires it.
+- `GET /api/health` checks database access. Monitor worker uptime and queued and failed jobs. Production approval should include live OAuth, sandbox or designated test-account publishing, and metrics checks for each configured provider.
 
-    subgraph Official Platform Adapters
-        AutoEngine -->|UGC REST API| LinkedIn[LinkedIn Adapter]
-        AutoEngine -->|Resumable Data v3 API| YouTube[YouTube Adapter]
-        AutoEngine -->|Content Publishing Graph API| Instagram[Instagram Professional Adapter]
-        AutoEngine -->|Page Photo / Video Graph API| Facebook[Facebook Pages Adapter]
-    end
+## Test commands
 
-    LinkedIn --> AuditLog[(Publishing Attempts & Post Targets)]
-    YouTube --> AuditLog
-    Instagram --> AuditLog
-    Facebook --> AuditLog
-    AuditLog --> Analytics[Recharts Real Engagement Dashboard]
-```
-
----
-
-## 4. Database Schema (12 Tables with Strict RLS)
-
-```mermaid
-erDiagram
-    PROFILES ||--o{ SOCIAL_ACCOUNTS : owns
-    PROFILES ||--o{ MEDIA_ASSETS : uploads
-    PROFILES ||--o{ POSTS : creates
-    PROFILES ||--o{ AUTOMATION_RULES : configures
-    PROFILES ||--o{ NOTIFICATIONS : receives
-    PROFILES ||--o{ AUDIT_LOGS : records
-    POSTS ||--o{ POST_VARIANTS : contains
-    POSTS ||--o{ POST_TARGETS : routes_to
-    POSTS ||--o{ PUBLISHING_JOBS : schedules
-    POSTS ||--o{ APPROVALS : tracks
-    POST_TARGETS ||--o{ PUBLISHING_ATTEMPTS : logs
-    POST_TARGETS ||--o{ ANALYTICS_SNAPSHOTS : captures
-
-    PROFILES {
-        uuid id PK
-        text email
-        text full_name
-        text timezone
-    }
-    SOCIAL_ACCOUNTS {
-        uuid id PK
-        uuid user_id FK
-        text platform
-        text encrypted_access_token
-        text encrypted_refresh_token
-        text status
-    }
-    POSTS {
-        uuid id PK
-        uuid user_id FK
-        text publishing_mode
-        text status
-        timestamp scheduled_for
-    }
-    POST_VARIANTS {
-        uuid id PK
-        uuid post_id FK
-        text platform
-        text caption
-        text title
-        boolean is_approved
-    }
-```
-
----
-
-## 5. Security & Cryptographic Protocols
-
-1. **Token Encryption at Rest**:
-   - OAuth tokens are encrypted with `AES-256-GCM` using an initialization vector (IV) and authentication tag.
-   - Plaintext tokens are never stored in PostgreSQL and are never exposed to the client browser.
-2. **State Token CSRF Protection**:
-   - OAuth state parameters contain user ID, platform, timestamp, random nonce, and an `HMAC-SHA256` signature.
-3. **Database Tenant Isolation (RLS)**:
-   - Supabase Row Level Security ensures that users cannot query or mutate data belonging to other accounts.
-
----
-
-## 6. Official Social Media API Implementations
-
-| Platform | Official Endpoint | Minimum Approved Scopes | Media Formats |
-| :--- | :--- | :--- | :--- |
-| **LinkedIn** | `https://api.linkedin.com/v2/ugcPosts` | `openid, profile, email, w_member_social` | Images (JPEG/PNG), Video |
-| **YouTube** | `https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable` | `youtube.upload, youtube.readonly` | MP4, MOV, WEBM |
-| **Instagram** | `https://graph.facebook.com/v21.0/{ig-user-id}/media` | `instagram_basic, instagram_content_publish` | JPEG/PNG (4:5 to 1.91:1), Reels |
-| **Facebook** | `https://graph.facebook.com/v21.0/{page-id}/photos` | `pages_manage_posts, pages_read_engagement` | Text, Images, Videos |
-
-> **Note on Provider Approvals**: In accordance with Meta and LinkedIn developer policies, production publishing to accounts other than designated developer test users requires App Review submission. When credentials are not yet configured or an account is missing Page admin rights, the platform provides clear diagnostics and actionable instructions.
-
----
-
-## 7. Setup & Local Development
-
-### Prerequisites
-- Node.js `v20+` or `v24+`
-- Supabase project credentials
-- Google Gemini API key
-
-### Installation
-```bash
-# Clone and enter directory
-cd d:\Postgram
-
-# Copy environment variables template
-cp .env.example .env.local
-
-# Run TypeScript check
+```sh
+npm run lint
 npm run typecheck
-
-# Run Automated Unit Tests
 npm test
-
-# Run Next.js Production Build
 npm run build
-
-# Start Development Server
-npm run dev
+npx playwright install chromium
+npm run test:e2e
+npm audit
 ```
 
-Visit `http://localhost:3000` to access SocialSync AI.
+The database tests load both migrations in embedded PostgreSQL with local Supabase schema stubs. The end-to-end suite starts the built app and checks the API and a mobile-width Chromium session with mocked Supabase, Gemini and Facebook responses. Automated verification creates no live account connections or provider posts. Analytics displays observed metrics and follower or subscriber changes where supported. Video analysis uses a frame and does not transcribe audio.

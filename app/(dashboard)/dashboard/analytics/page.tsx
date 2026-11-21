@@ -1,215 +1,108 @@
 "use client";
 
-import * as React from "react";
-import Link from "next/link";
-import {
-  BarChart3,
-  TrendingUp,
-  Eye,
-  ThumbsUp,
-  Share2,
-  ShieldAlert,
-  ArrowRight,
-} from "lucide-react";
-import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-} from "recharts";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { useEffect, useState } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PlatformIcon } from "@/components/platform-icon";
+import { SocialPlatform } from "@/types";
+
+const metricKeys = ["views", "likes", "comments", "shares", "reach", "impressions"] as const;
+type Metric = typeof metricKeys[number];
+type Row = { id: string; title: string; platform: SocialPlatform; status: string; syncedAt: string | null; metrics: Record<Metric, number | null> };
+type Overview = { totalPosts: number; failedPosts: number; queuedPosts: number; connectedPlatforms: number };
+type Audience = { id: string; platform: SocialPlatform; name: string; count: number | null; change: number | null; since: string | null; observedOn: string | null; rounded: boolean };
 
 export default function AnalyticsPage() {
-  const [timeRange, setTimeRange] = React.useState("7d");
-  const [isLoading, setIsLoading] = React.useState(true);
-  const [overview, setOverview] = React.useState<any>(null);
-  const [connectedCount, setConnectedCount] = React.useState(0);
-
-  React.useEffect(() => {
-    async function loadAnalytics() {
-      try {
-        const [ovRes, accRes] = await Promise.all([
-          fetch("/api/analytics/overview"),
-          fetch("/api/accounts"),
-        ]);
-
-        if (ovRes.ok) {
-          const ovData = await ovRes.json();
-          setOverview(ovData.overview);
-        }
-
-        if (accRes.ok) {
-          const accData = await accRes.json();
-          const activeAccounts = (accData.accounts || []).filter((a: any) => a.status === "active");
-          setConnectedCount(activeAccounts.length);
-        }
-      } catch (err) {
-        console.error("Failed to load analytics:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    loadAnalytics();
+  const [days, setDays] = useState("30");
+  const [posts, setPosts] = useState<Row[]>([]);
+  const [overview, setOverview] = useState<Overview>();
+  const [rowsPending, setRowsPending] = useState(true);
+  const [error, setError] = useState("");
+  const [audience, setAudience] = useState<Audience[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/analytics/overview?days=" + days, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error();
+        setOverview((await response.json()).overview);
+      })
+      .catch(() => { if (!controller.signal.aborted) setError("Could not load the publishing summary."); });
+    return () => controller.abort();
+  }, [days]);
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/analytics/posts", { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error();
+        setPosts((await response.json()).posts);
+      })
+      .catch(() => { if (!controller.signal.aborted) setError("Could not load provider metrics."); })
+      .finally(() => { if (!controller.signal.aborted) setRowsPending(false); });
+    fetch("/api/analytics/accounts", { signal: controller.signal })
+      .then(async (response) => { if (response.ok) setAudience((await response.json()).accounts); })
+      .catch(() => {});
+    return () => controller.abort();
   }, []);
 
-  const totalImpressions = overview?.totalImpressions || 0;
-  const avgEngagement = overview?.averageEngagementRate || "0.0%";
-  const totalPosts = overview?.totalPosts || 0;
-  const totalReach = overview?.totalReach || 0;
-  const dailyActivity = overview?.dailyActivity || [];
-
+  const cards = [
+    ["Published posts", overview?.totalPosts], ["Posts with failures", overview?.failedPosts],
+    ["Scheduled or in progress", overview?.queuedPosts], ["Connected accounts", overview?.connectedPlatforms],
+  ] as const;
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <BarChart3 className="h-6 w-6 text-primary" />
-            Performance & Engagement Analytics
-          </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Aggregated multi-channel metrics retrieved from official platform APIs.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <select
-            value={timeRange}
-            onChange={(e) => setTimeRange(e.target.value)}
-            className="rounded-lg border border-input bg-card px-2.5 py-1.5 text-xs text-foreground"
-          >
-            <option value="7d">Last 7 Days</option>
-            <option value="30d">Last 30 Days</option>
-            <option value="90d">Last 90 Days</option>
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div><h1 className="text-2xl font-bold">Analytics</h1>
+          <p className="text-sm text-muted-foreground">Publishing outcomes and metrics from connected accounts.</p></div>
+        <label className="text-sm">Publishing summary
+          <select value={days} onChange={(event) => { setOverview(undefined); setDays(event.target.value); }} className="ml-2 rounded border bg-card p-2">
+            <option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option>
           </select>
-        </div>
+        </label>
       </div>
-
-      {connectedCount === 0 && (
-        <div className="rounded-xl border border-border bg-card p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
-          <div className="flex items-start gap-3">
-            <ShieldAlert className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" />
-            <div>
-              <p className="font-semibold text-foreground text-sm">No Accounts Connected</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Connect your official social accounts in the Authentication tab to stream live impressions, audience reach, and real-time engagement data.
-              </p>
-            </div>
-          </div>
-          <Link
-            href="/dashboard/accounts"
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-black text-white dark:bg-white dark:text-black font-semibold text-xs whitespace-nowrap hover:opacity-90 transition-opacity"
-          >
-            <span>Connect Accounts</span>
-            <ArrowRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
-      )}
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-border/80">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between text-muted-foreground text-xs">
-              <span>Total Reach / Impressions</span>
-              <Eye className="h-4 w-4 text-sky-400" />
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-2xl font-bold tracking-tight font-mono tabular-nums text-foreground">
-                {totalImpressions.toLocaleString()}
-              </span>
-              <span className="text-xs text-muted-foreground font-medium">live</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/80">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between text-muted-foreground text-xs">
-              <span>Avg Engagement Rate</span>
-              <TrendingUp className="h-4 w-4 text-indigo-400" />
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-2xl font-bold tracking-tight font-mono tabular-nums text-foreground">
-                {avgEngagement}
-              </span>
-              <span className="text-xs text-muted-foreground font-medium">rate</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/80">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between text-muted-foreground text-xs">
-              <span>Published Posts</span>
-              <ThumbsUp className="h-4 w-4 text-emerald-400" />
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-2xl font-bold tracking-tight font-mono tabular-nums text-foreground">
-                {totalPosts}
-              </span>
-              <span className="text-xs text-muted-foreground font-medium">posts</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/80">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between text-muted-foreground text-xs">
-              <span>Audience Reach</span>
-              <Share2 className="h-4 w-4 text-pink-400" />
-            </div>
-            <div className="mt-3 flex items-baseline gap-2">
-              <span className="text-2xl font-bold tracking-tight font-mono tabular-nums text-foreground">
-                {totalReach.toLocaleString()}
-              </span>
-              <span className="text-xs text-muted-foreground font-medium">users</span>
-            </div>
-          </CardContent>
-        </Card>
+      {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {cards.map(([title, count]) => <Card key={title}><CardContent className="p-4">
+          <p className="text-sm text-muted-foreground">{title}</p><p className="mt-2 text-2xl font-semibold tabular-nums">{count ?? "—"}</p>
+        </CardContent></Card>)}
       </div>
-
-      {/* Chart Section */}
-      <Card className="border-border/80">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Cross-Platform Reach Trends</CardTitle>
-          <CardDescription>Daily impressions per connected channel</CardDescription>
+      <Card>
+        <CardHeader className="flex-row justify-between gap-3">
+          <CardTitle className="text-base">Recent platform outcomes</CardTitle>
+          <a className="text-sm underline" href="/api/analytics/export">Export CSV</a>
         </CardHeader>
         <CardContent>
-          {dailyActivity.length > 0 ? (
-            <div className="h-72 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={dailyActivity} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" vertical={false} />
-                  <XAxis dataKey="day" stroke="#64748b" fontSize={11} tickLine={false} />
-                  <YAxis stroke="#64748b" fontSize={11} tickLine={false} />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#111827",
-                      borderColor: "#374151",
-                      borderRadius: "0.5rem",
-                      fontSize: "0.75rem",
-                    }}
-                  />
-                  <Area type="monotone" dataKey="impressions" stroke="#0ea5e9" fill="#0ea5e9" fillOpacity={0.2} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          ) : (
-            <div className="h-48 flex flex-col items-center justify-center text-center p-6 text-xs text-muted-foreground">
-              <BarChart3 className="h-8 w-8 text-muted-foreground/40 mb-2" />
-              <p className="font-semibold text-foreground">No Reach Activity Logged</p>
-              <p className="mt-1">Publish content across connected platforms to begin tracking performance metrics.</p>
-            </div>
+          <p className="pb-3 text-xs text-muted-foreground">A dash indicates a metric the provider has not supplied. Counts and definitions vary by platform.</p>
+          {rowsPending ? <p role="status">Loading metrics…</p> : !posts.length ? <p className="text-sm">No platform outcomes recorded yet.</p> : (
+            <div className="overflow-x-auto"><table className="w-full text-left text-sm">
+              <thead><tr className="border-b"><th className="p-2">Post</th><th className="p-2">Status</th>
+                {metricKeys.map((key) => <th key={key} className="p-2 capitalize">{key}</th>)}
+                <th className="p-2">Engagement rate</th><th className="p-2">Synced</th>
+              </tr></thead>
+              <tbody>{posts.map((row) => <tr key={row.id} className="border-b">
+                <th scope="row" className="p-2 font-medium"><span className="flex items-center gap-2"><PlatformIcon platform={row.platform} className="h-4 w-4" />{row.title}</span><span className="capitalize text-xs text-muted-foreground">{row.platform}</span></th>
+                <td className="p-2 capitalize">{row.status.replaceAll("_", " ")}</td>
+                {metricKeys.map((key) => <td key={key} className="p-2 tabular-nums">{row.metrics[key]?.toLocaleString() ?? "—"}</td>)}
+                <td className="p-2 tabular-nums" title="Likes and comments divided by impressions">
+                  {row.metrics.impressions && row.metrics.likes !== null && row.metrics.comments !== null
+                    ? ((row.metrics.likes + row.metrics.comments) * 100 / row.metrics.impressions).toFixed(1) + "%" : "—"}
+                </td>
+                <td className="p-2 whitespace-nowrap">{row.syncedAt ? new Date(row.syncedAt).toLocaleString() : "—"}</td>
+              </tr>)}</tbody>
+            </table></div>
           )}
         </CardContent>
       </Card>
+      {audience.length > 0 && <Card>
+        <CardHeader><CardTitle className="text-base">Account audience</CardTitle></CardHeader>
+        <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {audience.map((item) => <div key={item.id} className="rounded border p-3 text-sm">
+            <p className="flex items-center gap-2 font-medium"><PlatformIcon platform={item.platform} className="h-4 w-4" />{item.name}</p>
+            <p className="text-xl font-semibold">{item.count?.toLocaleString() ?? "—"}</p>
+            <p className="text-muted-foreground">{item.platform === "youtube" ? "Subscribers" : "Followers"}{item.rounded ? " · Rounded by YouTube" : ""}</p>
+            {item.observedOn && <p className="text-xs text-muted-foreground">Observed {item.observedOn}</p>}
+            {item.change !== null && <p className="mt-1 text-xs">{item.change > 0 ? "+" : ""}{item.change.toLocaleString()} since {item.since}</p>}
+          </div>)}
+        </CardContent>
+      </Card>}
     </div>
   );
 }

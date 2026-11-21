@@ -1,249 +1,119 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { getSessionUser } from '@/lib/auth/session';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { executePostPublishing } from '@/lib/publishing/engine';
-import { getSessionUser, stringToUuid, getConnectedAccountsFromCookie } from '@/lib/auth/session';
-import { SocialPlatform, PublishingMode } from '@/types';
+import { captionSchema, platformSchema, postIdSchema } from '@/lib/publishing/campaign';
 
-const CreatePostSchema = z.object({
-  userId: z.string(),
-  title: z.string().optional(),
-  mediaAssetId: z.string().optional(),
-  mediaUrl: z.string().optional(),
-  mediaType: z.enum(['image', 'video']).optional(),
-  rawPrompt: z.string().optional(),
+const CreatePost = z.object({
+  requestId: postIdSchema.optional(),
+  mediaAssetId: postIdSchema.optional(),
+  title: z.string().trim().max(200).optional(),
+  rawPrompt: z.string().trim().max(4000).optional(),
+  draft: z.boolean().default(false),
+  replaceDraft: z.boolean().default(false),
   publishingMode: z.enum(['automatic', 'manual_approval']).default('manual_approval'),
-  scheduledFor: z.string().optional(),
-  targetPlatforms: z.array(z.enum(['linkedin', 'youtube', 'instagram', 'facebook'])),
-  variants: z.array(
-    z.object({
-      platform: z.enum(['linkedin', 'youtube', 'instagram', 'facebook']),
-      caption: z.string().min(1),
-      title: z.string().optional(),
-      hashtags: z.array(z.string()).default([]),
-      callToAction: z.string().optional(),
-      language: z.string().default('English'),
-      tone: z.string().default('Professional'),
-      isApproved: z.boolean().default(false),
-    })
-  ),
-});
+  scheduledFor: z.string().datetime({ offset: true }).optional(),
+  recurrences: z.array(z.string().datetime({ offset: true })).max(7).default([]),
+  targetPlatforms: z.array(platformSchema).min(1).max(4),
+  accountIds: z.array(postIdSchema).max(20).optional(),
+  variants: z.array(z.object({
+    platform: platformSchema, caption: captionSchema, title: z.string().trim().max(200).optional(),
+    hashtags: z.array(z.string().trim().min(1).max(100)).max(30).default([]),
+    keywords: z.array(z.string().trim().min(1).max(100)).max(15).default([]),
+    callToAction: z.string().max(400).optional(),
+    language: z.enum(['English', 'Tamil', 'Tanglish']).default('English'),
+    tone: z.string().max(40).default('Professional'),
+  })).max(4),
+}).refine((post) => new Set(post.targetPlatforms).size === post.targetPlatforms.length &&
+  new Set(post.variants.map((variant) => variant.platform)).size === post.variants.length &&
+  post.variants.every((variant) => post.targetPlatforms.includes(variant.platform)) &&
+  (post.draft || post.variants.length === post.targetPlatforms.length));
 
 export async function POST(req: NextRequest) {
+  const user = await getSessionUser(req);
+  if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+  const payload = await req.json().catch(() => null);
+  const parsed = CreatePost.safeParse(payload);
+  if (!parsed.success || payload?.mediaUrl || payload?.mediaBase64) {
+    return NextResponse.json({ error: 'Select valid platforms and use an uploaded media asset' }, { status: 400 });
+  }
+  const post = parsed.data;
+  if (!post.draft && post.scheduledFor && Date.parse(post.scheduledFor) <= Date.now()) {
+    return NextResponse.json({ error: 'Choose a future date and time' }, { status: 400 });
+  }
+  if (post.recurrences.length && (post.draft || !post.scheduledFor || post.publishingMode !== 'automatic' ||
+    post.recurrences.some((date, index) => {
+      const previous = index ? post.recurrences[index - 1] : post.scheduledFor!;
+      return Math.abs(Date.parse(date) - Date.parse(previous) - 7 * 86_400_000) > 7_200_000;
+    }))) {
+    return NextResponse.json({ error: 'Weekly repeats require an approved future schedule' }, { status: 400 });
+  }
   try {
-    const json = await req.json();
-    const parsed = CreatePostSchema.safeParse(json);
-
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: 'Invalid post creation payload', details: parsed.error.format() },
-        { status: 400 }
-      );
+    const db = createAdminClient();
+    const id = post.requestId ?? randomUUID();
+    if (post.requestId) {
+      const existing = await db.from('posts').select('*').eq('id', id).eq('user_id', user.id).maybeSingle();
+      if (existing.error) throw existing.error;
+      if (existing.data && (!post.replaceDraft || existing.data.status !== 'draft')) {
+        return NextResponse.json({ success: true, post: existing.data });
+      }
+      if (!existing.data && post.replaceDraft) return NextResponse.json({ error: 'Draft unavailable' }, { status: 404 });
+    }
+    let mime: string | undefined;
+    if (post.mediaAssetId) {
+      const { data, error } = await db.from('media_assets').select('mime_type')
+        .eq('id', post.mediaAssetId).eq('user_id', user.id).maybeSingle();
+      if (error) throw error;
+      if (!data) return NextResponse.json({ error: 'Uploaded media is unavailable' }, { status: 404 });
+      mime = data.mime_type;
     }
 
-    const {
-      userId,
-      title,
-      mediaAssetId,
-      mediaUrl: directMediaUrl,
-      mediaType: directMediaType,
-      rawPrompt,
-      publishingMode,
-      scheduledFor,
-      targetPlatforms,
-      variants,
-    } = parsed.data;
-
-    let mediaUrl = directMediaUrl;
-    let mediaType: 'image' | 'video' | undefined = directMediaType;
-
-    const user = await getSessionUser(req);
-    const validUserId = stringToUuid(user?.id || userId || '00000000-0000-0000-0000-000000000001');
-    const cookieAccounts = getConnectedAccountsFromCookie(req);
-
-    const supabase = createAdminClient();
-
-    // If mediaAssetId provided and mediaUrl not set, resolve from media_assets
-    if (mediaAssetId && !mediaUrl) {
-      try {
-        const { data: assetData } = await supabase
-          .from('media_assets')
-          .select('file_path, media_type')
-          .eq('id', mediaAssetId)
-          .maybeSingle();
-
-        if (assetData) {
-          mediaType = mediaType || (assetData.media_type === 'video' ? 'video' : 'image');
-          if (assetData.file_path.startsWith('http')) {
-            mediaUrl = assetData.file_path;
-          } else {
-            const { data: signed } = await supabase.storage
-              .from('media-assets')
-              .createSignedUrl(assetData.file_path, 86400);
-            mediaUrl = signed?.signedUrl;
-          }
+    if (!post.draft) {
+      for (const variant of post.variants) {
+        if (!variant.caption) return NextResponse.json({ error: 'Add a caption for ' + variant.platform }, { status: 400 });
+        if (variant.platform === 'youtube' && (!mime?.startsWith('video/') || !variant.title || variant.title.length > 100)) {
+          return NextResponse.json({ error: 'YouTube requires a video and a title of at most 100 characters' }, { status: 400 });
         }
-      } catch (assetErr) {
-        console.warn('Failed resolving media_asset file path:', assetErr);
+        if (variant.platform === 'instagram' && !['image/jpeg', 'video/mp4', 'video/quicktime'].includes(mime || '')) {
+          return NextResponse.json({ error: 'Instagram requires a JPEG, MP4 or MOV' }, { status: 400 });
+        }
+        if (variant.platform === 'linkedin' && mime && !['image/jpeg', 'image/png', 'video/mp4'].includes(mime)) {
+          return NextResponse.json({ error: 'LinkedIn requires JPEG, PNG or MP4 for media posts' }, { status: 400 });
+        }
+        const limits = { instagram: 2200, linkedin: 3000, youtube: 5000, facebook: 5000 };
+        const length = variant.caption.length + (variant.hashtags.length ? 2 + variant.hashtags.join(' ').length : 0);
+        if (length > limits[variant.platform]) {
+          return NextResponse.json({ error: variant.platform + ' caption and hashtags exceed the length limit' }, { status: 400 });
+        }
       }
     }
 
-    // Ensure profile exists in profiles table
-    try {
-      await supabase.from('profiles').upsert({
-        id: validUserId,
-        email: user?.email || 'user@socialsync.ai',
-        full_name: user?.name || 'SocialSync User',
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'id' });
-    } catch (e) {
-      console.warn('Profile upsert skipped:', e);
-    }
-
-    // 1. Fetch user's connected social accounts for the target platforms
-    let targetAccounts: any[] = [];
-    try {
-      const { data: accounts } = await supabase
-        .from('social_accounts')
-        .select('*')
-        .eq('user_id', validUserId)
-        .in('platform', targetPlatforms)
-        .eq('status', 'active');
-      if (accounts) targetAccounts = accounts;
-    } catch {}
-
-    // Add cookie-backed accounts if not in DB and possessing valid access token
-    for (const ca of cookieAccounts) {
-      if (
-        targetPlatforms.includes(ca.platform) &&
-        !targetAccounts.some((a) => a.platform === ca.platform) &&
-        (ca.encrypted_access_token || ca.accessToken)
-      ) {
-        targetAccounts.push(ca);
-      }
-    }
-
-    const initialStatus = scheduledFor
-      ? 'scheduled'
-      : publishingMode === 'automatic'
-      ? 'publishing'
-      : 'pending_approval';
-
-    // 2. Insert Post record
-    let post: any = null;
-    try {
-      const { data, error: postErr } = await supabase
-        .from('posts')
-        .insert({
-          user_id: validUserId,
-          media_asset_id: mediaAssetId || null,
-          title: title || 'SocialSync Campaign Post',
-          raw_prompt: rawPrompt || null,
-          publishing_mode: publishingMode as PublishingMode,
-          status: initialStatus,
-          scheduled_for: scheduledFor ? new Date(scheduledFor).toISOString() : null,
-          target_platforms: targetPlatforms,
-        })
-        .select()
-        .single();
-      if (!postErr && data) post = data;
-    } catch (err) {
-      console.warn('Post DB insert skipped, using memory post:', err);
-    }
-
-    if (!post) {
-      post = {
-        id: `post_${Date.now()}`,
-        user_id: validUserId,
-        title: title || 'SocialSync Campaign Post',
-        publishing_mode: publishingMode,
-        status: initialStatus,
-        scheduled_for: scheduledFor || null,
-        target_platforms: targetPlatforms,
-        created_at: new Date().toISOString(),
-      };
-    }
-
-    // 3. Insert Post Variants
-    try {
-      const variantInserts = variants.map((v) => ({
-        post_id: post.id,
-        platform: v.platform as SocialPlatform,
-        caption: v.caption,
-        title: v.title || null,
-        hashtags: v.hashtags,
-        call_to_action: v.callToAction || null,
-        language: v.language,
-        tone: v.tone,
-        is_approved: publishingMode === 'automatic' ? true : v.isApproved,
-      }));
-      await supabase.from('post_variants').insert(variantInserts);
-    } catch {}
-
-    // 4. Insert Post Targets
-    try {
-      const targetInserts = targetAccounts.map((acc: any) => ({
-        post_id: post.id,
-        social_account_id: acc.id,
-        platform: acc.platform as SocialPlatform,
-        status: initialStatus,
-      }));
-      await supabase.from('post_targets').insert(targetInserts);
-    } catch {}
-
-    // 5. If scheduled, insert into publishing_jobs
-    if (scheduledFor) {
-      try {
-        await supabase.from('publishing_jobs').insert({
-          post_id: post.id,
-          user_id: validUserId,
-          run_at: new Date(scheduledFor).toISOString(),
-          status: 'queued',
-          idempotency_key: `job_${post.id}_${Date.now()}`,
-        });
-      } catch {}
-
-      return NextResponse.json({
-        success: true,
-        post,
-        message: 'Post scheduled successfully.',
-      });
-    }
-
-    // 6. If Mode A (Fully Automatic) and publish immediate, execute right now!
-    if (publishingMode === 'automatic') {
-      const summary = await executePostPublishing({
-        postId: post.id,
-        userId: validUserId,
-        cookieAccounts,
-        postOverride: {
-          ...post,
-          media: mediaUrl ? { file_path: mediaUrl, media_type: mediaType } : undefined,
-        },
-        variantsOverride: variants,
-        targetPlatformsOverride: targetPlatforms,
-        mediaUrlOverride: mediaUrl,
-        mediaTypeOverride: mediaType,
-      });
-
-      return NextResponse.json({
-        success: true,
-        post,
-        summary,
-        message: summary.failureCount === 0
-          ? 'Post published successfully across selected platforms.'
-          : 'Publishing completed with provider notices. Check execution logs.',
-      });
-    }
-
-    // Mode B: Manual Approval pending
-    return NextResponse.json({
-      success: true,
-      post,
-      message: 'Post created and queued in Approval Center for review.',
+    let query = db.from('social_accounts').select('id').eq('user_id', user.id)
+      .in('platform', post.targetPlatforms).eq('status', 'active');
+    if (post.accountIds?.length) query = query.in('id', post.accountIds);
+    const { data: accounts, error: accountError } = await query;
+    if (accountError) throw accountError;
+    const status = post.draft ? 'draft' : post.publishingMode === 'manual_approval' ? 'pending_approval' :
+      post.scheduledFor ? 'scheduled' : 'approved';
+    const { data, error } = await db.rpc('create_campaign', {
+      owner_id: user.id,
+      campaign: {
+        id, title: post.title || 'Untitled post', raw_prompt: post.rawPrompt, media_asset_id: post.mediaAssetId,
+        publishing_mode: post.publishingMode, status, scheduled_for: post.draft ? null : post.scheduledFor,
+        target_platforms: post.targetPlatforms,
+        recurrences: post.recurrences,
+        replace_draft: post.replaceDraft,
+      },
+      variants: post.variants.map((variant) => ({ ...variant, call_to_action: variant.callToAction })),
+      destinations: accounts,
     });
-  } catch (err: any) {
-    console.error('Post creation error:', err);
-    return NextResponse.json({ error: err.message || 'Internal server error creating post' }, { status: 500 });
+    if (error?.message.includes('Connect an active account')) {
+      return NextResponse.json({ error: error.message }, { status: 409 });
+    }
+    if (error || !data?.id) throw error ?? new Error('Post was not saved');
+    return NextResponse.json({ success: true, post: data }, { status: 201 });
+  } catch {
+    return NextResponse.json({ error: 'Could not save the post. Try again.' }, { status: 503 });
   }
 }

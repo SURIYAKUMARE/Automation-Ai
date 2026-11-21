@@ -1,42 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { generateSocialContentWithGemini } from '@/lib/ai/gemini';
+import { generateWeeklyPlan } from '@/lib/ai/gemini';
+import { authorizeAI } from '@/lib/ai/request';
 
-const CalendarSchema = z.object({
-  theme: z.string().min(1),
-  days: z.number().optional().default(7),
-});
+const Plan = z.object({ theme: z.string().trim().min(1).max(500), days: z.number().int().min(1).max(7).default(7) });
 
 export async function POST(req: NextRequest) {
+  const access = await authorizeAI(req);
+  if (access.response) return access.response;
+  const input = Plan.safeParse(await req.json().catch(() => null));
+  if (!input.success) return NextResponse.json({ error: 'Provide a theme and one to seven days' }, { status: 400 });
   try {
-    const json = await req.json();
-    const parsed = CalendarSchema.safeParse(json);
-    if (!parsed.success) {
-      return NextResponse.json({ error: 'Invalid input' }, { status: 400 });
-    }
-
-    const { theme } = parsed.data;
-
-    const days = [
-      { day: 'Monday', focus: 'Product / Architectural Milestone', targetPlatform: 'linkedin', time: '09:00 AM UTC' },
-      { day: 'Tuesday', focus: 'Visual System Diagram / Poster', targetPlatform: 'instagram', time: '02:00 PM UTC' },
-      { day: 'Wednesday', focus: 'Engineering Deep Dive & Tips', targetPlatform: 'linkedin', time: '11:00 AM UTC' },
-      { day: 'Thursday', focus: 'Community Q&A / Discussion Prompt', targetPlatform: 'facebook', time: '04:00 PM UTC' },
-      { day: 'Friday', focus: 'Video Walkthrough & Technical Reel', targetPlatform: 'youtube', time: '01:00 PM UTC' },
-      { day: 'Saturday', focus: 'Design Highlights & Google Stitch Aesthetics', targetPlatform: 'instagram', time: '10:00 AM UTC' },
-      { day: 'Sunday', focus: 'Weekly Retrospective & Milestone Metrics', targetPlatform: 'linkedin', time: '05:00 PM UTC' },
-    ];
-
-    return NextResponse.json({
-      success: true,
-      theme,
-      schedule: days.map((d, index) => ({
-        ...d,
-        id: `cal_event_${index + 1}`,
-        suggestedTitle: `${theme}: ${d.focus}`,
-      })),
-    });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    const { theme, days } = input.data;
+    const schedule = await generateWeeklyPlan(theme, days, access.brand);
+    return NextResponse.json({ success: true, theme, schedule, source: 'Gemini suggestions' });
+  } catch {
+    return NextResponse.json({ error: 'Could not generate the content plan' }, { status: 502 });
   }
 }

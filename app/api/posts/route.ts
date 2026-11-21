@@ -5,11 +5,12 @@ import { getSessionUser } from '@/lib/auth/session';
 export async function GET(req: NextRequest) {
   try {
     const user = await getSessionUser(req);
-    const userId = user?.id || '00000000-0000-0000-0000-000000000001';
+    if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+    const userId = user.id;
 
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
-    const limit = parseInt(searchParams.get('limit') || '50', 10);
+    const limit = Math.min(100, Math.max(1, Number.parseInt(searchParams.get('limit') || '50', 10) || 50));
 
     const supabase = createAdminClient();
 
@@ -26,12 +27,7 @@ export async function GET(req: NextRequest) {
 
     const { data: posts, error } = await query;
 
-    if (error || !posts) {
-      return NextResponse.json({
-        success: true,
-        posts: [],
-      });
-    }
+    if (error) return NextResponse.json({ error: 'Could not load posts' }, { status: 503 });
 
     return NextResponse.json({
       success: true,

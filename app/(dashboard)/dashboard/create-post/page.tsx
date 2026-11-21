@@ -15,7 +15,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
-import { SocialPlatform } from "@/types";
+import { prepareMediaPreview } from "@/lib/ai/media-preview";
+import { SocialPlatform, SupportedTone } from "@/types";
+import { PlatformIcon } from "@/components/platform-icon";
 
 interface PlatformOption {
   id: SocialPlatform;
@@ -35,6 +37,9 @@ interface PlatformContent {
   title?: string;
   caption: string;
   hashtags: string;
+  keywords?: string[];
+  alternatives?: string[];
+  rationale?: string;
 }
 
 export default function CreatePostPage() {
@@ -44,10 +49,14 @@ export default function CreatePostPage() {
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
   const [mediaPreview, setMediaPreview] = React.useState<string | null>(null);
   const [isVideo, setIsVideo] = React.useState(false);
+  const [draftId, setDraftId] = React.useState<string>();
+  const [savedAssetId, setSavedAssetId] = React.useState<string>();
 
   // Platform selection
   const [connectedPlatforms, setConnectedPlatforms] = React.useState<SocialPlatform[]>([]);
   const [selectedPlatforms, setSelectedPlatforms] = React.useState<SocialPlatform[]>([]);
+
+  const [activeTab, setActiveTab] = React.useState<SocialPlatform>("instagram");
 
   // Fetch real connected accounts on load
   React.useEffect(() => {
@@ -59,9 +68,9 @@ export default function CreatePostPage() {
           const active = (data.accounts || [])
             .filter((a: any) => a.status === "active")
             .map((a: any) => a.platform as SocialPlatform);
-          setConnectedPlatforms(active);
-          if (active.length > 0) {
-            setSelectedPlatforms(active);
+          setConnectedPlatforms([...new Set<SocialPlatform>(active)]);
+          if (active.length > 0 && !new URLSearchParams(window.location.search).has("draft")) {
+            setSelectedPlatforms([...new Set<SocialPlatform>(active)]);
             setActiveTab(active[0]);
           }
         }
@@ -72,8 +81,6 @@ export default function CreatePostPage() {
     loadAccounts();
   }, []);
 
-  // Active preview/edit platform tab
-  const [activeTab, setActiveTab] = React.useState<SocialPlatform>("instagram");
 
   // Per-platform tailored content
   const [platformContents, setPlatformContents] = React.useState<Record<SocialPlatform, PlatformContent>>({
@@ -86,14 +93,48 @@ export default function CreatePostPage() {
   // AI & Context Prompt
   const [topicPrompt, setTopicPrompt] = React.useState("");
   const [language, setLanguage] = React.useState<"English" | "Tamil" | "Tanglish">("English");
+  const [tone, setTone] = React.useState<SupportedTone>("Professional");
+  const [summary, setSummary] = React.useState("");
+  const [review, setReview] = React.useState(false);
+  const requestId = React.useRef<string | undefined>(undefined);
+  const uploadedAsset = React.useRef<{ file: File; id: string } | undefined>(undefined);
+  const [uploadProgress, setUploadProgress] = React.useState<number | null>(null);
   const [isGenerating, setIsGenerating] = React.useState(false);
 
   // Scheduling
   const [isScheduled, setIsScheduled] = React.useState(false);
+  const [weeklyOccurrences, setWeeklyOccurrences] = React.useState(1);
   const [scheduledDateTime, setScheduledDateTime] = React.useState("");
 
   // Submitting
   const [isPublishing, setIsPublishing] = React.useState(false);
+
+  React.useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("draft");
+    if (!id) return;
+    const controller = new AbortController();
+    fetch("/api/posts/" + encodeURIComponent(id), { signal: controller.signal }).then(async (response) => {
+      const data = await response.json();
+      if (!response.ok || data.post.status !== "draft") throw new Error("Draft unavailable");
+      const post = data.post;
+      setDraftId(post.id);
+      setTopicPrompt(post.raw_prompt || post.title || "");
+      setSelectedPlatforms(post.target_platforms);
+      setActiveTab(post.target_platforms[0] || "instagram");
+      setSavedAssetId(post.media_asset_id || undefined);
+      setMediaPreview(data.previewUrl || null);
+      setIsVideo(data.mediaType === "video");
+      setPlatformContents((current) => {
+        const updated = { ...current };
+        for (const variant of post.post_variants) {
+          const platform = variant.platform as SocialPlatform;
+          updated[platform] = { caption: variant.caption, title: variant.title, hashtags: (variant.hashtags || []).join(" "), keywords: variant.keywords };
+        }
+        return updated;
+      });
+    }).catch(() => { if (!controller.signal.aborted) toast.error("Could not load the saved draft."); });
+    return () => controller.abort();
+  }, []);
 
   // Toggle platform
   const togglePlatform = (id: SocialPlatform) => {
@@ -107,15 +148,17 @@ export default function CreatePostPage() {
   };
 
   // Handle File Selection
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  React.useEffect(() => () => { if (mediaPreview?.startsWith("blob:")) URL.revokeObjectURL(mediaPreview); }, [mediaPreview]);
+
+  const chooseFile = (file?: File) => {
     if (!file) return;
 
-    if (file.size > 50 * 1024 * 1024) {
-      toast.error("File size exceeds 50MB limit");
+    if (file.size > (file.type.startsWith("video/") ? 100 : 15) * 1024 * 1024) {
+      toast.error("File exceeds the upload size limit");
       return;
     }
 
+    setSavedAssetId(undefined);
     setSelectedFile(file);
     const isVid = file.type.startsWith("video/");
     setIsVideo(isVid);
@@ -125,6 +168,7 @@ export default function CreatePostPage() {
   };
 
   const removeFile = () => {
+    setSavedAssetId(undefined);
     setSelectedFile(null);
     setMediaPreview(null);
     setIsVideo(false);
@@ -161,248 +205,129 @@ export default function CreatePostPage() {
     }));
   };
 
-  // AI Generation with Gemini
   const handleGenerateAI = async () => {
+    if (!selectedPlatforms.length || (!selectedFile && !topicPrompt.trim())) {
+      toast.error("Select a platform and add media or text context.");
+      return;
+    }
     setIsGenerating(true);
-    toast.loading("Analyzing media and generating trend-aware captions with Gemini AI...");
-
+    const notice = toast.loading("Generating platform captions");
     try {
-      let mediaBase64: string | undefined = undefined;
-      let mediaMimeType: string | undefined = undefined;
-
-      if (selectedFile && !isVideo) {
-        const reader = new FileReader();
-        const base64Promise = new Promise<string>((resolve) => {
-          reader.onloadend = () => {
-            const result = reader.result as string;
-            resolve(result.split(",")[1]);
-          };
-          reader.readAsDataURL(selectedFile);
-        });
-        mediaBase64 = await base64Promise;
-        mediaMimeType = selectedFile.type;
-      }
-
+      const media = selectedFile ? await prepareMediaPreview(selectedFile) : {};
       const res = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prompt: topicPrompt || "Visual showcase and system campaign",
-          language,
-          tone: "Professional",
-          targetPlatforms: selectedPlatforms,
-          mediaBase64,
-          mimeType: mediaMimeType,
-        }),
+        body: JSON.stringify({ ...media, prompt: topicPrompt, language, tone, targetPlatforms: selectedPlatforms, alternatives: true }),
       });
-
-      toast.dismiss();
-
-      if (!res.ok) {
-        throw new Error("Failed to generate caption with Gemini");
-      }
-
-      const data = await res.json();
-      const variants = data.data?.platforms || data.variants;
-
-      if (variants) {
-        const updated: Record<SocialPlatform, PlatformContent> = { ...platformContents };
-
-        for (const p of ["instagram", "facebook", "linkedin", "youtube"] as SocialPlatform[]) {
-          if (variants[p]) {
-            const tags = Array.isArray(variants[p].hashtags)
-              ? variants[p].hashtags.join(" ")
-              : variants[p].hashtags || "";
-            const autoTitle =
-              variants[p].title ||
-              (p === "youtube"
-                ? variants.youtube?.title || data.data?.summary || topicPrompt || "SocialSync Video"
-                : undefined);
-
-            updated[p] = {
-              title: autoTitle,
-              caption: variants[p].caption || variants[p].title || "",
-              hashtags: tags,
-            };
-          }
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Could not generate captions");
+      setSummary(result.data.summary);
+      setPlatformContents((previous) => {
+        const updated = { ...previous };
+        for (const p of selectedPlatforms) {
+          const variant = result.variants[p];
+          if (variant) updated[p] = { ...variant, hashtags: variant.hashtags.join(" ") };
         }
-
-        // Auto-fill YouTube video title and main topic prompt if empty
-        const generatedTitle = variants.youtube?.title || data.data?.summary;
-        if (generatedTitle) {
-          if (!updated.youtube) {
-            updated.youtube = { title: generatedTitle, caption: "", hashtags: "" };
-          } else {
-            updated.youtube.title = generatedTitle;
-          }
-
-          if (!topicPrompt.trim()) {
-            setTopicPrompt(generatedTitle);
-          }
-        }
-
-        setPlatformContents(updated);
-        toast.success("Tailored captions, YouTube video title, and hashtags generated automatically!");
-      }
-    } catch (err: any) {
-      toast.dismiss();
-      toast.error(err.message || "Failed to generate AI content");
+        return updated;
+      });
+      toast.success("Captions ready to review", { id: notice });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not generate captions", { id: notice });
     } finally {
       setIsGenerating(false);
     }
   };
 
-  // Submit Post
   const handleSubmit = async (isDraft = false) => {
-    const currentContent = platformContents[activeTab];
-    if (!currentContent?.caption.trim() && !isDraft) {
-      toast.error("Please provide a caption or generate one with Gemini AI");
+    if (!selectedPlatforms.length) {
+      toast.error("Select at least one platform.");
       return;
     }
-
-    if (selectedPlatforms.length === 0) {
-      toast.error("Please select at least one platform");
-      return;
+    const ytVideoTitle = platformContents.youtube.title?.trim() || topicPrompt.trim();
+    if (!isDraft) {
+      const missing = selectedPlatforms.find((p) => !platformContents[p].caption.trim());
+      if (missing) {
+        setActiveTab(missing);
+        toast.error("Add a caption for " + missing + ".");
+        return;
+      }
+      if (selectedPlatforms.some((p) => !connectedPlatforms.includes(p))) {
+        toast.error("Connect an account for each selected platform.");
+        return;
+      }
+      if (isScheduled && (!scheduledDateTime || new Date(scheduledDateTime).getTime() <= Date.now())) {
+        toast.error("Choose a future date and time.");
+        return;
+      }
+      if (selectedPlatforms.includes("youtube") && (!isVideo || !ytVideoTitle)) {
+        toast.error("YouTube requires a video and a title.");
+        return;
+      }
     }
 
-    // Validate that chosen platforms are actually connected
-    const unconnected = selectedPlatforms.filter((p) => !connectedPlatforms.includes(p));
-    if (unconnected.length > 0 && !isDraft) {
-      toast.error(
-        `${unconnected.map((p) => p.toUpperCase()).join(", ")} is not connected. Please connect your account in the Authentication tab first.`
-      );
-      return;
-    }
-
-    if (isScheduled && !scheduledDateTime && !isDraft) {
-      toast.error("Please select a scheduled date and time");
-      return;
-    }
-
-    // Validate YouTube video requirements
-    if (selectedPlatforms.includes("youtube") && (!selectedFile || !selectedFile.type.startsWith("video/"))) {
-      toast.error("YouTube requires a video file (.mp4, .mov, .webm). Please attach a video asset to publish to YouTube, or uncheck YouTube.");
-      return;
-    }
-
-    // Validate YouTube Video Title requirement
-    const ytVideoTitle = platformContents.youtube?.title?.trim() || topicPrompt.trim();
-    if (selectedPlatforms.includes("youtube") && !ytVideoTitle && !isDraft) {
-      toast.error("YouTube requires a Video Title. Please enter a video title in the YouTube tab.");
-      setActiveTab("youtube");
-      return;
-    }
-
+    requestId.current ??= draftId || crypto.randomUUID();
     setIsPublishing(true);
     try {
-      // 1. Resolve current session user ID
-      let userId = "00000000-0000-0000-0000-000000000001";
-      try {
-        const sessionRes = await fetch("/api/auth/session");
-        if (sessionRes.ok) {
-          const sessionData = await sessionRes.json();
-          if (sessionData.user?.id) userId = sessionData.user.id;
-        }
-      } catch {}
-
-      // 2. Upload media file to storage if present
-      let mediaAssetId: string | undefined = undefined;
-      let mediaUrl: string | undefined = undefined;
-      let mediaType: "image" | "video" = isVideo ? "video" : "image";
-
+      let mediaAssetId = savedAssetId;
       if (selectedFile) {
-        toast.loading("Uploading media asset to cloud storage...");
-        try {
-          const formData = new FormData();
-          formData.append("file", selectedFile);
-          formData.append("userId", userId);
-          const upRes = await fetch("/api/media/upload", {
-            method: "POST",
-            body: formData,
+        if (uploadedAsset.current?.file !== selectedFile) {
+          setUploadProgress(0);
+          const form = new FormData();
+          form.append("file", selectedFile);
+          const id = await new Promise<string>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("POST", "/api/media/upload");
+            xhr.responseType = "json";
+            xhr.upload.onprogress = (event) => {
+              if (event.lengthComputable) setUploadProgress(Math.round(event.loaded / event.total * 100));
+            };
+            xhr.onload = () => {
+              if (xhr.status >= 200 && xhr.status < 300 && xhr.response?.asset?.id) resolve(xhr.response.asset.id);
+              else reject(new Error(xhr.response?.error || "Media upload failed"));
+            };
+            xhr.onerror = () => reject(new Error("Could not reach the upload service"));
+            xhr.send(form);
           });
-          if (upRes.ok) {
-            const upData = await upRes.json();
-            mediaAssetId = upData.asset?.id;
-            mediaUrl = upData.previewUrl;
-            if (upData.asset?.media_type) {
-              mediaType = upData.asset.media_type;
-            }
-          } else {
-            const errData = await upRes.json().catch(() => ({}));
-            toast.error(errData.error || "Media upload failed");
-            setIsPublishing(false);
-            return;
-          }
-        } catch (upErr: any) {
-          console.warn("Media upload error:", upErr);
-          toast.error("Failed uploading media asset: " + (upErr.message || "Unknown error"));
-          setIsPublishing(false);
-          return;
-        } finally {
-          toast.dismiss();
+          uploadedAsset.current = { file: selectedFile, id };
         }
+        mediaAssetId = uploadedAsset.current?.id;
       }
-
-      const postTitle = ytVideoTitle || topicPrompt || "SocialSync Post";
-
-      const payload = {
-        userId,
-        mediaAssetId,
-        mediaUrl,
-        mediaType,
-        title: postTitle,
-        publishingMode: isDraft ? "manual_approval" : "automatic",
-        scheduledFor: isScheduled && scheduledDateTime ? new Date(scheduledDateTime).toISOString() : undefined,
-        targetPlatforms: selectedPlatforms,
-        variants: selectedPlatforms.map((p) => {
-          const content = platformContents[p] || currentContent;
-          return {
-            platform: p,
-            title: p === "youtube" ? ytVideoTitle : (topicPrompt || undefined),
-            caption: content?.caption || currentContent?.caption || "",
-            hashtags: (content?.hashtags || currentContent?.hashtags || "").split(/\s+/).filter(Boolean),
-            language,
-            tone: "Professional",
-            isApproved: true,
-          };
-        }),
-      };
 
       const res = await fetch("/api/posts/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          requestId: requestId.current,
+          mediaAssetId, draft: isDraft, replaceDraft: !!draftId, title: ytVideoTitle || topicPrompt.trim() || "Untitled post",
+          rawPrompt: topicPrompt,
+          publishingMode: isDraft || review ? "manual_approval" : "automatic",
+          scheduledFor: !isDraft && isScheduled ? new Date(scheduledDateTime).toISOString() : undefined,
+          recurrences: isScheduled && !isDraft && !review ? Array.from({ length: weeklyOccurrences - 1 }, (_, index) => {
+            const date = new Date(scheduledDateTime);
+            date.setDate(date.getDate() + 7 * (index + 1));
+            return date.toISOString();
+          }) : [],
+          targetPlatforms: selectedPlatforms,
+          variants: selectedPlatforms.map((platform) => {
+            const content = platformContents[platform];
+            return { platform, title: platform === "youtube" ? ytVideoTitle : content.title,
+              caption: content.caption, hashtags: content.hashtags.split(/\s+/).filter(Boolean),
+              keywords: content.keywords?.map((keyword) => keyword.trim()).filter(Boolean), language, tone };
+          }),
+        }),
       });
-
-      const resData = await res.json();
-
+      const data = await res.json();
       if (!res.ok) {
-        throw new Error(resData.error || "Failed to submit post");
+        if (res.status < 500) requestId.current = undefined;
+        throw new Error(data.error || "Could not save this post");
       }
-
-      const summary = resData.summary;
-      if (summary) {
-        if (summary.failureCount > 0) {
-          const failedNotes = summary.results
-            .filter((r: any) => !r.success)
-            .map((r: any) => `${r.platform.toUpperCase()}: ${r.errorMessage || 'Failed'}`)
-            .join(" | ");
-          toast.warning(`Published with provider notices: ${failedNotes}`);
-        } else {
-          toast.success("Post successfully published to all selected platforms!");
-        }
-      } else if (isDraft) {
-        toast.success("Draft saved successfully");
-      } else if (isScheduled) {
-        toast.success("Post scheduled successfully");
-        router.push("/dashboard/calendar");
-      } else {
-        toast.success("Post submitted to publishing pipeline");
-        router.push("/dashboard/history");
-      }
-    } catch (err: any) {
-      toast.error(err.message || "Failed to process post");
+      requestId.current = undefined;
+      toast.success(isDraft ? "Draft saved" : review ? "Sent for approval" : isScheduled ? "Post scheduled" : "Post queued for publishing");
+      router.push(review && !isDraft ? "/dashboard/approvals" : isScheduled && !isDraft ? "/dashboard/calendar" : "/dashboard/history");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save the post");
     } finally {
+      setUploadProgress(null);
       setIsPublishing(false);
     }
   };
@@ -411,6 +336,9 @@ export default function CreatePostPage() {
 
   return (
     <div className="space-y-6">
+      {uploadProgress !== null && <label className="block text-sm">Uploading media ({uploadProgress}%)
+        <progress className="block w-full" max={100} value={uploadProgress} />
+      </label>}
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-2 border-b border-border gap-4">
         <div>
@@ -461,7 +389,7 @@ export default function CreatePostPage() {
                 </div>
               </div>
             ) : (
-              <label className="border-2 border-dashed border-border hover:border-foreground/40 rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors text-center space-y-2 bg-muted/10 hover:bg-muted/20">
+              <label onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); chooseFile(event.dataTransfer.files[0]); }} className="border-2 border-dashed border-border hover:border-foreground/40 rounded-xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors text-center space-y-2 bg-muted/10 hover:bg-muted/20">
                 <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-foreground">
                   <UploadCloud className="h-5 w-5" />
                 </div>
@@ -475,9 +403,9 @@ export default function CreatePostPage() {
                 </div>
                 <input
                   type="file"
-                  accept="image/*,video/mp4,video/quicktime"
-                  onChange={handleFileChange}
-                  className="hidden"
+                  accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
+                  onChange={(event) => chooseFile(event.target.files?.[0])}
+                  className="sr-only"
                 />
               </label>
             )}
@@ -504,17 +432,22 @@ export default function CreatePostPage() {
                         : "border-border text-muted-foreground hover:border-foreground/30"
                     }`}
                   >
-                    <div>
-                      <div className="text-xs font-semibold flex items-center gap-1.5">
-                        <span>{platform.name}</span>
-                        {isConnected ? (
-                          <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" title="Connected & Active" />
-                        ) : (
-                          <span className="text-[10px] font-normal text-amber-500 font-mono">(Offline)</span>
-                        )}
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-card/90 p-1.5 border border-border/60 shrink-0 shadow-sm">
+                        <PlatformIcon platform={platform.id} className="h-5 w-5" />
                       </div>
-                      <div className="text-[10px] font-mono text-muted-foreground">
-                        {platform.tag}
+                      <div>
+                        <div className="text-xs font-semibold flex items-center gap-1.5">
+                          <span>{platform.name}</span>
+                          {isConnected ? (
+                            <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" title="Connected & Active" />
+                          ) : (
+                            <span className="text-[10px] font-normal text-amber-500 font-mono">(Offline)</span>
+                          )}
+                        </div>
+                        <div className="text-[10px] font-mono text-muted-foreground">
+                          {platform.tag}
+                        </div>
                       </div>
                     </div>
                     <div
@@ -551,9 +484,19 @@ export default function CreatePostPage() {
               />
             </div>
 
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={review} onChange={(event) => setReview(event.target.checked)} />
+              Send to Approval Center before publishing
+            </label>
+            {isScheduled && !review && <label className="block text-xs">Weekly occurrences
+              <select value={weeklyOccurrences} className="ml-2 rounded border bg-card p-1" onChange={(event) => setWeeklyOccurrences(Number(event.target.value))}>
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((number) => <option key={number} value={number}>{number === 1 ? "Once" : number + " weeks"}</option>)}
+              </select>
+            </label>}
             {isScheduled && (
               <div className="pt-2">
                 <Input
+                  aria-label="Schedule in your local timezone"
                   type="datetime-local"
                   value={scheduledDateTime}
                   onChange={(e) => setScheduledDateTime(e.target.value)}
@@ -599,6 +542,14 @@ export default function CreatePostPage() {
                 onChange={(e) => setTopicPrompt(e.target.value)}
                 className="text-xs"
               />
+              <label className="block text-xs">Tone
+                <select value={tone} onChange={(event) => setTone(event.target.value as SupportedTone)} className="ml-2 rounded border bg-background p-1">
+                  {["Professional", "Friendly", "Funny", "Motivational", "Educational", "Marketing", "Viral-style"].map((value) => (
+                    <option key={value}>{value}</option>
+                  ))}
+                </select>
+              </label>
+              {summary && <p className="text-sm text-muted-foreground">{summary}</p>}
               <Button
                 type="button"
                 onClick={handleGenerateAI}
@@ -606,7 +557,7 @@ export default function CreatePostPage() {
                 className="w-full text-xs font-medium gap-2 bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900"
               >
                 <Sparkles className="h-3.5 w-3.5" />
-                {isGenerating ? "Analyzing Media & Trends with Gemini..." : "Generate with Gemini AI"}
+                {isGenerating ? "Analyzing content…" : "Generate with Gemini AI"}
               </Button>
             </div>
           </div>
@@ -623,13 +574,14 @@ export default function CreatePostPage() {
                       key={p}
                       type="button"
                       onClick={() => setActiveTab(p)}
-                      className={`px-3 py-1 rounded-md text-xs font-semibold capitalize transition-all ${
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold capitalize transition-all ${
                         isActive
                           ? "bg-foreground text-background shadow-sm"
                           : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
                       }`}
                     >
-                      {p}
+                      <PlatformIcon platform={p} className="h-3.5 w-3.5" />
+                      <span>{p}</span>
                     </button>
                   );
                 })}
@@ -645,7 +597,7 @@ export default function CreatePostPage() {
               <div className="space-y-1.5 p-3 rounded-xl border border-red-500/30 bg-red-500/5 shadow-sm">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                    <span className="text-red-500 font-bold">▶</span>
+                    <PlatformIcon platform="youtube" className="h-4 w-4" />
                     <span>YouTube Video Title</span>
                     <span className="text-[10px] text-red-500 font-mono font-medium">*Required by YouTube</span>
                   </label>
@@ -675,7 +627,7 @@ export default function CreatePostPage() {
                 </div>
                 <Input
                   maxLength={100}
-                  placeholder="Enter video title (e.g. Next-Gen AI Automation with SocialSync)..."
+                  placeholder="Enter video title (e.g. Next-Gen AI Automation with SocialFlow)..."
                   value={currentContent.title || ""}
                   onChange={(e) => updateCurrentTitle(e.target.value)}
                   className="text-xs font-medium bg-background border-border"
@@ -685,6 +637,14 @@ export default function CreatePostPage() {
 
             {/* Caption Textarea */}
             <div className="space-y-1.5">
+              {currentContent.rationale && <p className="text-xs text-muted-foreground">{currentContent.rationale}</p>}
+              {currentContent.alternatives?.map((caption, index) => (
+                <details key={caption} className="rounded border p-2 text-xs">
+                  <summary className="cursor-pointer">Caption option {index + 2}</summary>
+                  <p className="whitespace-pre-wrap my-2">{caption}</p>
+                  <Button size="sm" type="button" variant="outline" onClick={() => updateCurrentCaption(caption)}>Use this caption</Button>
+                </details>
+              ))}
               <label className="text-xs font-medium text-foreground flex items-center justify-between">
                 <span>
                   {activeTab === "youtube" ? "Video Description for" : "Caption for"}{" "}
@@ -710,6 +670,13 @@ export default function CreatePostPage() {
                 {activeTab === "youtube" ? "Video Tags for" : "Trending Hashtags for"}{" "}
                 <span className="capitalize font-semibold">{activeTab}</span>
               </label>
+              {activeTab === "youtube" && <label className="block text-xs font-medium">
+                YouTube search tags
+                <Input value={currentContent.keywords?.join(",") || ""} placeholder="Separate tags with commas"
+                  onChange={(event) => setPlatformContents((previous) => ({
+                    ...previous, youtube: { ...previous.youtube, keywords: event.target.value.split(",") },
+                  }))} />
+              </label>}
               <Input
                 placeholder="#trends #ai #innovation #viral"
                 value={currentContent.hashtags}

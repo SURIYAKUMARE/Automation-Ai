@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
+import { PlatformIcon } from "@/components/platform-icon";
 
 export default function LandingPage() {
   const features = [
@@ -57,11 +58,11 @@ export default function LandingPage() {
         <div className="flex items-center gap-2.5">
           <img
             src="/icon.png"
-            alt="SocialSync AI Logo"
+            alt="SocialFlow AI Logo"
             className="h-9 w-9 rounded-xl object-contain shadow-sm"
           />
           <span className="font-bold text-lg tracking-tight">
-            SocialSync <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">AI</span>
+            SocialFlow <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">AI</span>
           </span>
         </div>
 
@@ -88,7 +89,7 @@ export default function LandingPage() {
         <div className="flex justify-center mb-6">
           <img
             src="/logo.png"
-            alt="SocialSync AI - Create • Schedule • Publish • Grow"
+            alt="SocialFlow AI - Create • Schedule • Publish • Grow"
             className="h-28 sm:h-36 object-contain rounded-2xl shadow-xl border border-border/40 bg-card/80 p-2 backdrop-blur-sm"
           />
         </div>
@@ -122,6 +123,29 @@ export default function LandingPage() {
               <span>Explore AI Studio</span>
             </Button>
           </Link>
+        </div>
+
+        {/* Supported Official Platforms Banner */}
+        <div className="mt-10 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+          {[
+            { id: "linkedin", name: "LinkedIn", note: "UGC REST API" },
+            { id: "youtube", name: "YouTube", note: "Data API v3" },
+            { id: "instagram", name: "Instagram", note: "Content Publishing API" },
+            { id: "facebook", name: "Facebook", note: "Meta Graph API" },
+          ].map((p) => (
+            <div
+              key={p.id}
+              className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl border border-border/80 bg-card/80 backdrop-blur-sm shadow-sm hover:border-indigo-500/40 transition-colors"
+            >
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent/60 p-1 shrink-0">
+                <PlatformIcon platform={p.id} className="h-5 w-5" />
+              </div>
+              <div className="text-left">
+                <p className="text-xs font-semibold text-foreground leading-tight">{p.name}</p>
+                <p className="text-[10px] text-muted-foreground font-mono">{p.note}</p>
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* Live System Specs Pill */}
@@ -173,7 +197,7 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="mt-auto border-t border-border/80 py-8 px-4 text-center text-xs text-muted-foreground">
         <p>
-          SocialSync AI — Intelligent Multi-Platform Social Media Automation System • Powered by Google Gemini & Next.js
+          SocialFlow AI — Intelligent Multi-Platform Social Media Automation System • Powered by Google Gemini & Next.js
         </p>
       </footer>
     </div>

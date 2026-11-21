@@ -1,4 +1,4 @@
-import { PlatformAdapter, OAuthUrlParams, OAuthTokenResult, PublishRequest, PublishResult } from '../types';
+import type { PlatformAdapter, OAuthUrlParams, OAuthTokenResult, PublishRequest, PublishResult } from '../types';
 
 export class LinkedInAdapter implements PlatformAdapter {
   platform = 'linkedin' as const;
@@ -17,6 +17,7 @@ export class LinkedInAdapter implements PlatformAdapter {
     }
 
     const scopes = ['openid', 'profile', 'email', 'w_member_social'];
+    if (process.env.LINKEDIN_ENABLE_MEMBER_ANALYTICS === 'true') scopes.push('r_member_postAnalytics');
     const params = new URLSearchParams({
       response_type: 'code',
       client_id: this.clientId,
@@ -51,6 +52,9 @@ export class LinkedInAdapter implements PlatformAdapter {
     const tokenData = await tokenRes.json();
     const accessToken = tokenData.access_token;
     const expiresIn = tokenData.expires_in;
+    const grantedScopes = typeof tokenData.scope === 'string'
+      ? tokenData.scope.split(/[ ,]+/).filter(Boolean) : ['openid', 'profile', 'email', 'w_member_social'];
+    if (!grantedScopes.includes('w_member_social')) throw new Error('LinkedIn publishing permission was not granted');
 
     // Fetch user profile info via OpenID userinfo endpoint
     const profileRes = await fetch('https://api.linkedin.com/v2/userinfo', {
@@ -75,9 +79,20 @@ export class LinkedInAdapter implements PlatformAdapter {
       accountName,
       accountHandle: profileData.email || profileData.sub,
       avatarUrl,
-      grantedScopes: ['openid', 'profile', 'email', 'w_member_social'],
+      grantedScopes,
       rawMetadata: profileData,
     };
+  }
+
+  async refreshAccessToken(refreshToken: string) {
+    const response = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+      method: 'POST', signal: AbortSignal.timeout(10_000),
+      body: new URLSearchParams({ grant_type: 'refresh_token', refresh_token: refreshToken,
+        client_id: this.clientId, client_secret: this.clientSecret }),
+    });
+    if (!response.ok) throw new Error('LinkedIn refresh unavailable');
+    const token = await response.json();
+    return { accessToken: token.access_token, expiresInSeconds: token.expires_in, refreshToken: token.refresh_token };
   }
 
   async validateToken(accessToken: string): Promise<boolean> {
@@ -104,25 +119,95 @@ export class LinkedInAdapter implements PlatformAdapter {
     }
 
     try {
-      // Use LinkedIn Community Management / UGC Post REST API
-      const authorUrn = `urn:li:person:${accountId}`;
-      let specificContent: any = {
-        'com.linkedin.ugc.ShareContent': {
-          shareCommentary: {
-            text: text,
-          },
-          shareMediaCategory: 'NONE',
-        },
-      };
+      const authorUrn = accountId.startsWith('urn:li:') ? accountId : `urn:li:person:${accountId}`;
+      const isVideo = mediaType === 'video';
 
-      // If media is attached, register and upload image or video
+      // 1. Resolve media binary buffer if mediaUrl is provided (supports base64 data URLs & HTTP URLs)
+      let mediaBuffer: Buffer | null = null;
+      let mimeType = isVideo ? 'video/mp4' : 'image/jpeg';
+
       if (mediaUrl) {
-        const isVideo = mediaType === 'video';
-        const recipe = isVideo
-          ? 'urn:li:digitalmediaRecipe:feedshare-video'
-          : 'urn:li:digitalmediaRecipe:feedshare-image';
-
         try {
+          if (mediaUrl.startsWith('data:')) {
+            const commaIdx = mediaUrl.indexOf(',');
+            const header = mediaUrl.substring(0, commaIdx);
+            const b64 = mediaUrl.substring(commaIdx + 1);
+            const mimeMatch = header.match(/data:([^;]+)/);
+            if (mimeMatch) mimeType = mimeMatch[1];
+            mediaBuffer = Buffer.from(b64, 'base64');
+          } else {
+            const fileRes = await fetch(mediaUrl, { redirect: 'error', signal: AbortSignal.timeout(30_000) });
+            if (fileRes.ok) {
+              const cType = fileRes.headers.get('content-type');
+              if (cType) mimeType = cType.split(';')[0].trim();
+              const arrayBuf = await fileRes.arrayBuffer();
+              mediaBuffer = Buffer.from(arrayBuf);
+            } else {
+              console.warn('Could not fetch LinkedIn media asset:', fileRes.status);
+            }
+          }
+        } catch (bufErr) {
+          console.warn('Error reading media asset for LinkedIn publishing:', bufErr);
+        }
+      }
+
+      if (mediaUrl && !mediaBuffer) {
+        return { success: false, errorCode: 'MEDIA_DOWNLOAD_FAILED', errorMessage: 'Could not read the stored LinkedIn media.' };
+      }
+
+      let uploadedImageUrn: string | null = null;
+      let uploadedAssetUrn: string | null = null;
+
+      // 2. Try Modern LinkedIn REST Images API (/rest/images)
+      if (mediaBuffer && !isVideo) {
+        try {
+          const initRes = await fetch('https://api.linkedin.com/rest/images?action=initializeUpload', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+              'LinkedIn-Version': process.env.LINKEDIN_API_VERSION || '202610',
+              'X-Restli-Protocol-Version': '2.0.0',
+            },
+            body: JSON.stringify({
+              initializeUploadRequest: {
+                owner: authorUrn,
+              },
+            }),
+          });
+
+          if (initRes.ok) {
+            const initData = await initRes.json();
+            const uploadUrl = initData.value?.uploadUrl;
+            const imageUrn = initData.value?.image;
+
+            if (uploadUrl && imageUrn) {
+              const putRes = await fetch(uploadUrl, {
+                method: 'PUT',
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  'Content-Type': mimeType || 'application/octet-stream',
+                },
+                body: new Uint8Array(mediaBuffer),
+              });
+
+              if (putRes.ok || putRes.status === 201) {
+                uploadedImageUrn = imageUrn;
+              }
+            }
+          }
+        } catch (restImgErr) {
+          console.warn('LinkedIn /rest/images initialize failed, trying legacy UGC assets:', restImgErr);
+        }
+      }
+
+      // 3. Try Legacy UGC Assets API (/v2/assets) as backup or primary for video/image
+      if (mediaBuffer && (!uploadedImageUrn || isVideo)) {
+        try {
+          const recipe = isVideo
+            ? 'urn:li:digitalmediaRecipe:feedshare-video'
+            : 'urn:li:digitalmediaRecipe:feedshare-image';
+
           const registerRes = await fetch('https://api.linkedin.com/v2/assets?action=registerUpload', {
             method: 'POST',
             headers: {
@@ -146,66 +231,107 @@ export class LinkedInAdapter implements PlatformAdapter {
 
           if (registerRes.ok) {
             const regData = await registerRes.json();
-            const uploadUrl = regData.value?.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest']?.uploadUrl;
+            const uploadMechanism =
+              regData.value?.uploadMechanism?.['com.linkedin.digitalmedia.uploading.MediaUploadHttpRequest'];
+            const uploadUrl = uploadMechanism?.uploadUrl;
+            const regHeaders = uploadMechanism?.headers || {};
             const assetUrn = regData.value?.asset;
 
             if (uploadUrl && assetUrn) {
-              const fileRes = await fetch(mediaUrl);
-              if (fileRes.ok) {
-                const arrayBuf = await fileRes.arrayBuffer();
-                const mimeType = isVideo ? 'application/octet-stream' : 'image/jpeg';
+              const putHeaders: Record<string, string> = {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': mimeType || 'application/octet-stream',
+                ...regHeaders,
+              };
 
-                // Single-part upload to LinkedIn asset storage (supports PUT & fallback POST)
-                let uploadSuccess = false;
-                try {
-                  const putRes = await fetch(uploadUrl, {
-                    method: 'PUT',
-                    headers: {
-                      Authorization: `Bearer ${accessToken}`,
-                      'Content-Type': mimeType,
-                    },
-                    body: arrayBuf,
-                  });
-                  uploadSuccess = putRes.ok;
-                } catch {}
+              const putRes = await fetch(uploadUrl, {
+                method: 'PUT',
+                headers: putHeaders,
+                body: new Uint8Array(mediaBuffer),
+              });
 
-                if (!uploadSuccess) {
-                  try {
-                    const postRes = await fetch(uploadUrl, {
-                      method: 'POST',
-                      headers: {
-                        Authorization: `Bearer ${accessToken}`,
-                        'Content-Type': mimeType,
-                      },
-                      body: arrayBuf,
-                    });
-                    uploadSuccess = postRes.ok;
-                  } catch {}
-                }
-
-                if (uploadSuccess) {
-                  specificContent = {
-                    'com.linkedin.ugc.ShareContent': {
-                      shareCommentary: { text },
-                      shareMediaCategory: isVideo ? 'VIDEO' : 'IMAGE',
-                      media: [
-                        {
-                          status: 'READY',
-                          description: { text: text.substring(0, 100) },
-                          media: assetUrn,
-                          title: { text: request.title || (isVideo ? 'SocialSync AI Video' : 'SocialSync AI Photo') },
-                        },
-                      ],
-                    },
-                  };
-                }
+              if (putRes.ok || putRes.status === 201) {
+                uploadedAssetUrn = assetUrn;
               }
             }
           }
-        } catch (mediaErr) {
-          console.warn('LinkedIn media upload failed, continuing with text:', mediaErr);
+        } catch (ugcAssetErr) {
+          console.warn('LinkedIn /v2/assets registerUpload error:', ugcAssetErr);
         }
       }
+
+      if (mediaUrl && !uploadedImageUrn && !uploadedAssetUrn) {
+        return { success: false, errorCode: 'LINKEDIN_MEDIA_UPLOAD_FAILED',
+          actionRequired: 'LinkedIn could not accept the media. Check the media format and app permissions.' };
+      }
+
+      // Publish once an image has an official media URN.
+      if (uploadedImageUrn) {
+        try {
+          const restPostRes = await fetch('https://api.linkedin.com/rest/posts', {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+              'LinkedIn-Version': process.env.LINKEDIN_API_VERSION || '202610',
+              'X-Restli-Protocol-Version': '2.0.0',
+            },
+            body: JSON.stringify({
+              author: authorUrn,
+              commentary: text,
+              visibility: 'PUBLIC',
+              distribution: {
+                feedDistribution: 'MAIN_FEED',
+                targetEntities: [],
+                thirdPartyDistributionChannels: [],
+              },
+              content: {
+                media: {
+                  title: request.title || 'SocialSync AI Post',
+                  id: uploadedImageUrn,
+                },
+              },
+              lifecycleState: 'PUBLISHED',
+              isReshareDisabledByAuthor: false,
+            }),
+          });
+
+          if (restPostRes.ok) {
+            const restUrn =
+              restPostRes.headers.get('x-restli-id') ||
+              restPostRes.headers.get('x-linkedin-id') || undefined;
+            return {
+              success: true,
+              externalPostId: restUrn,
+              externalPostUrl: restUrn ? `https://www.linkedin.com/feed/update/${restUrn}/` : undefined,
+            };
+          }
+          return { success: false, errorCode: `LINKEDIN_API_${restPostRes.status}`,
+            actionRequired: 'Check that your LinkedIn app has permission to create posts.' };
+        } catch (restPostErr) {
+          return { success: false, errorCode: 'LINKEDIN_NETWORK_ERROR', errorMessage: 'LinkedIn submission could not be confirmed.' };
+        }
+      }
+
+      // 5. Publish via Community Management / UGC Post REST API (/v2/ugcPosts)
+      const specificContent: any = {
+        'com.linkedin.ugc.ShareContent': {
+          shareCommentary: {
+            text: text,
+          },
+          shareMediaCategory: uploadedAssetUrn ? (isVideo ? 'VIDEO' : 'IMAGE') : 'NONE',
+          media: uploadedAssetUrn
+            ? [
+                {
+                  status: 'READY',
+                  description: { text: text.substring(0, 100) },
+                  media: uploadedAssetUrn,
+                  title: { text: request.title || (isVideo ? 'SocialSync AI Video' : 'SocialSync AI Photo') },
+                },
+              ]
+            : undefined,
+        },
+      };
 
       const postBody = {
         author: authorUrn,
@@ -227,14 +353,14 @@ export class LinkedInAdapter implements PlatformAdapter {
       });
 
       if (!res.ok) {
-        // Fallback: Try LinkedIn modern /rest/posts API
-        try {
+        // Text posts can use the versioned endpoint if the legacy endpoint is unavailable.
+        if (!mediaUrl && [403, 404, 410, 426].includes(res.status)) try {
           const restRes = await fetch('https://api.linkedin.com/rest/posts', {
             method: 'POST',
             headers: {
               Authorization: `Bearer ${accessToken}`,
               'Content-Type': 'application/json',
-              'LinkedIn-Version': '202401',
+              'LinkedIn-Version': process.env.LINKEDIN_API_VERSION || '202610',
               'X-Restli-Protocol-Version': '2.0.0',
             },
             body: JSON.stringify({
@@ -246,6 +372,14 @@ export class LinkedInAdapter implements PlatformAdapter {
                 targetEntities: [],
                 thirdPartyDistributionChannels: [],
               },
+              content: uploadedImageUrn
+                ? {
+                    media: {
+                      title: request.title || 'SocialSync AI Post',
+                      id: uploadedImageUrn,
+                    },
+                  }
+                : undefined,
               lifecycleState: 'PUBLISHED',
               isReshareDisabledByAuthor: false,
             }),
@@ -254,16 +388,17 @@ export class LinkedInAdapter implements PlatformAdapter {
           if (restRes.ok) {
             const restUrn =
               restRes.headers.get('x-restli-id') ||
-              restRes.headers.get('x-linkedin-id') ||
-              `urn:li:share:${Date.now()}`;
+              restRes.headers.get('x-linkedin-id') || undefined;
             return {
               success: true,
               externalPostId: restUrn,
-              externalPostUrl: `https://www.linkedin.com/feed/update/${restUrn}/`,
+              externalPostUrl: restUrn ? `https://www.linkedin.com/feed/update/${restUrn}/` : undefined,
             };
           }
+          return { success: false, errorCode: `LINKEDIN_API_${restRes.status}`,
+            actionRequired: 'Check that your LinkedIn app has permission to create posts.' };
         } catch {
-          // Fall through to error handling
+          return { success: false, errorCode: 'LINKEDIN_NETWORK_ERROR', errorMessage: 'LinkedIn submission could not be confirmed.' };
         }
 
         const errorJson = await res.json().catch(() => ({ message: res.statusText }));
@@ -279,9 +414,8 @@ export class LinkedInAdapter implements PlatformAdapter {
         };
       }
 
-      const resData = await res.json();
-      const urn = resData.id;
-      // Convert urn:li:share:12345 or urn:li:ugcPost:12345 to public URL
+      const resData = await res.json().catch(() => ({}));
+      const urn = res.headers.get('x-restli-id') || resData.id;
       const externalPostUrl = urn ? `https://www.linkedin.com/feed/update/${urn}/` : undefined;
 
       return {

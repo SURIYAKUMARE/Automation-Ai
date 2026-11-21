@@ -1,39 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
-import { executePostPublishing } from '@/lib/publishing/engine';
+import { manageCampaign } from '@/lib/publishing/campaign';
 import { getSessionUser } from '@/lib/auth/session';
 
 export async function POST(req: NextRequest) {
-  try {
-    const user = await getSessionUser(req);
-    const userId = user?.id || '00000000-0000-0000-0000-000000000001';
-
-    const supabase = createAdminClient();
-
-    // 1. Fetch pending posts ready for publishing
-    const { data: pendingPosts } = await supabase
-      .from('posts')
-      .select('id, title, publishing_mode')
-      .eq('user_id', userId)
-      .eq('status', 'ready')
-      .limit(5);
-
-    const executed: any[] = [];
-    if (pendingPosts && pendingPosts.length > 0) {
-      for (const p of pendingPosts) {
-        const result = await executePostPublishing({ postId: p.id, userId });
-        executed.push({ postId: p.id, title: p.title, result });
-      }
-    }
-
-    return NextResponse.json({
-      success: true,
-      processedCount: executed.length,
-      executed,
-      message: 'Automation cycle completed successfully',
-      executedAt: new Date().toISOString(),
-    });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
-  }
+  const user = await getSessionUser(req);
+  if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+  const { data, error } = await createAdminClient().from('posts').select('id')
+    .eq('user_id', user.id).eq('publishing_mode', 'automatic').eq('status', 'ready').limit(5);
+  if (error) return NextResponse.json({ error: 'Could not read ready posts' }, { status: 503 });
+  const results = await Promise.all(data.map(async ({ id }) => {
+    const response = await manageCampaign(user.id, id, 'queue', new Date().toISOString());
+    return { postId: id, queued: response.ok };
+  }));
+  return NextResponse.json({ success: true, processedCount: results.filter((item) => item.queued).length, results });
 }

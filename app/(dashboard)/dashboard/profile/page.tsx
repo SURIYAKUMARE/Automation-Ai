@@ -1,110 +1,84 @@
 "use client";
 
-import * as React from "react";
-import { User, Mail, Building, Globe, Save } from "lucide-react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
-export default function ProfilePage() {
-  const [fullName, setFullName] = React.useState("");
-  const [email, setEmail] = React.useState("");
-  const [organization, setOrganization] = React.useState("");
-  const [timezone, setTimezone] = React.useState("Asia/Kolkata (UTC+5:30)");
-  const [isSaving, setIsSaving] = React.useState(false);
+const emptyProfile = { full_name: "", email: "", organization: "", timezone: "UTC" };
+const emptyBrand = { voice: "", audience: "", keywords: "" };
 
-  React.useEffect(() => {
-    async function loadUser() {
-      try {
-        const res = await fetch("/api/auth/session");
-        if (res.ok) {
-          const data = await res.json();
-          if (data.user) {
-            setFullName(data.user.name || "");
-            setEmail(data.user.email || "");
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load session:", err);
-      }
-    }
-    loadUser();
+export default function SettingsPage() {
+  const [profile, setProfile] = useState(emptyProfile);
+  const [brand, setBrand] = useState(emptyBrand);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState("");
+  const router = useRouter();
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all(["/api/profile", "/api/brand-profile"].map(async (path) => {
+      const response = await fetch(path, { signal: controller.signal });
+      if (!response.ok) throw new Error();
+      return response.json();
+    })).then(([user, preferences]) => {
+      const data = user.profile;
+      setProfile({ ...data, full_name: data.full_name || "", organization: data.organization || "", timezone: data.timezone || "UTC" });
+      setBrand(preferences.brand);
+    }).catch(() => { if (!controller.signal.aborted) toast.error("Could not load settings."); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
   }, []);
 
-  const handleSave = () => {
-    setIsSaving(true);
-    setTimeout(() => {
-      setIsSaving(false);
-      toast.success("Profile updated successfully!");
-    }, 600);
-  };
+  async function save(section: "profile" | "brand-profile") {
+    setSaving(section);
+    try {
+      const response = await fetch("/api/" + section, {
+        method: "PUT", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(section === "profile" ? profile : brand),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      toast.success(section === "profile" ? "Profile saved" : "Brand voice saved");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not save settings");
+    } finally {
+      setSaving("");
+    }
+  }
 
-  return (
-    <div className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-          <User className="h-6 w-6 text-primary" />
-          User Profile
-        </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Manage your personal account details, timezone preferences, and organization settings.
-        </p>
-      </div>
+  async function logout() {
+    const response = await fetch("/api/auth/logout", { method: "POST" });
+    if (response.ok) router.replace("/login");
+    else toast.error("Could not sign out.");
+  }
 
-      <Card className="border-border/80">
-        <CardHeader className="pb-4">
-          <CardTitle className="text-base">Account Information</CardTitle>
-          <CardDescription>Update your contact and team details</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4 text-xs">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="font-semibold text-muted-foreground flex items-center gap-1.5">
-                <User className="h-3.5 w-3.5 text-primary" /> Full Name
-              </label>
-              <Input value={fullName} onChange={(e) => setFullName(e.target.value)} placeholder="Enter your full name" className="text-xs" />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="font-semibold text-muted-foreground flex items-center gap-1.5">
-                <Mail className="h-3.5 w-3.5 text-primary" /> Email Address
-              </label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} disabled placeholder="user@example.com" className="text-xs opacity-70" />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="font-semibold text-muted-foreground flex items-center gap-1.5">
-                <Building className="h-3.5 w-3.5 text-primary" /> Organization / College
-              </label>
-              <Input value={organization} onChange={(e) => setOrganization(e.target.value)} placeholder="Enter organization or team" className="text-xs" />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="font-semibold text-muted-foreground flex items-center gap-1.5">
-                <Globe className="h-3.5 w-3.5 text-primary" /> Preferred Timezone
-              </label>
-              <select
-                value={timezone}
-                onChange={(e) => setTimezone(e.target.value)}
-                className="w-full rounded-lg border border-input bg-card p-2 text-foreground text-xs"
-              >
-                <option value="Asia/Kolkata (UTC+5:30)">Asia/Kolkata (UTC+5:30)</option>
-                <option value="UTC">UTC (Universal Coordinated Time)</option>
-                <option value="America/New_York (EST)">America/New_York (EST)</option>
-                <option value="Europe/London (GMT)">Europe/London (GMT)</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="pt-2 flex justify-end">
-            <Button variant="stitch" size="sm" onClick={handleSave} disabled={isSaving} className="gap-2">
-              <Save className="h-4 w-4" />
-              <span>{isSaving ? "Saving..." : "Save Profile"}</span>
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+  return <div className="space-y-6 max-w-4xl">
+    <div className="flex items-center justify-between">
+      <h1 className="text-2xl font-bold">Settings</h1>
+      <Button variant="outline" onClick={() => void logout()}>Sign out</Button>
     </div>
-  );
+    <Card><CardHeader><CardTitle className="text-base">Account profile</CardTitle></CardHeader>
+      <CardContent>
+        <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void save("profile"); }}>
+          <label className="block text-sm">Full name<Input value={profile.full_name} onChange={(event) => setProfile({ ...profile, full_name: event.target.value })} required maxLength={100} /></label>
+          <label className="block text-sm">Email<Input value={profile.email} readOnly /></label>
+          <label className="block text-sm">Organization<Input value={profile.organization} onChange={(event) => setProfile({ ...profile, organization: event.target.value })} maxLength={200} /></label>
+          <label className="block text-sm">Preferred timezone<Input value={profile.timezone} placeholder="Asia/Kolkata" onChange={(event) => setProfile({ ...profile, timezone: event.target.value })} required /></label>
+          <Button type="submit" disabled={loading || !!saving}>Save profile</Button>
+        </form>
+      </CardContent>
+    </Card>
+    <Card><CardHeader><CardTitle className="text-base">Brand voice</CardTitle></CardHeader>
+      <CardContent>
+        <form className="space-y-3" onSubmit={(event) => { event.preventDefault(); void save("brand-profile"); }}>
+          <p className="text-sm text-muted-foreground">Gemini will use these preferences when generating captions and content plans.</p>
+          {([["voice", "Voice and writing style"], ["audience", "Audience"], ["keywords", "Preferred keywords"]] as const).map(([key, label]) =>
+            <label key={key} className="block text-sm">{label}<Input value={brand[key]} maxLength={500} onChange={(event) => setBrand({ ...brand, [key]: event.target.value })} /></label>)}
+          <Button type="submit" disabled={loading || !!saving}>Save brand voice</Button>
+        </form>
+      </CardContent>
+    </Card>
+  </div>;
 }

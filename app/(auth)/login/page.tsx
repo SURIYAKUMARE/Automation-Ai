@@ -45,7 +45,7 @@ export default function LoginPage() {
   };
 
   const handleGoogleLogin = () => {
-    window.location.href = "/api/auth/google";
+    window.location.assign(new URL("/api/auth/google", window.location.origin));
   };
 
   return (
@@ -54,11 +54,11 @@ export default function LoginPage() {
         <CardHeader className="space-y-2 text-center pb-6">
           <img
             src="/icon.png"
-            alt="SocialSync AI"
+            alt="SocialFlow AI"
             className="mx-auto h-12 w-12 rounded-xl object-contain mb-1 shadow-md shadow-indigo-500/10"
           />
           <CardTitle className="text-2xl font-bold tracking-tight text-foreground">
-            Sign in to SocialSync <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">AI</span>
+            Sign in to SocialFlow <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">AI</span>
           </CardTitle>
           <CardDescription className="text-xs text-muted-foreground">
             Cross-Platform Distribution Engine

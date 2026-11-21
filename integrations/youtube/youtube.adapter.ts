@@ -82,6 +82,10 @@ export class YouTubeAdapter implements PlatformAdapter {
       }
     }
 
+    if (channelId === 'unknown') throw new Error('A YouTube channel is required to connect this account');
+    if (!(tokenData.scope || '').split(' ').includes('https://www.googleapis.com/auth/youtube.upload')) {
+      throw new Error('YouTube upload permission was not granted');
+    }
     return {
       accessToken,
       refreshToken,
@@ -185,34 +189,7 @@ export class YouTubeAdapter implements PlatformAdapter {
         }
       );
 
-      let actualInitRes = initRes;
-      if (!actualInitRes.ok) {
-        // Fallback to unlisted privacy status if public upload is restricted on unverified Google Cloud projects
-        actualInitRes = await fetch(
-          'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/json; charset=UTF-8',
-              'X-Upload-Content-Type': 'video/mp4',
-            },
-            body: JSON.stringify({
-              snippet: {
-                title: videoTitle,
-                description: videoDescription,
-                tags: tags.length > 0 ? tags : ['SocialSyncAI', 'Automation'],
-                categoryId: '28',
-              },
-              status: {
-                privacyStatus: 'unlisted',
-                selfDeclaredMadeForKids: false,
-              },
-            }),
-          }
-        );
-      }
-
+      const actualInitRes = initRes;
       if (!actualInitRes.ok) {
         const errJson = await actualInitRes.json().catch(() => ({}));
         return {
@@ -234,7 +211,7 @@ export class YouTubeAdapter implements PlatformAdapter {
       }
 
       // 3. Stream video file buffer to uploadUrl
-      const videoFileRes = await fetch(mediaUrl);
+      const videoFileRes = await fetch(mediaUrl, { redirect: 'error', signal: AbortSignal.timeout(30_000) });
       if (!videoFileRes.ok) {
         return {
           success: false,

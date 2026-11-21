@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { SocialPlatform } from "@/types";
+import { PlatformIcon } from "@/components/platform-icon";
 
 export default function AutomationSettingsPage() {
   const [isEnabled, setIsEnabled] = React.useState(false);
@@ -191,14 +192,17 @@ export default function AutomationSettingsPage() {
                       key={p}
                       type="button"
                       onClick={() => togglePlatform(p)}
-                      className={`flex items-center justify-between p-2 rounded-lg border text-xs capitalize ${
+                      className={`flex items-center justify-between p-2 rounded-lg border text-xs capitalize transition-all ${
                         active
                           ? "border-primary bg-primary/10 text-primary font-semibold"
                           : "border-border text-muted-foreground hover:bg-accent"
                       }`}
                     >
-                      <span>{p}</span>
-                      {active && <Check className="h-3.5 w-3.5" />}
+                      <span className="flex items-center gap-2">
+                        <PlatformIcon platform={p} className="h-4 w-4" />
+                        <span>{p}</span>
+                      </span>
+                      {active && <Check className="h-3.5 w-3.5 text-primary" />}
                     </button>
                   );
                 })}

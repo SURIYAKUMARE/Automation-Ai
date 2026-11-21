@@ -1,3 +1,4 @@
+import { authorizeAI } from '@/lib/ai/request';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { generateSocialContentWithGemini } from '@/lib/ai/gemini';
@@ -11,6 +12,8 @@ const CaptionSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
+  const access = await authorizeAI(req);
+  if (access.response) return access.response;
   try {
     const json = await req.json();
     const parsed = CaptionSchema.safeParse(json);
@@ -21,12 +24,13 @@ export async function POST(req: NextRequest) {
     const { topic, platform, language, tone } = parsed.data;
 
     const result = await generateSocialContentWithGemini({
+      brand: access.brand,
       userPrompt: topic,
       language: language as SupportedLanguage,
       tone: tone as SupportedTone,
     });
 
-    const platformVariant = result.platforms[platform] || result.platforms.linkedin;
+    const platformVariant = result.platforms[platform] ?? result.platforms.linkedin!;
 
     return NextResponse.json({
       success: true,

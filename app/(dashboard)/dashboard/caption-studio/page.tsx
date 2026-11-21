@@ -27,12 +27,15 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { GeminiAnalysisResult, SupportedLanguage, SupportedTone, SocialPlatform } from "@/types";
+import { prepareMediaPreview } from "@/lib/ai/media-preview";
+import { TrendResearch } from "@/components/dashboard/trend-research";
+import { PlatformIcon } from "@/components/platform-icon";
 
 const EDITORIAL_PRESETS = [
   { label: "Enterprise AI Architecture", icon: Cpu, prompt: "Autonomous Multi-Platform Social Media Automation Architecture and System Launch", tone: "Professional" as SupportedTone, lang: "English" as SupportedLanguage },
   { label: "Product Milestone Release", icon: Layers, prompt: "Major Product Milestone Release and Next-Gen Engineering Platform Overview", tone: "Promotional" as SupportedTone, lang: "English" as SupportedLanguage },
   { label: "Distribution Efficiency", icon: SlidersHorizontal, prompt: "Eliminating Multi-Channel Content Distribution Bottlenecks via Automated Orchestration", tone: "Creative" as SupportedTone, lang: "English" as SupportedLanguage },
-  { label: "Engineering Demonstration", icon: Terminal, prompt: "Final Year Computer Science Major Project Demonstration: SocialSync AI", tone: "Professional" as SupportedTone, lang: "English" as SupportedLanguage },
+  { label: "Engineering Demonstration", icon: Terminal, prompt: "Final Year Computer Science Major Project Demonstration: SocialFlow AI", tone: "Professional" as SupportedTone, lang: "English" as SupportedLanguage },
   { label: "Bilingual Tanglish Overview", icon: Globe, prompt: "Multi-platform content distribution-la irukkura manual work-ah simplify panna oru comprehensive system", tone: "Friendly" as SupportedTone, lang: "Tanglish" as SupportedLanguage },
 ];
 
@@ -45,6 +48,8 @@ export default function AICaptionStudioPage() {
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [analysisResult, setAnalysisResult] = React.useState<GeminiAnalysisResult | null>(null);
   const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
+
+  React.useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -67,17 +72,7 @@ export default function AICaptionStudioPage() {
     toast.info("Gemini multimodal analysis initialized...");
 
     try {
-      let mediaBase64: string | undefined;
-      let mimeType: string | undefined;
-
-      if (selectedFile) {
-        mimeType = selectedFile.type;
-        const reader = new FileReader();
-        mediaBase64 = await new Promise((resolve) => {
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.readAsDataURL(selectedFile);
-        });
-      }
+      const media = selectedFile ? await prepareMediaPreview(selectedFile) : {};
 
       const res = await fetch("/api/ai/generate", {
         method: "POST",
@@ -86,9 +81,8 @@ export default function AICaptionStudioPage() {
           userPrompt,
           language,
           tone,
-          mediaBase64,
-          mimeType,
-          isMediaVideo: selectedFile ? selectedFile.type.startsWith("video/") : false,
+          ...media,
+          alternatives: true,
         }),
       });
 
@@ -139,6 +133,7 @@ export default function AICaptionStudioPage() {
         </Link>
       </div>
 
+      <TrendResearch />
       {/* Editorial Presets */}
       <Card className="border-border/80 bg-card p-3 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -314,7 +309,10 @@ export default function AICaptionStudioPage() {
               <Card className="border-border/80 flex flex-col justify-between">
                 <CardHeader className="pb-2 border-b border-border/40">
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs font-semibold uppercase text-sky-400">LinkedIn Output</span>
+                    <div className="flex items-center gap-2">
+                      <PlatformIcon platform="linkedin" className="h-4 w-4" />
+                      <span className="font-mono text-xs font-semibold uppercase text-sky-400">LinkedIn Output</span>
+                    </div>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -329,6 +327,19 @@ export default function AICaptionStudioPage() {
                   <p className="text-xs whitespace-pre-wrap text-foreground/90 leading-relaxed font-sans">
                     {analysisResult.platforms.linkedin.caption}
                   </p>
+                    {analysisResult.platforms.linkedin.alternatives?.map((caption, index) => (
+                      <details key={caption} className="rounded border p-2 text-xs">
+                        <summary className="cursor-pointer">Caption option {index + 2}</summary>
+                        <p className="whitespace-pre-wrap py-2">{caption}</p>
+                        <Button size="sm" variant="outline" onClick={() => setAnalysisResult((current) => current && current.platforms.linkedin ? ({
+                          ...current, platforms: { ...current.platforms, linkedin: {
+                            ...current.platforms.linkedin, caption,
+                            alternatives: current.platforms.linkedin.alternatives?.map((value) => value === caption ? current.platforms.linkedin.caption : value),
+                          } },
+                        }) : current)}>Use caption</Button>
+                      </details>
+                    ))}
+                    <p className="text-xs text-muted-foreground">{analysisResult.platforms.linkedin.rationale}</p>
                   <div className="pt-2 flex flex-wrap gap-1">
                     {analysisResult.platforms.linkedin.hashtags.map((h, i) => (
                       <span key={i} className="text-[10px] text-primary font-mono">{h}</span>
@@ -341,7 +352,10 @@ export default function AICaptionStudioPage() {
               <Card className="border-border/80 flex flex-col justify-between">
                 <CardHeader className="pb-2 border-b border-border/40">
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs font-semibold uppercase text-pink-400">Instagram Output</span>
+                    <div className="flex items-center gap-2">
+                      <PlatformIcon platform="instagram" className="h-4 w-4" />
+                      <span className="font-mono text-xs font-semibold uppercase text-pink-400">Instagram Output</span>
+                    </div>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -356,6 +370,19 @@ export default function AICaptionStudioPage() {
                   <p className="text-xs whitespace-pre-wrap text-foreground/90 leading-relaxed font-sans">
                     {analysisResult.platforms.instagram.caption}
                   </p>
+                    {analysisResult.platforms.instagram.alternatives?.map((caption, index) => (
+                      <details key={caption} className="rounded border p-2 text-xs">
+                        <summary className="cursor-pointer">Caption option {index + 2}</summary>
+                        <p className="whitespace-pre-wrap py-2">{caption}</p>
+                        <Button size="sm" variant="outline" onClick={() => setAnalysisResult((current) => current && current.platforms.instagram ? ({
+                          ...current, platforms: { ...current.platforms, instagram: {
+                            ...current.platforms.instagram, caption,
+                            alternatives: current.platforms.instagram.alternatives?.map((value) => value === caption ? current.platforms.instagram.caption : value),
+                          } },
+                        }) : current)}>Use caption</Button>
+                      </details>
+                    ))}
+                    <p className="text-xs text-muted-foreground">{analysisResult.platforms.instagram.rationale}</p>
                   <div className="pt-2 flex flex-wrap gap-1">
                     {analysisResult.platforms.instagram.hashtags.map((h, i) => (
                       <span key={i} className="text-[10px] text-pink-400 font-mono">{h}</span>
@@ -368,7 +395,10 @@ export default function AICaptionStudioPage() {
               <Card className="border-border/80 flex flex-col justify-between">
                 <CardHeader className="pb-2 border-b border-border/40">
                   <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs font-semibold uppercase text-blue-400">Facebook Output</span>
+                    <div className="flex items-center gap-2">
+                      <PlatformIcon platform="facebook" className="h-4 w-4" />
+                      <span className="font-mono text-xs font-semibold uppercase text-blue-400">Facebook Output</span>
+                    </div>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -383,6 +413,19 @@ export default function AICaptionStudioPage() {
                   <p className="text-xs whitespace-pre-wrap text-foreground/90 leading-relaxed font-sans">
                     {analysisResult.platforms.facebook.caption}
                   </p>
+                    {analysisResult.platforms.facebook.alternatives?.map((caption, index) => (
+                      <details key={caption} className="rounded border p-2 text-xs">
+                        <summary className="cursor-pointer">Caption option {index + 2}</summary>
+                        <p className="whitespace-pre-wrap py-2">{caption}</p>
+                        <Button size="sm" variant="outline" onClick={() => setAnalysisResult((current) => current && current.platforms.facebook ? ({
+                          ...current, platforms: { ...current.platforms, facebook: {
+                            ...current.platforms.facebook, caption,
+                            alternatives: current.platforms.facebook.alternatives?.map((value) => value === caption ? current.platforms.facebook.caption : value),
+                          } },
+                        }) : current)}>Use caption</Button>
+                      </details>
+                    ))}
+                    <p className="text-xs text-muted-foreground">{analysisResult.platforms.facebook.rationale}</p>
                   <div className="pt-2 flex flex-wrap gap-1">
                     {analysisResult.platforms.facebook.hashtags.map((h, i) => (
                       <span key={i} className="text-[10px] text-blue-400 font-mono">{h}</span>
@@ -396,7 +439,10 @@ export default function AICaptionStudioPage() {
                 <Card className="border-border/80 flex flex-col justify-between">
                   <CardHeader className="pb-2 border-b border-border/40">
                     <div className="flex items-center justify-between">
-                      <span className="font-mono text-xs font-semibold uppercase text-red-400">YouTube Output</span>
+                      <div className="flex items-center gap-2">
+                        <PlatformIcon platform="youtube" className="h-4 w-4" />
+                        <span className="font-mono text-xs font-semibold uppercase text-red-400">YouTube Output</span>
+                      </div>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -414,8 +460,24 @@ export default function AICaptionStudioPage() {
                     <p className="text-xs whitespace-pre-wrap text-foreground/90 leading-relaxed font-sans">
                       {analysisResult.platforms.youtube.caption}
                     </p>
+                    {analysisResult.platforms.youtube.alternatives?.map((caption, index) => (
+                      <details key={caption} className="rounded border p-2 text-xs">
+                        <summary className="cursor-pointer">Caption option {index + 2}</summary>
+                        <p className="whitespace-pre-wrap py-2">{caption}</p>
+                        <Button size="sm" variant="outline" onClick={() => setAnalysisResult((current) => current && current.platforms.youtube ? ({
+                          ...current, platforms: { ...current.platforms, youtube: {
+                            ...current.platforms.youtube, caption,
+                            alternatives: current.platforms.youtube.alternatives?.map((value) => value === caption ? current.platforms.youtube!.caption : value),
+                          } },
+                        }) : current)}>Use caption</Button>
+                      </details>
+                    ))}
+                    <p className="text-xs text-muted-foreground">{analysisResult.platforms.youtube.rationale}</p>
                     <div className="pt-2 flex flex-wrap gap-1">
-                      {analysisResult.platforms.youtube.hashtags.map((h, i) => (
+                      {analysisResult.platforms.youtube.keywords?.length ? <p className="text-xs">Keywords · {analysisResult.platforms.youtube.keywords.join(", ")}</p> : null}
+                    {analysisResult.platforms.youtube.suggested_category && <p className="text-xs">Category · {analysisResult.platforms.youtube.suggested_category}</p>}
+                    {analysisResult.platforms.youtube.thumbnail_recommendation && <p className="text-xs">Thumbnail · {analysisResult.platforms.youtube.thumbnail_recommendation}</p>}
+                    {analysisResult.platforms.youtube.hashtags.map((h, i) => (
                         <span key={i} className="text-[10px] text-red-400 font-mono">{h}</span>
                       ))}
                     </div>

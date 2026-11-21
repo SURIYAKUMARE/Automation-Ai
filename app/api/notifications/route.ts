@@ -1,10 +1,13 @@
+import { getSessionUser } from '@/lib/auth/session';
 import { NextRequest, NextResponse } from 'next/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const userId = searchParams.get('userId') || 'current-user';
+    const user = await getSessionUser(req);
+    if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+    const userId = user.id;
     const supabase = createAdminClient();
 
     const { data: notifications, error } = await supabase
@@ -28,7 +31,9 @@ export async function PATCH(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
-    const userId = searchParams.get('userId') || 'current-user';
+    const user = await getSessionUser(req);
+    if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+    const userId = user.id;
     const supabase = createAdminClient();
 
     if (id) {

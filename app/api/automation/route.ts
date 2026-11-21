@@ -5,7 +5,8 @@ import { getSessionUser } from '@/lib/auth/session';
 export async function GET(req: NextRequest) {
   try {
     const user = await getSessionUser(req);
-    const userId = user?.id || '00000000-0000-0000-0000-000000000001';
+    if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+    const userId = user.id;
 
     const supabase = createAdminClient();
     const { data: rule } = await supabase
@@ -38,7 +39,8 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   try {
     const user = await getSessionUser(req);
-    const userId = user?.id || '00000000-0000-0000-0000-000000000001';
+    if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+    const userId = user.id;
 
     const json = await req.json();
     const supabase = createAdminClient();

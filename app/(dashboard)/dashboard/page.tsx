@@ -16,6 +16,7 @@ import {
   Share2,
 } from "lucide-react";
 import { SocialPlatform } from "@/types";
+import { PlatformIcon } from "@/components/platform-icon";
 
 interface PlatformCardState {
   id: SocialPlatform;
@@ -127,32 +128,22 @@ export default function DashboardOverviewPage() {
               className="rounded-xl border border-border bg-card p-5 hover:border-foreground/30 transition-all flex flex-col justify-between space-y-4 group shadow-sm"
             >
               <div className="flex items-center justify-between">
-                {/* Platform Icon */}
-                <div className="text-foreground">
-                  {platform.iconType === "facebook" && (
-                    <span className="font-serif font-black text-xl leading-none">f</span>
-                  )}
-                  {platform.iconType === "instagram" && (
-                    <svg className="h-5 w-5 fill-none stroke-current stroke-2" viewBox="0 0 24 24">
-                      <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
-                      <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
-                      <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
-                    </svg>
-                  )}
-                  {platform.iconType === "linkedin" && (
-                    <span className="font-sans font-bold text-lg leading-none">in</span>
-                  )}
-                  {platform.iconType === "youtube" && (
-                    <svg className="h-5 w-5 fill-current" viewBox="0 0 24 24">
-                      <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                    </svg>
-                  )}
+                {/* Platform Icon & Name */}
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent/60 p-1.5 border border-border/50 group-hover:scale-105 transition-transform shadow-sm">
+                    <PlatformIcon platform={platform.id} className="h-6 w-6" />
+                  </div>
+                  <div>
+                    <span className="font-semibold text-sm text-foreground block">{platform.name}</span>
+                    <span className="text-[10px] font-mono text-muted-foreground">{platform.tag}</span>
+                  </div>
                 </div>
 
-                {/* API Tag */}
-                <span className="px-2 py-0.5 text-[11px] font-mono rounded border border-border bg-muted/50 text-muted-foreground">
-                  {platform.tag}
-                </span>
+                {isConnected ? (
+                  <span className="flex h-2.5 w-2.5 rounded-full bg-emerald-500 shadow-sm" title="Active & Connected" />
+                ) : (
+                  <span className="flex h-2 w-2 rounded-full bg-muted-foreground/40" title="Offline" />
+                )}
               </div>
 
               <div>

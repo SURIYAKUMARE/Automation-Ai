@@ -1,9 +1,9 @@
+import { getSessionUser } from '@/lib/auth/session';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient } from '@/lib/supabase/admin';
 
 const UpdateRuleSchema = z.object({
-  userId: z.string(),
   isEnabled: z.boolean(),
   defaultMode: z.enum(['automatic', 'manual_approval']),
   defaultLanguage: z.string(),
@@ -16,7 +16,9 @@ const UpdateRuleSchema = z.object({
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const userId = searchParams.get('userId') || 'current-user';
+    const user = await getSessionUser(req);
+    if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+    const userId = user.id;
     const supabase = createAdminClient();
 
     const { data: rules } = await supabase
@@ -44,6 +46,8 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await getSessionUser(req);
+    if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
     const json = await req.json();
     const parsed = UpdateRuleSchema.safeParse(json);
 
@@ -52,7 +56,6 @@ export async function POST(req: NextRequest) {
     }
 
     const {
-      userId,
       isEnabled,
       defaultMode,
       defaultLanguage,
@@ -68,7 +71,7 @@ export async function POST(req: NextRequest) {
       .from('automation_rules')
       .upsert(
         {
-          user_id: userId,
+          user_id: user.id,
           is_enabled: isEnabled,
           default_mode: defaultMode,
           default_language: defaultLanguage,

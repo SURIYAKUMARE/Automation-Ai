@@ -40,7 +40,12 @@ export default function RegisterPage() {
         throw new Error(data.error || "Registration failed");
       }
 
-      toast.success("Account created successfully! Welcome to SocialSync AI.");
+      if (data.confirmationRequired) {
+        toast.success("Check your email to confirm your account.");
+        router.push("/login");
+        return;
+      }
+      toast.success("Account created.");
       router.push("/dashboard");
     } catch (err: any) {
       toast.dismiss();
@@ -51,7 +56,7 @@ export default function RegisterPage() {
   };
 
   const handleGoogleSignup = () => {
-    window.location.href = "/api/auth/google";
+    window.location.assign(new URL("/api/auth/google", window.location.origin));
   };
 
   return (
@@ -60,7 +65,7 @@ export default function RegisterPage() {
         <CardHeader className="space-y-2 text-center pb-6">
           <img
             src="/icon.png"
-            alt="SocialSync AI"
+            alt="SocialFlow AI"
             className="mx-auto h-12 w-12 rounded-xl object-contain mb-1 shadow-md shadow-indigo-500/10"
           />
           <CardTitle className="text-2xl font-bold tracking-tight text-foreground">

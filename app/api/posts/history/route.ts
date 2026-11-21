@@ -5,12 +5,14 @@ import { getSessionUser } from '@/lib/auth/session';
 export async function GET(req: NextRequest) {
   try {
     const user = await getSessionUser(req);
-    const userId = user?.id || '00000000-0000-0000-0000-000000000001';
+    if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+    const userId = user.id;
 
     const supabase = createAdminClient();
     const { data: attempts, error } = await supabase
       .from('publishing_attempts')
-      .select('*, posts(title)')
+      .select('*, posts!inner(title,user_id)')
+      .eq('posts.user_id', userId)
       .order('created_at', { ascending: false })
       .limit(50);
 

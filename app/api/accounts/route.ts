@@ -1,119 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  getSessionUser,
-  stringToUuid,
-  getConnectedAccountsFromCookie,
-  removeConnectedAccountFromCookie,
-} from '@/lib/auth/session';
+import { z } from 'zod';
+import { getSessionUser } from '@/lib/auth/session';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { platformSchema, postIdSchema } from '@/lib/publishing/campaign';
 
 export async function GET(req: NextRequest) {
+  const user = await getSessionUser(req);
+  if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
   try {
-    const user = await getSessionUser(req);
-    const validUserId = stringToUuid(user?.id || '00000000-0000-0000-0000-000000000001');
-
-    // 1. Check Supabase
-    let dbAccounts: any[] = [];
-    try {
-      const supabase = createAdminClient();
-      const { data, error } = await supabase
-        .from('social_accounts')
-        .select('id, platform, external_account_id, account_name, account_handle, avatar_url, granted_scopes, token_expires_at, status, last_validated_at')
-        .eq('user_id', validUserId);
-
-      if (!error && data) {
-        dbAccounts = data.filter((a: any) => a.status === 'active');
-      }
-    } catch (e) {
-      console.warn('Supabase accounts fetch skipped/failed, relying on secure cookie store:', e);
-    }
-
-    // 2. Check encrypted cookie fallback
-    const cookieAccounts = getConnectedAccountsFromCookie(req);
-
-    // Merge: only include cookie accounts that actually have a stored access token
-    const map = new Map<string, any>();
-    for (const ca of cookieAccounts) {
-      if (ca.status === 'active' && (ca.encrypted_access_token || ca.accessToken)) {
-        map.set(ca.platform, ca);
-      }
-    }
-    for (const da of dbAccounts) {
-      map.set(da.platform, {
-        id: da.id,
-        platform: da.platform,
-        account_name: da.account_name,
-        account_handle: da.account_handle,
-        avatar_url: da.avatar_url,
-        status: da.status,
-        granted_scopes: da.granted_scopes,
-        last_validated_at: da.last_validated_at,
-        expires_in_days: 60,
-      });
-    }
-
-    const accounts = Array.from(map.values()).map((a: any) => ({
-      id: a.id,
-      platform: a.platform,
-      account_name: a.account_name,
-      account_handle: a.account_handle,
-      avatar_url: a.avatar_url,
-      status: a.status,
-      granted_scopes: a.granted_scopes,
-      last_validated_at: a.last_validated_at,
-      expires_in_days: a.expires_in_days || 60,
+    const { data, error } = await createAdminClient().from('social_accounts')
+      .select('id,platform,external_account_id,account_name,account_handle,avatar_url,granted_scopes,token_expires_at,status,last_validated_at')
+      .eq('user_id', user.id).neq('status', 'revoked').order('created_at');
+    if (error) throw error;
+    const accounts = data.map((account) => ({
+      ...account,
+      expires_in_days: account.token_expires_at ? Math.max(0, Math.ceil((Date.parse(account.token_expires_at) - Date.now()) / 86_400_000)) : null,
     }));
-
-    return NextResponse.json({
-      success: true,
-      accounts,
-      total: accounts.length,
-    });
-  } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: err.message || 'Failed to fetch accounts', accounts: [], total: 0 },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: true, accounts, total: accounts.length });
+  } catch {
+    return NextResponse.json({ error: 'Could not load connected accounts' }, { status: 503 });
   }
 }
 
+const Disconnect = z.object({ accountId: postIdSchema.optional(), platform: platformSchema.optional() })
+  .refine((body) => Boolean(body.accountId || body.platform));
+
 export async function DELETE(req: NextRequest) {
+  const user = await getSessionUser(req);
+  if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+  const input = Disconnect.safeParse(await req.json().catch(() => null));
+  if (!input.success) return NextResponse.json({ error: 'Choose an account to disconnect' }, { status: 400 });
   try {
-    const user = await getSessionUser(req);
-    const body = await req.json();
-    const { accountId, platform } = body;
-    const validUserId = stringToUuid(user?.id || '00000000-0000-0000-0000-000000000001');
-
-    // 1. Delete from Supabase
-    try {
-      const supabase = createAdminClient();
-      let query = supabase.from('social_accounts').delete();
-
-      if (accountId) {
-        query = query.eq('id', accountId);
-      } else if (platform) {
-        query = query.eq('platform', platform).eq('user_id', validUserId);
-      }
-      await query;
-    } catch (e) {
-      console.warn('Supabase delete skipped or failed:', e);
-    }
-
-    // 2. Clear from cookie
-    let res: NextResponse = NextResponse.json({
-      success: true,
-      message: `Account disconnected successfully`,
-    });
-
-    if (platform) {
-      res = removeConnectedAccountFromCookie(req, res, platform);
-    }
-
-    return res;
-  } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: err.message || 'Failed to disconnect account' },
-      { status: 500 }
-    );
+    let query = createAdminClient().from('social_accounts').update({
+      status: 'revoked', encrypted_access_token: '', encrypted_refresh_token: null, updated_at: new Date().toISOString(),
+    }).eq('user_id', user.id).neq('status', 'revoked');
+    if (input.data.accountId) query = query.eq('id', input.data.accountId);
+    if (input.data.platform) query = query.eq('platform', input.data.platform);
+    const { data, error } = await query.select('id');
+    if (error) throw error;
+    if (!data.length) return NextResponse.json({ error: 'Connected account unavailable' }, { status: 404 });
+    return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ error: 'Could not disconnect the account' }, { status: 503 });
   }
 }
