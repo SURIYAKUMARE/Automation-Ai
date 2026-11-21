@@ -193,9 +193,16 @@ You MUST respond strictly with a valid JSON object matching this schema:
 
   try {
     const rawJson = JSON.parse(responseText);
+    const emojiRegex = /[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u2600-\u27BF]/g;
     if (rawJson.platforms) {
       for (const p of ['linkedin', 'instagram', 'facebook', 'youtube'] as const) {
         if (rawJson.platforms[p]) {
+          if (rawJson.platforms[p].caption) {
+            rawJson.platforms[p].caption = rawJson.platforms[p].caption.replace(emojiRegex, '').replace(/[ \t]+/g, ' ').trim();
+          }
+          if (rawJson.platforms[p].title) {
+            rawJson.platforms[p].title = rawJson.platforms[p].title.replace(emojiRegex, '').trim();
+          }
           rawJson.platforms[p].character_count = rawJson.platforms[p].caption?.length || 0;
         }
       }
