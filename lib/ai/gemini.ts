@@ -96,13 +96,14 @@ async function generateJson<T>(prompt: string, validate: (value: unknown) => T, 
     ? process.env.GEMINI_MODELS.split(',').map((model) => model.trim()).filter(Boolean)
     : [];
   const candidateModels = [
-    'gemini-2.5-flash',
-    'gemini-2.0-flash',
     ...configuredModels,
-    'gemini-2.5-flash-lite',
-    'gemini-1.5-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-3.5-flash-lite',
+    'gemini-flash-lite-latest',
+    'gemini-3.5-flash',
+    'gemini-2.5-flash',
   ].filter(Boolean);
-  const models = Array.from(new Set(candidateModels)).slice(0, 4);
+  const models = Array.from(new Set(candidateModels)).slice(0, 5);
 
   let lastErrorReason = '';
   for (const model of models) {
