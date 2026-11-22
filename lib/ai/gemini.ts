@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI, SchemaType } from '@google/generative-ai';
+import { GoogleGenerativeAI, GoogleGenerativeAIFetchError, SchemaType } from '@google/generative-ai';
 import type { Part, ResponseSchema } from '@google/generative-ai';
 import { z } from 'zod';
 import type { SocialPlatform, SupportedLanguage, SupportedTone } from '@/types';
@@ -92,19 +92,22 @@ interface GenerateOptions {
 async function generateJson<T>(prompt: string, validate: (value: unknown) => T, parts: Part[] = [], responseSchema?: ResponseSchema) {
   const key = process.env.GEMINI_API_KEY?.trim();
   const client = key ? new GoogleGenerativeAI(key) : null;
-  const models = (process.env.GEMINI_MODELS || 'gemini-flash-latest,gemini-flash-lite-latest')
-    .split(',').map((model) => model.trim()).filter(Boolean).slice(0, 3);
+  const models = (process.env.GEMINI_MODELS || 'gemini-2.5-flash,gemini-2.5-flash-lite,gemini-3.5-flash,gemini-flash-latest')
+    .split(',').map((model) => model.trim()).filter(Boolean).slice(0, 4);
   for (const model of models) {
     if (!client) break;
     try {
       const gemini = client.getGenerativeModel({
         model, generationConfig: { responseMimeType: 'application/json', responseSchema, temperature: 0.7, maxOutputTokens: 8192 },
-      }, { timeout: 12_000 });
+      }, { timeout: 30_000 });
       const { response } = await gemini.generateContent([{ text: prompt }, ...parts]);
       return { data: validate(JSON.parse(response.text())), source: 'Gemini' as const };
     } catch (error) {
       if (error instanceof MediaGroundingError) throw error;
-      console.warn(`Gemini model ${model} could not return valid content`);
+      const reason = error instanceof GoogleGenerativeAIFetchError ? 'HTTP ' + error.status :
+        error instanceof z.ZodError ? error.issues.map((issue) => issue.path.join('.') + ':' + issue.code).join(', ') :
+        error instanceof SyntaxError ? 'invalid JSON' : 'incomplete response or timeout';
+      console.warn(`Gemini model ${model} could not return valid content (${reason})`);
     }
   }
   const openAIKey = process.env.OPENAI_API_KEY?.trim();
@@ -127,10 +130,13 @@ export async function generateSocialContent({
 The attached visuals are the primary source for this task. First identify the main subject and the clearest visible action,
 setting, or legible text. For video, the supplied images are in chronological order. Look across them for the main action
 or progression, and ignore incidental title cards, transitions and blank frames. Do not infer audio or events between frames.
-Return "media_review": {"readable": true, "observations": ["specific details directly seen in the media"]}.
-If there is no identifiable subject, action, scene, or readable text, set "readable": false and leave the caption strings empty.
-Use at least one specific visual detail in every title, caption and caption alternative. Keep captions and hashtags on the
-observed subject. If user context or brand preferences conflict with the visuals, use them only for style.
+In "media_review", report specific details you can see directly. A clear shape, color, texture, or illustration counts
+even when there are no people, words, or recognizable objects. Set "readable" to false only when the image is blank or
+too obstructed or blurred to describe anything visible.
+Name the main visible subject in every caption and caption alternative. Use a specific detail from the photo or frames,
+such as a visible action, object, color, setting, or readable text. Keep titles and hashtags on the same subject.
+Only use context or brand preferences if they fit the observed subject. Ignore any suggested topic that changes it.
+Do not describe the media as a launch, announcement, or promotion unless the visuals support that description.
 Use an appropriately general description for ambiguous people, places, products, and text.
 Never invent identities, locations, occasion, names, prices, offers, or details outside the supplied visuals.` : '';
   const prompt = `Write independent social copy for ${targetPlatforms.join(', ')} in ${language} with a ${tone} tone.

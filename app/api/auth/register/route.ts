@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createAdminClient, SupabaseConfigurationError } from '@/lib/supabase/admin';
-import { setSessionCookie, AuthUser } from '@/lib/auth/session';
+import { assertSessionConfigured, isTrustedRequestOrigin, setSessionCookie, AuthUser } from '@/lib/auth/session';
 
 const RegisterSchema = z.object({
   email: z.string().email().max(254), password: z.string().min(6).max(256), name: z.string().trim().min(2).max(100),
 });
 
 export async function POST(req: NextRequest) {
+  if (!isTrustedRequestOrigin(req)) return NextResponse.json({ error: 'Request origin is not allowed' }, { status: 403 });
   const input = RegisterSchema.safeParse(await req.json().catch(() => null));
   if (!input.success) return NextResponse.json({ error: 'Invalid registration details' }, { status: 400 });
   try {
+    assertSessionConfigured();
     const { email, password, name } = input.data;
     const { data, error } = await createAdminClient().auth.signUp({
       email, password, options: { data: { full_name: name } },

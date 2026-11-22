@@ -1,4 +1,4 @@
-import { createAdminClient } from '@/lib/supabase/admin';
+import { createAdminClient, getSupabaseServerConfig } from '@/lib/supabase/admin';
 
 export const mediaExtensions: Record<string, string> = {
   'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp',
@@ -18,14 +18,18 @@ export function matchesMediaSignature(bytes: Buffer, mime: string) {
   return false;
 }
 
-export function isOwnedStoragePath(path: string, userId: string | string[]) {
-  const ids = Array.isArray(userId) ? userId : [userId];
-  return ids.some((id) => path.startsWith(id + '/')) && /^[\w-]+\/[\w.-]+$/.test(path);
+export function isOwnedStoragePath(path: string, userId: string) {
+  return path.startsWith(userId + '/') && /^[\w-]+\/[\w.-]+$/.test(path);
 }
 
-export async function signMedia(path: string, userId: string | string[], expiresIn = 900) {
-  if (!isOwnedStoragePath(path, userId)) throw new Error('Media asset is outside the user storage folder');
-  const { data, error } = await createAdminClient().storage.from('media-assets').createSignedUrl(path, expiresIn);
+export async function signMedia(path: string, userId: string, expiresIn = 900) {
+  const storedUrl = URL.parse(path);
+  const storageOrigin = storedUrl && new URL(getSupabaseServerConfig().url).origin;
+  const objectPath = storedUrl
+    ? storedUrl.origin === storageOrigin && storedUrl.pathname.match(/^\/storage\/v1\/object\/(?:public|sign)\/media-assets\/(.+)$/)?.[1]
+    : path;
+  if (!objectPath || !isOwnedStoragePath(objectPath, userId)) throw new Error('Media asset is outside the user storage folder');
+  const { data, error } = await createAdminClient().storage.from('media-assets').createSignedUrl(objectPath, expiresIn);
   if (error || !data?.signedUrl) throw new Error('Stored media is unavailable');
   return data.signedUrl;
 }

@@ -337,7 +337,8 @@ export default function CreatePostPage() {
   };
 
   const handleGenerateAI = async (attachedFile?: File, platforms = selectedPlatforms) => {
-    if (!platforms.length || (!attachedFile && !selectedFile && !savedAssetId && !topicPrompt.trim())) {
+    const targetPlatforms = platforms.length ? platforms : (selectedPlatforms.length ? selectedPlatforms : [activeTab]);
+    if (!targetPlatforms.length || (!attachedFile && !selectedFile && !savedAssetId && !topicPrompt.trim())) {
       toast.error("Select a platform and add media or text context.");
       return;
     }
@@ -358,16 +359,18 @@ export default function CreatePostPage() {
       const res = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...media, prompt: topicPrompt, language, tone, captionLength, hashtagLimit,
-          targetPlatforms: platforms, alternatives: true }),
+        body: JSON.stringify({ ...media,
+          prompt: attachedFile && !attachedFile.type.startsWith("video/") ? undefined : topicPrompt.trim() || undefined,
+          language, tone, captionLength, hashtagLimit,
+          targetPlatforms: targetPlatforms, alternatives: true }),
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || "Could not generate captions");
       setSummary(result.data.summary);
-      generatedPlatforms.current = [...new Set([...generatedPlatforms.current, ...platforms])];
+      generatedPlatforms.current = [...new Set([...generatedPlatforms.current, ...targetPlatforms])];
       setPlatformContents((previous) => {
         const updated = { ...previous };
-        for (const p of platforms) {
+        for (const p of targetPlatforms) {
           const variant = result.variants[p];
           if (variant) updated[p] = { ...variant, hashtags: variant.hashtags.join(" "), youtubePrivacy: previous[p].youtubePrivacy };
         }

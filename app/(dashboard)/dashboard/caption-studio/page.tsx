@@ -52,11 +52,13 @@ export default function AICaptionStudioPage() {
   React.useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    const file = e.currentTarget.files?.[0];
     if (!file || isGenerating) return;
+    e.currentTarget.value = "";
     setAnalysisResult(null);
     setSelectedFile(file);
     setPreviewUrl(URL.createObjectURL(file));
+    if (!file.type.startsWith("video/")) void handleGenerate(file);
   };
 
   const handleSelectPreset = (preset: typeof EDITORIAL_PRESETS[0]) => {
@@ -68,18 +70,19 @@ export default function AICaptionStudioPage() {
     toast.info(`Selected preset: ${preset.label}`);
   };
 
-  const handleGenerate = async () => {
+  const handleGenerate = async (attachedPhoto?: File) => {
     setIsGenerating(true);
     const notice = toast.loading("Generating captions and titles");
 
     try {
-      const media = selectedFile ? await prepareMediaPreview(selectedFile) : {};
+      const file = attachedPhoto ?? selectedFile;
+      const media = file ? await prepareMediaPreview(file) : {};
 
       const res = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          userPrompt,
+          userPrompt: attachedPhoto ? undefined : userPrompt,
           language,
           tone,
           ...media,
@@ -170,7 +173,7 @@ export default function AICaptionStudioPage() {
                 Input & Parameters
               </CardTitle>
               <CardDescription className="text-xs text-foreground font-medium pt-1">
-                Upload asset for visual OCR analysis
+                Upload a photo to generate captions and titles automatically.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-4">
@@ -208,9 +211,10 @@ export default function AICaptionStudioPage() {
               </label>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-foreground">Topic or Objective:</label>
+                <label htmlFor="caption-context" className="text-xs font-semibold text-foreground">Optional context</label>
                 <Textarea
-                  placeholder="Enter context, project release, feature highlights..."
+                  id="caption-context"
+                  placeholder="Add context, then click Generate to use it"
                   value={userPrompt}
                   onChange={(e) => setUserPrompt(e.target.value)}
                   rows={3}
@@ -251,7 +255,7 @@ export default function AICaptionStudioPage() {
 
               <Button
                 variant="stitch"
-                onClick={handleGenerate}
+                onClick={() => void handleGenerate()}
                 disabled={isGenerating}
                 className="w-full gap-2 text-xs"
               >

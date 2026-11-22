@@ -70,6 +70,8 @@ test('production HTTP workflow with mocked providers', { timeout: 55_000 }, asyn
 
   await request('/dashboard', { status: 307 });
   await request('/api/posts', { status: 401 });
+  await request('/api/auth/login', { status: 403, json: { email: 'fixture@test.invalid', password: 'fixture-password' },
+    headers: { Origin: 'https://different-workspace.vercel.app' } });
   await request('/api/auth/login', { status: 401, json: { email: 'fixture@test.invalid', password: 'bad-password' } });
   const unconfirmed = await request('/api/auth/login', { status: 403, json: { email: 'unconfirmed@test.invalid', password: 'fixture-password' } });
   assert.match((await unconfirmed.json()).error, /confirm your email/i);
@@ -92,6 +94,7 @@ test('production HTTP workflow with mocked providers', { timeout: 55_000 }, asyn
   } });
   assert.ok(new URL(rejected.headers.get('location')).searchParams.has('error'));
   await request('/api/ai/generate', { status: 401, json: { prompt: 'test' }, headers: { Origin: 'https://different.test' } });
+  await request('/api/ai/generate', { status: 401, json: { prompt: 'test' }, headers: { Origin: 'https://different-workspace.vercel.app' } });
   const studio = await request('/dashboard/create-post');
   assert.match(await studio.text(), /Create a post/);
 
@@ -287,6 +290,46 @@ test('approved upload automation analyzes original bytes and queues only once', 
   const worker = async () => (await fetch(origin + '/api/scheduler/execute', { headers: { Authorization: 'Bearer ' + workerSecret } })).json();
   assert.equal((await worker()).executedCount, 1);
   assert.equal((await worker()).executedCount, 0);
+});
+
+test('Caption Studio automatically generates new copy when the photo changes', { timeout: 90_000 }, async (t) => {
+  const { chromium } = require('playwright');
+  const { origin } = await startApp(t, { TEST_PHOTO_CAPTIONS: '1' });
+  const browser = await chromium.launch({ channel: process.env.SOCIALFLOW_BROWSER_CHANNEL || undefined });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  page.setDefaultTimeout(20_000);
+  await page.goto(origin + '/login');
+  await page.locator('input[type=email]').fill('fixture@test.invalid');
+  await page.locator('input[type=password]').fill('fixture-password');
+  await page.locator('button[type=submit]').click();
+  await page.waitForURL('**/dashboard');
+  await page.goto(origin + '/dashboard/caption-studio');
+  await page.getByLabel('Optional context').fill('Write about an enterprise software launch.');
+  const file = page.locator('#studio-file-upload');
+  async function uploadPhoto(buffer) {
+    const response = page.waitForResponse((result) => result.url() === origin + '/api/ai/generate');
+    await file.setInputFiles({ name: 'photo.jpg', mimeType: 'image/jpeg', buffer });
+    const result = await response;
+    assert.equal(result.status(), 200, await result.text());
+  }
+  await uploadPhoto(await fixturePhoto());
+  const red = page.getByText('A red poster fills the instagram post.', { exact: true });
+  await red.waitFor();
+  const blue = await sharp({ create: { width: 80, height: 60, channels: 3, background: '#234ddd' } }).jpeg().toBuffer();
+  await uploadPhoto(blue);
+  await page.getByText('A blue poster fills the instagram post.', { exact: true }).waitFor();
+  assert.equal(await red.count(), 0);
+
+  await page.goto(origin + '/dashboard/create-post');
+  await page.getByRole('checkbox', { name: 'Fixture Page' }).waitFor();
+  await page.getByPlaceholder(/^Topic or context/).fill('Write about an enterprise software launch.');
+  const composition = page.waitForResponse((result) => result.url() === origin + '/api/ai/generate');
+  await page.locator('input[type=file]').setInputFiles({ name: 'photo.jpg', mimeType: 'image/jpeg', buffer: blue });
+  const composed = await composition;
+  assert.equal(composed.status(), 200, await composed.text());
+  const { variants } = await composed.json();
+  assert.ok(Object.values(variants).every((variant) => variant.caption.startsWith('A blue poster')));
 });
 
 test('mobile browser reviews, approves and tracks an uploaded post', { timeout: 150_000 }, async (t) => {

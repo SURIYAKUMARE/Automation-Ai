@@ -77,18 +77,9 @@ export async function executePostPublishing(db: Database, job: ClaimedJob) {
     if (assetData) media = assetData;
   }
 
-  let mediaUrl: string | undefined = undefined;
-  if (media?.user_id === job.user_id && media.file_path) {
-    if (media.file_path.startsWith('http://') || media.file_path.startsWith('https://')) {
-      mediaUrl = media.file_path;
-    } else {
-      mediaUrl = await signMedia(media.file_path, job.user_id, 86400).catch(() => undefined);
-      if (!mediaUrl) {
-        const { data: pubData } = db.storage.from('media-assets').getPublicUrl(media.file_path);
-        if (pubData?.publicUrl) mediaUrl = pubData.publicUrl;
-      }
-    }
-  }
+  const mediaUrl = media?.user_id === job.user_id && media.file_path
+    ? await signMedia(media.file_path, job.user_id, 86400).catch(() => undefined)
+    : undefined;
 
   const targetStatuses = job.retry_count > 0 ? ['scheduled'] : eligible;
   const results = await Promise.all(post.targets.filter((target: { id: string; status: string; external_post_id?: string }) =>

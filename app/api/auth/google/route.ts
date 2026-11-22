@@ -4,6 +4,7 @@ import { getGoogleOAuthConfig } from '@/lib/auth/google-config';
 import { getSupabaseServerConfig } from '@/lib/supabase/admin';
 import { getCanonicalAppOrigin } from '@/lib/auth/canonical-origin';
 import { createSupabaseGoogleClient } from '@/lib/auth/supabase-google';
+import { assertSessionConfigured, SessionConfigurationError } from '@/lib/auth/session';
 
 function redirectToLogin(error: string, origin: string) {
   return NextResponse.redirect(new URL('/login?error=' + error, origin));
@@ -14,8 +15,10 @@ export async function GET(req: NextRequest) {
   const config = getGoogleOAuthConfig();
 
   try {
+    assertSessionConfigured();
     getSupabaseServerConfig();
-  } catch {
+  } catch (error) {
+    if (error instanceof SessionConfigurationError) return redirectToLogin('session_configuration', origin);
     return redirectToLogin(config ? 'supabase_configuration' : 'google_configuration', origin);
   }
 

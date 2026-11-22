@@ -50,7 +50,8 @@ export async function POST(req: NextRequest) {
     if (error || !file || file.size > mediaSizeLimit(asset.mime_type)) throw new Error('Could not read the stored upload');
     const media = await prepareStoredMedia(Buffer.from(await file.arrayBuffer()), asset.mime_type);
     const result = await generateSocialContent({
-      ...media, targetPlatforms: platforms, language: settings.language, tone: 'Professional', brand: access.brand,
+      ...media, targetPlatforms: platforms, language: settings.language, tone: 'Professional',
+      brand: asset.media_type === 'video' ? access.brand : null,
     });
     const variants = platforms.map((platform) => {
       const copy = result.platforms[platform];

@@ -30,6 +30,26 @@ test('stored tokens require the configured key and reject tampering', () => {
   }
 });
 
+test('planned token rotation only accepts an explicitly configured private previous key', () => {
+  const current = process.env.TOKEN_ENCRYPTION_KEY;
+  const previous = process.env.TOKEN_ENCRYPTION_PREVIOUS_KEY;
+  try {
+    const oldKey = randomBytes(32).toString('hex');
+    process.env.TOKEN_ENCRYPTION_KEY = oldKey;
+    const oldToken = encryptToken('legacy provider grant');
+    process.env.TOKEN_ENCRYPTION_KEY = randomBytes(32).toString('hex');
+    delete process.env.TOKEN_ENCRYPTION_PREVIOUS_KEY;
+    assert.throws(() => decryptToken(oldToken));
+    process.env.TOKEN_ENCRYPTION_PREVIOUS_KEY = oldKey;
+    assert.equal(decryptToken(oldToken), 'legacy provider grant');
+  } finally {
+    if (current === undefined) delete process.env.TOKEN_ENCRYPTION_KEY;
+    else process.env.TOKEN_ENCRYPTION_KEY = current;
+    if (previous === undefined) delete process.env.TOKEN_ENCRYPTION_PREVIOUS_KEY;
+    else process.env.TOKEN_ENCRYPTION_PREVIOUS_KEY = previous;
+  }
+});
+
 test('Gemini schema preserves selected captions and rejects empty copy', () => {
   const schema = GeminiAnalysisResultSchema;
   const data = schema.parse({ summary: 'A poster', platforms: {

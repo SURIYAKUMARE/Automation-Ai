@@ -68,6 +68,19 @@ globalThis.fetch = async (input, init) => {
     } else {
       assert.equal(images.length, 1);
     }
+    if (process.env.TEST_PHOTO_CAPTIONS === '1') {
+      assert.doesNotMatch(parts[0].text, /enterprise software launch/i);
+      const pixels = await require('sharp')(Buffer.from(images[0].inlineData.data, 'base64')).stats();
+      const color = pixels.channels[0].mean > pixels.channels[2].mean ? 'red' : 'blue';
+      const summary = 'A ' + color + ' poster';
+      const platforms = Object.fromEntries(request.generationConfig.responseSchema.properties.platforms.required.map((platform) => [
+        platform, { caption: summary + ' fills the ' + platform + ' post.', title: summary, hashtags: [],
+          alternatives: [summary + ' stands out.', 'The frame shows ' + summary.toLowerCase() + '.'] },
+      ]));
+      return json({ candidates: [{ content: { role: 'model', parts: [{ text: JSON.stringify({
+        summary, media_review: { readable: true, observations: [summary] }, platforms,
+      }) }] }, finishReason: 'STOP' }] });
+    }
     const unreadable = parts[0].text.includes('unreadable fixture');
     return json({ candidates: [{ content: { role: 'model', parts: [{ text: JSON.stringify({
       summary: isVideo ? 'A square moves across the frame' : 'A test poster',

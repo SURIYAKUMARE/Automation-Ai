@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AuthUser, setSessionCookie, stringToUuid } from '@/lib/auth/session';
+import { assertSessionConfigured, AuthUser, SessionConfigurationError, setSessionCookie, stringToUuid } from '@/lib/auth/session';
 import { matchesOAuthState } from '@/lib/auth/oauth-state';
 import { createAdminClient, SupabaseConfigurationError } from '@/lib/supabase/admin';
 import { getGoogleOAuthConfig } from '@/lib/auth/google-config';
@@ -12,14 +12,13 @@ export async function GET(req: NextRequest) {
   let response: NextResponse;
 
   try {
+    assertSessionConfigured();
     // 1. Check if Google returned an error (e.g. user cancelled or unverified test user)
     const googleError = req.nextUrl.searchParams.get('error');
     if (googleError) {
-      const errorDesc = req.nextUrl.searchParams.get('error_description') || '';
-      console.warn('Google OAuth returned error:', googleError, errorDesc);
       const reason = googleError === 'access_denied' ? 'google_access_denied' : 'google_sign_in_failed';
       const redirect = NextResponse.redirect(
-        new URL(`/login?error=${reason}&details=${encodeURIComponent(errorDesc || googleError)}`, origin)
+        new URL(`/login?error=${reason}`, origin)
       );
       redirect.cookies.delete(cookieName);
       return redirect;
@@ -89,6 +88,7 @@ export async function GET(req: NextRequest) {
     const redirectUri = `${origin}/api/auth/google/callback`;
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
+      signal: AbortSignal.timeout(12_000),
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         code,
@@ -100,38 +100,29 @@ export async function GET(req: NextRequest) {
     });
 
     if (!tokenResponse.ok) {
-      const errText = await tokenResponse.text();
-      console.error('Google token exchange error:', tokenResponse.status, errText);
-      let errMsg = 'Google token exchange failed';
-      try {
-        const json = JSON.parse(errText);
-        errMsg = json.error_description || json.error || errMsg;
-      } catch {}
-      const redirect = NextResponse.redirect(
-        new URL(`/login?error=google_sign_in_failed&details=${encodeURIComponent(errMsg)}`, origin)
-      );
-      redirect.cookies.delete(cookieName);
-      return redirect;
+      console.warn('Google token exchange failed:', tokenResponse.status);
+      throw new Error('Google token exchange failed');
     }
 
     const token = await tokenResponse.json();
+    if (typeof token.access_token !== 'string' || !token.access_token) throw new Error('Google access token is missing');
 
     // 5. Retrieve user profile
     const profileResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: 'Bearer ' + token.access_token },
+      signal: AbortSignal.timeout(12_000),
     });
 
     if (!profileResponse.ok) {
-      const pErr = await profileResponse.text();
-      console.error('Google profile request failed:', profileResponse.status, pErr);
+      console.warn('Google profile request failed:', profileResponse.status);
       throw new Error('Could not retrieve user profile from Google.');
     }
 
     const profile = await profileResponse.json();
-    const email = profile.email;
+    const email = typeof profile.email === 'string' ? profile.email.trim().toLowerCase() : '';
     const isVerified = profile.verified_email === true || profile.email_verified === true;
 
-    if (!profile.id || !email || !isVerified) {
+    if (typeof profile.id !== 'string' || !profile.id || !email || !isVerified) {
       throw new Error('A verified email address is required from Google.');
     }
 
@@ -142,7 +133,10 @@ export async function GET(req: NextRequest) {
       .eq('email', email)
       .order('created_at', { ascending: true });
     if (lookupError) throw lookupError;
-    const existing = existingProfiles?.[0];
+    const googleId = stringToUuid(profile.id);
+    const existing = existingProfiles?.find((candidate) => candidate.id === googleId) ||
+      (existingProfiles?.length === 1 ? existingProfiles[0] : undefined);
+    if (!existing && existingProfiles?.length) throw new Error('Google profile ownership could not be determined');
 
     let userId: string;
     if (existing?.id) {
@@ -153,7 +147,7 @@ export async function GET(req: NextRequest) {
         updated_at: new Date().toISOString(),
       }).eq('id', userId);
     } else {
-      userId = stringToUuid(profile.id);
+      userId = googleId;
       const { error: insertError } = await db.from('profiles').upsert({
         id: userId,
         email: email,
@@ -163,7 +157,7 @@ export async function GET(req: NextRequest) {
       });
       if (insertError) {
         console.error('Could not save user profile for Google user:', insertError);
-        throw new Error('Could not save user profile: ' + insertError.message);
+        throw new Error('Could not save user profile');
       }
     }
 
@@ -179,9 +173,9 @@ export async function GET(req: NextRequest) {
     response = setSessionCookie(NextResponse.redirect(new URL('/dashboard', origin)), user);
   } catch (error) {
     console.error('Google callback caught error:', error);
-    const reason = error instanceof SupabaseConfigurationError ? 'supabase_configuration' : 'google_sign_in_failed';
-    const detail = error instanceof Error ? error.message : 'Google sign-in could not be completed.';
-    response = NextResponse.redirect(new URL(`/login?error=${reason}&details=${encodeURIComponent(detail)}`, origin));
+    const reason = error instanceof SessionConfigurationError ? 'session_configuration' :
+      error instanceof SupabaseConfigurationError ? 'supabase_configuration' : 'google_sign_in_failed';
+    response = NextResponse.redirect(new URL(`/login?error=${reason}`, origin));
   }
 
   response.cookies.delete(cookieName);

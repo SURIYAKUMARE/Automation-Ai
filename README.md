@@ -9,7 +9,7 @@ The existing project had account, studio, calendar, approval and analytics scree
 ## Local setup
 
 1. Use Node.js 24 and run `npm ci`. Install FFmpeg and FFprobe locally for video uploads and server-side caption generation.
-2. Copy `.env.example` to `.env.local`. Set `SUPABASE_URL` and `SUPABASE_SECRET_KEY` to values from the same Supabase project. The legacy `SUPABASE_SERVICE_ROLE_KEY` is also supported. Generate unique random values for the session, token encryption and worker secrets.
+2. Copy `.env.example` to `.env.local`. Set `SUPABASE_URL` and `SUPABASE_SECRET_KEY` to values from the same Supabase project. The legacy `SUPABASE_SERVICE_ROLE_KEY` is also supported. Generate separate private values for `SESSION_SECRET`, `TOKEN_ENCRYPTION_KEY`, and `CRON_SECRET`. Use 64 hexadecimal characters for the token encryption key.
 3. Check the project's migration history with `supabase migration list` and apply unapplied migrations with `supabase db push` on the linked staging project. The migrations define the private media bucket and persistent queue. Apply `20261122010000_workspace.sql` before using media collections, next-slot queueing, or workspace notifications.
 4. Run `npm run dev`. In a second terminal, run `npm run worker`.
 5. Open `http://localhost:3000`. Create a Supabase account or sign in with Google, connect destinations, and open **Create post**.
@@ -51,7 +51,8 @@ Set `GEMINI_API_KEY` to enable Gemini and `OPENAI_API_KEY` to enable OpenAI. Cap
 - Use `npm ci && npm run build && npm start` on a Node host with FFmpeg and FFprobe, or build the included Docker image with both tools. Configure HTTPS, the exact OAuth origin, and proxy body and request-time limits that accommodate uploads and analysis. Set platform API versions supported by your developer projects.
 - Run `npm run worker` as a supervised process, or call `POST /api/scheduler/execute` on a managed schedule with `Authorization: Bearer <CRON_SECRET>`. The database is the durable queue. Each worker call claims one due post. Parallel workers use row locks, and successful destinations are retained when other targets fail.
 - For rate-limit rejections and transient errors before the final provider submission, the worker schedules bounded exponential retries. For an unreconciled submission, History shows an unknown outcome and the destination must be checked before another attempt. Run multiple worker instances if queue latency requires it.
-- `GET /api/health` checks connectivity and required database schema, including the queue, media collections, notifications, and AI quota storage. Monitor worker uptime and queued and failed jobs. Production approval should include live OAuth, sandbox or designated test-account publishing, and metrics checks for each configured provider.
+- `GET /api/health` checks database connectivity and schema. A reachable database with missing worker configuration returns `status: degraded` and `publishingWorker: configuration_missing`. Confirm that the scheduled worker actually runs by checking queue and worker activity.
+- Reconnect accounts that were encrypted with a sample or shared key. For a planned rotation of a previously private token encryption key, set `TOKEN_ENCRYPTION_PREVIOUS_KEY` for decryption during the transition and reconnect accounts before removing it.
 
 ## Workspace API
 

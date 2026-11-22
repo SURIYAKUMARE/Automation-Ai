@@ -20,7 +20,11 @@ export async function GET() {
       return NextResponse.json({ status: 'unavailable', reason: 'workspace_schema_incomplete' }, { status: 503 });
     }
     if (errors.length) throw errors[0];
-    return NextResponse.json({ status: 'healthy' });
+    const workerConfigured = (process.env.CRON_SECRET?.length ?? 0) >= 32;
+    return NextResponse.json({
+      status: workerConfigured ? 'healthy' : 'degraded',
+      publishingWorker: workerConfigured ? 'configured' : 'configuration_missing',
+    });
   } catch {
     return NextResponse.json({ status: 'unavailable' }, { status: 503 });
   }

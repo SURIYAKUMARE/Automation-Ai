@@ -44,7 +44,8 @@ export async function POST(req: NextRequest) {
   }
   try {
     const { source, ...data } = await generateSocialContent({
-      ...options, userPrompt: context, mediaBuffer: bytes, mediaFrames: frames, mimeType, brand: access.brand,
+      ...options, userPrompt: context, mediaBuffer: bytes, mediaFrames: frames, mimeType,
+      brand: bytes && !context ? null : access.brand,
     });
     return NextResponse.json({ success: true, data, variants: data.platforms, source, hashtagSource: 'AI relevance' });
   } catch (error) {
