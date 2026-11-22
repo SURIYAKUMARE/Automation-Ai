@@ -15,6 +15,8 @@ const badgeVariants = cva(
           "border-transparent bg-destructive text-destructive-foreground shadow hover:bg-destructive/80",
         outline: "text-foreground",
         // Stitch status variants
+        stitch:
+          "bg-gradient-to-r from-blue-500/15 via-indigo-500/15 to-violet-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-medium",
         success:
           "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-medium",
         warning:

@@ -748,12 +748,13 @@ export default function CreatePostPage() {
               </div>
               <Button
                 type="button"
-                  onClick={() => void handleGenerateAI()}
+                variant="stitch"
+                onClick={() => void handleGenerateAI()}
                 disabled={isGenerating}
-                className="w-full text-xs font-medium gap-2 bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900"
+                className="w-full text-xs font-semibold gap-2 h-10 shadow-md shadow-indigo-500/20"
               >
-                <Sparkles className="h-3.5 w-3.5" />
-                {isGenerating ? "Analyzing content…" : "Generate with Gemini AI"}
+                <Sparkles className="h-4 w-4 animate-pulse" />
+                {isGenerating ? "Analyzing with Gemini Multimodal AI…" : "Generate with Gemini AI"}
               </Button>
             </div>
           </div>
@@ -770,10 +771,10 @@ export default function CreatePostPage() {
                       key={p}
                       type="button"
                       onClick={() => setActiveTab(p)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold capitalize transition-all ${
+                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold capitalize transition-all ${
                         isActive
-                          ? "bg-foreground text-background shadow-sm"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                          ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm shadow-blue-500/25"
+                          : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                       }`}
                     >
                       <PlatformIcon platform={p} className="h-3.5 w-3.5" />
@@ -958,9 +959,10 @@ export default function CreatePostPage() {
 
             <Button
               type="button"
+              variant="stitch"
               onClick={() => handleSubmit(false)}
               disabled={isPublishing || isGenerating}
-              className="flex-1 text-xs font-semibold gap-1.5 bg-black text-white hover:bg-neutral-800 dark:bg-white dark:text-black shadow-sm"
+              className="flex-1 text-xs font-semibold gap-1.5 h-10 shadow-md shadow-indigo-500/25"
             >
               {isScheduled ? (
                 <>

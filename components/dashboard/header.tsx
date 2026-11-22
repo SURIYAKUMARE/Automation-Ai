@@ -59,7 +59,14 @@ export function Header({ user, openMenu }: { user: User; openMenu: () => void })
           className="h-9 w-36 bg-transparent text-sm outline-none placeholder:text-muted-foreground lg:w-48" />
       </form>
       <Link href="/dashboard/search" className={control + " md:hidden"} aria-label="Search workspace"><Search className="h-4 w-4" /></Link>
-      <Link href="/dashboard/create-post" className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[#bef5e4] px-2.5 text-sm font-semibold text-[#173832] hover:bg-[#a7efda] sm:px-3" aria-label="Quick create post"><Plus className="h-4 w-4" /><span className="hidden sm:inline">Create</span></Link>
+      <Link
+        href="/dashboard/create-post"
+        className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-500 hover:to-indigo-500 text-white px-3 sm:px-3.5 text-xs sm:text-sm font-semibold shadow-md shadow-indigo-500/20 active:scale-[0.98] transition-all"
+        aria-label="Quick create post"
+      >
+        <Plus className="h-4 w-4" />
+        <span className="hidden sm:inline">Create Post</span>
+      </Link>
       <details className="static sm:relative">
         <summary className={control + " relative cursor-pointer list-none"} aria-label={unread ? unread + " unread notifications" : "Notifications"}><Bell className="h-4 w-4" />{unread > 0 && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-emerald-500" />}</summary>
         <div className="absolute left-2 right-2 top-full mt-2 rounded-xl border border-border bg-card p-3 shadow-xl sm:left-auto sm:right-0 sm:w-80">

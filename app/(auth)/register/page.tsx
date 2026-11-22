@@ -60,8 +60,9 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12 relative">
-      <Card className="w-full max-w-md border border-border shadow-sm">
+    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12 relative overflow-hidden">
+      <div className="pointer-events-none absolute top-1/4 left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-indigo-500/10 dark:bg-indigo-600/15 rounded-full blur-3xl" />
+      <Card className="w-full max-w-md border border-border shadow-xl relative bg-card/90 backdrop-blur-md">
         <CardHeader className="space-y-2 text-center pb-6">
           <img
             src="/icon.png"
@@ -155,8 +156,9 @@ export default function RegisterPage() {
 
             <Button
               type="submit"
+              variant="stitch"
               disabled={isLoading}
-              className="w-full h-10 bg-black text-white dark:bg-white dark:text-black font-semibold text-xs hover:opacity-90 transition-opacity gap-2"
+              className="w-full h-10 font-semibold text-xs shadow-md shadow-indigo-500/25 gap-2"
             >
               <span>{isLoading ? "Creating Account..." : "Create Account & Start"}</span>
               <ArrowRight className="h-4 w-4" />

@@ -126,7 +126,7 @@ export default function ConnectedAccountsPage() {
               <PlatformIcon platform={provider.id} className="size-6" />{provider.name}
             </CardTitle>
             <div className="flex flex-wrap items-center gap-1.5">
-              <Button asChild size="sm" variant={linked.length ? "outline" : "default"}>
+              <Button asChild size="sm" variant={linked.length ? "outline" : "stitch"}>
                 <a href={"/api/oauth/" + provider.id}><Plus size={14} />{linked.length ? "OAuth" : "Connect " + provider.name}</a>
               </Button>
               <Button size="sm" variant="outline" onClick={() => { setTokenModalProvider(provider); setTokenInput(""); }}>
@@ -201,10 +201,11 @@ export default function ConnectedAccountsPage() {
             </Button>
             <Button
               type="button"
+              variant="stitch"
               size="sm"
               onClick={handleConnectWithToken}
               disabled={isSubmittingToken || !tokenInput.trim()}
-              className="bg-black text-white hover:bg-neutral-800 dark:bg-white dark:text-black"
+              className="text-xs font-semibold"
             >
               {isSubmittingToken ? "Connecting..." : "Validate & Connect"}
             </Button>
