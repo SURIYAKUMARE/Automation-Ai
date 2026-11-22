@@ -47,6 +47,20 @@ export async function getAccountAccessToken(db: Database, account: Account) {
 
 const eligible = ['draft', 'ready', 'approved', 'scheduled', 'pending_approval', 'failed', 'reauthorization_required'];
 
+export async function dispatchCampaign(db: Database, ownerId: string, campaignId: string) {
+  try {
+    const { data, error } = await db.rpc('claim_campaign_publishing_job', {
+      owner_id: ownerId, campaign_id: campaignId,
+    });
+    if (error) throw error;
+    const job = data?.[0] as ClaimedJob | undefined;
+    if (job) await executePostPublishing(db, job);
+  } catch (error) {
+    // The worker handles queued jobs and reconciles interrupted dispatches.
+    console.warn('Immediate publishing could not finish', error);
+  }
+}
+
 export async function executePostPublishing(db: Database, job: ClaimedJob) {
   const { data: post, error } = await db.from('posts')
     .select('*, media:media_assets(*), variants:post_variants(*), targets:post_targets(*, account:social_accounts(*))')

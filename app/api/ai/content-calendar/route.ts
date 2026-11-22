@@ -13,7 +13,7 @@ export async function POST(req: NextRequest) {
   try {
     const { theme, days } = input.data;
     const schedule = await generateWeeklyPlan(theme, days, access.brand);
-    return NextResponse.json({ success: true, theme, schedule, source: 'Gemini suggestions' });
+    return NextResponse.json({ success: true, theme, schedule, source: 'AI suggestions' });
   } catch {
     return NextResponse.json({ error: 'Could not generate the content plan' }, { status: 502 });
   }

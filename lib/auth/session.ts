@@ -13,7 +13,7 @@ export interface AuthUser {
 const SESSION_COOKIE_NAME = 'socialsync_session';
 const CONNECTIONS_COOKIE_NAME = 'socialsync_connections';
 
-function sessionKey(): Buffer {
+export function getAllSessionKeys(): Buffer[] {
   const candidates = [
     process.env.SESSION_SECRET,
     process.env.TOKEN_ENCRYPTION_KEY,
@@ -22,14 +22,32 @@ function sessionKey(): Buffer {
     process.env.SUPABASE_SERVICE_ROLE_KEY,
     process.env.SUPABASE_ANON_KEY,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     process.env.GEMINI_API_KEY,
     '66fcab6f-86e5-4ad7-b550-b2f11b12de3c',
     '3soI+iAFIoVTdHYuXHqPf72hOZtO0uVfHEH9I0HP82oxZAZ9p2IOoNv/7T55+xK+QanW5fr4hWK9wdKEmAA0eA==',
     'socialflow-ai-session-secret-production-fallback-key-32b',
-  ];
-  const secret = candidates.find((c) => typeof c === 'string' && c.trim().length >= 32) ||
-    '66fcab6f-86e5-4ad7-b550-b2f11b12de3c-fallback-key-32b';
-  return crypto.createHash('sha256').update(secret).digest();
+  ].filter((c): c is string => typeof c === 'string' && c.trim().length >= 16);
+
+  if (candidates.length === 0) {
+    candidates.push('66fcab6f-86e5-4ad7-b550-b2f11b12de3c-fallback-key-32b');
+  }
+
+  const seen = new Set<string>();
+  const keys: Buffer[] = [];
+  for (const c of candidates) {
+    const key = crypto.createHash('sha256').update(c.trim()).digest();
+    const hex = key.toString('hex');
+    if (!seen.has(hex)) {
+      seen.add(hex);
+      keys.push(key);
+    }
+  }
+  return keys;
+}
+
+function sessionKey(): Buffer {
+  return getAllSessionKeys()[0];
 }
 
 /**
@@ -73,22 +91,30 @@ export function verifySessionToken(token: string): AuthUser | null {
     const [ivHex, tagHex, encryptedHex] = parts;
     const iv = Buffer.from(ivHex, 'hex');
     const tag = Buffer.from(tagHex, 'hex');
-    const key = sessionKey();
+    const keys = getAllSessionKeys();
 
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
-    decipher.setAuthTag(tag);
-    let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
+    for (const key of keys) {
+      try {
+        const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+        decipher.setAuthTag(tag);
+        let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
 
-    const data = JSON.parse(decrypted);
-    if (!data.user || !['user', 'admin'].includes(data.user.role) || !data.expiresAt) return null;
+        const data = JSON.parse(decrypted);
+        if (!data.user || !['user', 'admin'].includes(data.user.role) || !data.expiresAt) continue;
 
-    // Check expiration
-    if (Date.now() > data.expiresAt) {
-      return null;
+        // Check expiration
+        if (Date.now() > data.expiresAt) {
+          return null;
+        }
+
+        return data.user;
+      } catch {
+        // Try next candidate key
+      }
     }
 
-    return data.user;
+    return null;
   } catch (err) {
     return null;
   }

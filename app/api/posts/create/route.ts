@@ -5,7 +5,7 @@ import { getSessionUser } from '@/lib/auth/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { captionSchema, platformSchema, postIdSchema } from '@/lib/publishing/campaign';
 import { captionLimits, mediaCompatibilityError } from '@/lib/publishing/compatibility';
-import { executePostPublishing, ClaimedJob } from '@/lib/publishing/engine';
+import { dispatchCampaign } from '@/lib/publishing/engine';
 
 const CreatePost = z.object({
   requestId: postIdSchema.optional(),
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
     }
     let media: { mime_type: string; width?: number; height?: number; duration_seconds?: number; video_codec?: string } | undefined;
     if (post.mediaAssetId) {
-      const { data: userProfiles } = await db.from('profiles').select('id').ilike('email', user.email);
+      const { data: userProfiles } = await db.from('profiles').select('id').eq('email', user.email.toLowerCase());
       const userIds = userProfiles && userProfiles.length > 0 ? userProfiles.map((p) => p.id) : [user.id];
       const { data, error } = await db.from('media_assets').select('mime_type,width,height,duration_seconds,video_codec,user_id')
         .eq('id', post.mediaAssetId).in('user_id', userIds).maybeSingle();
@@ -106,11 +106,11 @@ export async function POST(req: NextRequest) {
     let { data: accounts, error: accountError } = post.accountIds?.length === 0 ? { data: [], error: null } : await query;
     if (accountError) throw accountError;
 
-    // Fallback: If some platforms are missing in user.id, check other profiles for same email and clone
+    // Fallback: If some target platforms are missing in user.id, check other profiles for same email and clone
     const foundPlatforms = new Set(((accounts as any[]) || []).map((a: any) => a.platform));
     const missingPlatforms = post.targetPlatforms.filter((p) => !foundPlatforms.has(p));
     if (missingPlatforms.length > 0 && !post.draft) {
-      const { data: userProfiles } = await db.from('profiles').select('id').ilike('email', user.email);
+      const { data: userProfiles } = await db.from('profiles').select('id').eq('email', user.email.toLowerCase());
       const userIds = userProfiles && userProfiles.length > 0 ? userProfiles.map((p) => p.id) : [user.id];
       const { data: altAccounts } = await db.from('social_accounts').select('*').in('user_id', userIds)
         .in('platform', missingPlatforms).eq('status', 'active');
@@ -123,6 +123,10 @@ export async function POST(req: NextRequest) {
           accounts = [...(accounts || []), inserted];
         }
       }
+    }
+
+    if (!post.draft && post.accountIds?.some((accountId) => !accounts?.some((account) => account.id === accountId))) {
+      return NextResponse.json({ error: 'A selected publishing account is unavailable' }, { status: 409 });
     }
     const status = post.draft ? 'draft' : post.publishingMode === 'manual_approval' ? 'pending_approval' :
       post.scheduledFor ? 'scheduled' : 'approved';
@@ -144,15 +148,7 @@ export async function POST(req: NextRequest) {
     if (error || !data?.id) throw error ?? new Error('Post was not saved');
 
     if (status === 'approved' && !post.scheduledFor && !post.queueNext && post.publishingMode === 'automatic') {
-      try {
-        const { data: jobs } = await db.rpc('claim_publishing_job');
-        const job = jobs?.[0] as ClaimedJob | undefined;
-        if (job) {
-          await executePostPublishing(db, job);
-        }
-      } catch (execErr) {
-        console.warn('Immediate dispatch notice (will be processed by worker):', execErr);
-      }
+      await dispatchCampaign(db, user.id, id);
     }
 
     return NextResponse.json({ success: true, post: data }, { status: 201 });

@@ -31,7 +31,7 @@ export default function PrivacyPolicyPage() {
           <h2 id="content-data" className="mb-2 text-xl font-semibold">Media, captions, and publishing</h2>
           <p>
             SocialFlow AI stores the media, drafts, captions, schedules, and publishing records you create. When you use
-            caption generation, Google Gemini receives relevant text and images or representative video frames. When
+            caption generation, Google Gemini or OpenAI receives relevant text and images or representative video frames. When
             you publish or enable automatic publishing, we send the content to the social platform you selected.
             Supabase provides database and media storage, and Vercel hosts the web application.
           </p>

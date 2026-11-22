@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { generateSocialContentWithGemini } from '@/lib/ai/gemini';
+import { generateSocialContent } from '@/lib/ai/gemini';
 
 const PostIdeasSchema = z.object({
   niche: z.string().min(1),
@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { niche } = parsed.data;
-    const result = await generateSocialContentWithGemini({
+    const result = await generateSocialContent({
       userPrompt: `Generate 5 creative, high-engagement post concepts and hooks for the niche: ${niche}`,
     });
 

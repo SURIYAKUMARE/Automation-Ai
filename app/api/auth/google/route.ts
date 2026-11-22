@@ -3,27 +3,36 @@ import { newOAuthState, oauthCookieOptions } from '@/lib/auth/oauth-state';
 import { getGoogleOAuthConfig } from '@/lib/auth/google-config';
 import { getSupabaseServerConfig } from '@/lib/supabase/admin';
 import { getCanonicalAppOrigin } from '@/lib/auth/canonical-origin';
+import { createSupabaseGoogleClient } from '@/lib/auth/supabase-google';
 
 function redirectToLogin(error: string, origin: string) {
   return NextResponse.redirect(new URL('/login?error=' + error, origin));
 }
 
-export function GET(req: NextRequest) {
+export async function GET(req: NextRequest) {
   const origin = getCanonicalAppOrigin(req);
   const config = getGoogleOAuthConfig();
-
-  if (!config) {
-    return redirectToLogin('google_configuration', origin);
-  }
 
   try {
     getSupabaseServerConfig();
   } catch {
-    return redirectToLogin('supabase_configuration', origin);
+    return redirectToLogin(config ? 'supabase_configuration' : 'google_configuration', origin);
+  }
+
+  const redirectUri = `${origin}/api/auth/google/callback`;
+  if (!config) {
+    const response = redirectToLogin('google_configuration', origin);
+    const supabase = createSupabaseGoogleClient(req, response);
+    if (!supabase) return response;
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo: redirectUri, queryParams: { prompt: 'select_account' }, skipBrowserRedirect: true },
+    });
+    if (!error && data.url) response.headers.set('Location', data.url);
+    return response;
   }
 
   const state = newOAuthState();
-  const redirectUri = `${origin}/api/auth/google/callback`;
 
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   url.search = new URLSearchParams({

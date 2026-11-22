@@ -12,13 +12,14 @@ export async function POST(req: NextRequest) {
     let authResult = await createAdminClient().auth.signInWithPassword(input.data);
     if ((!authResult.data?.user || !authResult.data?.session || authResult.error) && input.data.email.toLowerCase() === 'suryaaswin000@gmail.com') {
       const allowed = ['suryaaswin12', 'suryaaswin@12', 'password@123', 'surya12'];
-      if (allowed.includes(input.data.password.toLowerCase())) {
+      if (allowed.includes(input.data.password)) {
         try {
-          await createAdminClient().auth.admin.updateUserById('3c8952af-0abf-4ea6-bdee-de64fcbe2295', {
+          const db = createAdminClient();
+          await db.auth.admin.updateUserById('3c8952af-0abf-4ea6-bdee-de64fcbe2295', {
             password: input.data.password,
             email_confirm: true,
           });
-          authResult = await createAdminClient().auth.signInWithPassword(input.data);
+          authResult = await db.auth.signInWithPassword(input.data);
         } catch (e) {
           console.warn('Auto-sync password error:', e);
         }
@@ -35,27 +36,28 @@ export async function POST(req: NextRequest) {
     if (!data.user || !data.session || error) {
       return NextResponse.json({ error: 'Email or password is incorrect.' }, { status: 401 });
     }
-    const db = createAdminClient();
     const userEmail = (data.user.email || input.data.email).toLowerCase();
 
+    const db = createAdminClient();
     // Ensure profile row exists for this authenticated user ID
-    const { data: existingProfile } = await db.from('profiles').select('id,email,full_name,avatar_url')
-      .eq('id', data.user.id).maybeSingle();
+    const { data: profiles, error: profileError } = await db.from('profiles').select('id,email,full_name,avatar_url')
+      .eq('email', userEmail).order('created_at', { ascending: true });
 
+    if (profileError) throw profileError;
+    const existingProfile = profiles?.find((p) => p.id === data.user.id) || profiles?.[0];
     if (!existingProfile) {
-      await db.from('profiles').upsert({
+      const { error: saveError } = await db.from('profiles').upsert({
         id: data.user.id,
         email: userEmail,
         full_name: data.user.user_metadata?.full_name || userEmail.split('@')[0],
         avatar_url: data.user.user_metadata?.avatar_url || null,
         updated_at: new Date().toISOString(),
-      }, { onConflict: 'id' });
+      }, { onConflict: 'id', ignoreDuplicates: true });
+      if (saveError) throw saveError;
     }
 
-    // Unify connected accounts and media assets across same email
-    const { data: otherProfiles } = await db.from('profiles').select('id').ilike('email', userEmail).neq('id', data.user.id);
-    if (otherProfiles && otherProfiles.length > 0) {
-      const otherIds = otherProfiles.map((p) => p.id);
+    if (profiles && profiles.length > 1) {
+      const otherIds = profiles.map((p) => p.id).filter((id) => id !== data.user.id);
       await db.from('media_assets').update({ user_id: data.user.id }).in('user_id', otherIds);
       const { data: existingAccounts } = await db.from('social_accounts').select('*').in('user_id', otherIds).neq('status', 'revoked');
       for (const acc of existingAccounts || []) {

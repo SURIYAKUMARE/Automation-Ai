@@ -4,7 +4,7 @@
 
 @layer base {
   :root {
-    /* Google Stitch Light Mode Specification */
+    /* Google Blue Light Mode Specification */
     --background: 210 40% 98%;      /* #F8FAFC */
     --foreground: 222 47% 11%;      /* #0F172A */
 
@@ -14,7 +14,7 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    --primary: 243 75% 59%;         /* #4F46E5 */
+    --primary: 221.2 83.2% 53.3%;   /* Vibrant Google Blue #2563EB */
     --primary-foreground: 210 40% 98%;
 
     --secondary: 215 16% 47%;       /* #64748B */
@@ -31,13 +31,13 @@
 
     --border: 214 32% 91%;          /* #E2E8F0 */
     --input: 214 32% 91%;
-    --ring: 243 75% 59%;
+    --ring: 221.2 83.2% 53.3%;
 
     --radius: 0.5rem;
   }
 
   .dark {
-    /* Google Stitch Dark Mode Specification */
+    /* Google Blue Dark Mode Specification */
     --background: 222 47% 8%;       /* #0B1120 */
     --foreground: 210 40% 98%;      /* #F8FAFC */
 
@@ -47,7 +47,7 @@
     --popover: 220 39% 11%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 239 94% 74%;         /* #818CF8 */
+    --primary: 217.2 91.2% 59.8%;   /* Electric Blue #3B82F6 */
     --primary-foreground: 222 47% 11%;
 
     --secondary: 215 20% 65%;       /* #94A3B8 */
@@ -64,7 +64,7 @@
 
     --border: 215 25% 27%;          /* #334155 */
     --input: 215 25% 27%;
-    --ring: 239 94% 74%;
+    --ring: 217.2 91.2% 59.8%;
   }
 }
 

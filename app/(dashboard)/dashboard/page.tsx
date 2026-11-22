@@ -47,35 +47,35 @@ export default function DashboardOverviewPage() {
 
   return (
     <div className="space-y-6">
-      {/* Google Stitch Dashboard Hero Banner */}
-      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0b1222] via-[#0f1d3d] to-[#0a0f1d] border border-blue-500/20 p-6 text-white sm:p-9 shadow-xl shadow-blue-950/20">
-        <div className="pointer-events-none absolute -right-16 -top-20 h-72 w-72 rounded-full bg-blue-600/20 blur-3xl" />
-        <div className="pointer-events-none absolute -left-10 -bottom-10 h-64 w-64 rounded-full bg-indigo-600/15 blur-3xl" />
+      {/* Google Blue Dashboard Hero Banner */}
+      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#061533] via-[#0b2454] to-[#040e24] border border-blue-500/30 p-6 text-white sm:p-9 shadow-xl shadow-blue-950/30">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-72 w-72 rounded-full bg-blue-600/25 blur-3xl" />
+        <div className="pointer-events-none absolute -left-10 -bottom-10 h-64 w-64 rounded-full bg-sky-500/20 blur-3xl" />
         <div className="pointer-events-none absolute -right-20 -top-24 h-80 w-80 rounded-full border-[36px] border-white/[0.04]" />
 
         <div className="relative flex flex-wrap items-end justify-between gap-6">
           <div>
             <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/20 border border-blue-400/30 px-3 py-1 text-xs font-semibold text-blue-300 mb-3">
               <Sparkles size={13} className="text-blue-400" />
-              <span>Google Stitch • Multimodal AI Automation</span>
+              <span>Google Blue • Multimodal AI Automation</span>
             </div>
             <h1 className="text-3xl font-bold tracking-tight sm:text-4xl text-white">
               Publishing Overview
             </h1>
-            <p className="mt-2 max-w-xl text-sm leading-relaxed text-slate-300">
+            <p className="mt-2 max-w-xl text-sm leading-relaxed text-blue-100/80">
               Intelligent cross-platform distribution engine. Create, automate, and publish directly to LinkedIn, YouTube, Instagram, and Facebook.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <Link
               href="/dashboard/create-post"
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-500 hover:to-indigo-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/30 active:scale-[0.98] transition-all"
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 via-blue-500 to-sky-500 hover:from-blue-700 hover:to-sky-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/30 active:scale-[0.98] transition-all"
             >
               <Plus size={17} /> Create Post
             </Link>
             <Link
               href="/dashboard/caption-studio"
-              className="inline-flex items-center gap-2 rounded-xl border border-white/20 hover:bg-white/10 px-4 py-2.5 text-sm font-medium text-slate-200 transition-colors"
+              className="inline-flex items-center gap-2 rounded-xl border border-blue-400/30 hover:bg-blue-500/15 px-4 py-2.5 text-sm font-medium text-blue-100 transition-colors"
             >
               <Sparkles size={15} /> AI Studio
             </Link>
@@ -132,7 +132,7 @@ export default function DashboardOverviewPage() {
                   <div className="flex h-24 w-full items-end justify-center rounded-lg bg-muted/40 p-1">
                     {day.count > 0 && (
                       <div
-                        className="flex w-full items-start justify-center rounded-md bg-gradient-to-t from-blue-600 via-indigo-600 to-violet-500 text-white font-bold text-xs pt-1 shadow-sm shadow-blue-500/25 transition-all"
+                        className="flex w-full items-start justify-center rounded-md bg-gradient-to-t from-blue-700 via-blue-600 to-sky-400 text-white font-bold text-xs pt-1 shadow-sm shadow-blue-500/30 transition-all"
                         style={{ height: Math.max(24, Math.round((day.count / maxCount) * 88)) }}
                       >
                         {day.count}

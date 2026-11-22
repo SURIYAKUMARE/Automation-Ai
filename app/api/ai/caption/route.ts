@@ -1,7 +1,7 @@
 import { authorizeAI } from '@/lib/ai/request';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { generateSocialContentWithGemini } from '@/lib/ai/gemini';
+import { generateSocialContent } from '@/lib/ai/gemini';
 import { SupportedLanguage, SupportedTone } from '@/types';
 
 const CaptionSchema = z.object({
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
 
     const { topic, platform, language, tone } = parsed.data;
 
-    const result = await generateSocialContentWithGemini({
+    const result = await generateSocialContent({
       brand: access.brand,
       userPrompt: topic,
       language: language as SupportedLanguage,

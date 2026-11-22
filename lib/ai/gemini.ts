@@ -40,6 +40,40 @@ export const GeminiAnalysisResultSchema = z.object({
 
 export class MediaGroundingError extends Error {}
 
+const OpenAIOutput = z.object({
+  status: z.literal('completed'),
+  output: z.array(z.object({
+    type: z.string(),
+    content: z.array(z.object({ type: z.string(), text: z.string().optional() })).optional(),
+  })),
+});
+
+async function generateOpenAIJson(prompt: string, images: string[], key: string): Promise<unknown> {
+  const response = await fetch('https://api.openai.com/v1/responses', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+    signal: AbortSignal.timeout(20_000),
+    body: JSON.stringify({
+      model: process.env.OPENAI_MODEL?.trim() || 'gpt-4.1-mini',
+      store: false,
+      max_output_tokens: 8192,
+      text: { format: { type: 'json_object' } },
+      input: [{
+        role: 'user',
+        content: [
+          { type: 'input_text', text: prompt },
+          ...images.map((image_url) => ({ type: 'input_image', image_url, detail: 'auto' })),
+        ],
+      }],
+    }),
+  });
+  if (!response.ok) throw new Error('OpenAI generation failed with status ' + response.status);
+  const result = OpenAIOutput.parse(await response.json());
+  const text = result.output.filter((item) => item.type === 'message').flatMap((item) => item.content || [])
+    .filter((item) => item.type === 'output_text').map((item) => item.text || '').join('');
+  return JSON.parse(text);
+}
+
 interface GenerateOptions {
   mediaFrames?: Buffer[];
   mediaBuffer?: Buffer;
@@ -55,28 +89,35 @@ interface GenerateOptions {
   hashtagLimit?: number;
 }
 
-async function generateJson(prompt: string, parts: Part[] = [], responseSchema?: ResponseSchema) {
+async function generateJson<T>(prompt: string, validate: (value: unknown) => T, parts: Part[] = [], responseSchema?: ResponseSchema) {
   const key = process.env.GEMINI_API_KEY?.trim();
-  if (!key) throw new Error('Gemini is not configured');
-  const client = new GoogleGenerativeAI(key);
-  const models = (process.env.GEMINI_MODELS || 'gemini-2.5-flash,gemini-3.5-flash,gemini-flash-latest')
+  const client = key ? new GoogleGenerativeAI(key) : null;
+  const models = (process.env.GEMINI_MODELS || 'gemini-flash-latest,gemini-flash-lite-latest')
     .split(',').map((model) => model.trim()).filter(Boolean).slice(0, 3);
   for (const model of models) {
+    if (!client) break;
     try {
       const gemini = client.getGenerativeModel({
         model, generationConfig: { responseMimeType: 'application/json', responseSchema, temperature: 0.7, maxOutputTokens: 8192 },
-      }, { timeout: 30_000 });
+      }, { timeout: 12_000 });
       const { response } = await gemini.generateContent([{ text: prompt }, ...parts]);
-      return JSON.parse(response.text());
-    } catch (err: any) {
-      console.warn(`Gemini model ${model} failed:`, err?.message || err);
-      // Try the next configured model after request or JSON decoding failure.
+      return { data: validate(JSON.parse(response.text())), source: 'Gemini' as const };
+    } catch (error) {
+      if (error instanceof MediaGroundingError) throw error;
+      console.warn(`Gemini model ${model} could not return valid content`);
     }
   }
-  throw new Error('Gemini could not complete generation. Check model availability and quota.');
+  const openAIKey = process.env.OPENAI_API_KEY?.trim();
+  if (openAIKey) {
+    const images = parts.flatMap((part) => part.inlineData ?
+      ['data:' + part.inlineData.mimeType + ';base64,' + part.inlineData.data] : []);
+    const raw = await generateOpenAIJson(prompt, images, openAIKey);
+    return { data: validate(raw), source: 'OpenAI' as const };
+  }
+  throw new Error('Caption generation is unavailable. Check provider configuration and quota.');
 }
 
-export async function generateSocialContentWithGemini({
+export async function generateSocialContent({
   mediaBuffer, mimeType, mediaFrames = [], userPrompt = '', language = 'English', tone = 'Professional', isMediaVideo = false,
   targetPlatforms = ['instagram', 'facebook', 'linkedin', 'youtube'], brand, alternatives = false,
   captionLength = 'standard', hashtagLimit = 10,
@@ -88,7 +129,7 @@ setting, or legible text. For video, the supplied images are in chronological or
 or progression, and ignore incidental title cards, transitions and blank frames. Do not infer audio or events between frames.
 Return "media_review": {"readable": true, "observations": ["specific details directly seen in the media"]}.
 If there is no identifiable subject, action, scene, or readable text, set "readable": false and leave the caption strings empty.
-Use at least one specific visual detail in every caption and caption alternative. Keep captions and hashtags on the
+Use at least one specific visual detail in every title, caption and caption alternative. Keep captions and hashtags on the
 observed subject. If user context or brand preferences conflict with the visuals, use them only for style.
 Use an appropriately general description for ambiguous people, places, products, and text.
 Never invent identities, locations, occasion, names, prices, offers, or details outside the supplied visuals.` : '';
@@ -101,7 +142,7 @@ Use at most ${hashtagLimit} relevant hashtags per platform in decreasing order o
 Aim for ${{short: 'one or two sentences', standard: 'a short paragraph', detailed: 'two or three concise paragraphs'}[captionLength]}.
 Provide a brief rationale for each caption. For image posts, offer accessible alt text describing the visible subject and action.
 Instagram uses a concise hook and CTA. Facebook uses a conversational question. LinkedIn uses a professional hook and story.
-YouTube needs a searchable title (max 100 characters), detailed description, search keywords, suggested category,
+Give every requested platform a descriptive title of at most 100 characters. YouTube also needs a detailed description, search keywords, suggested category,
 and a thumbnail recommendation. Respect platform character limits, including hashtags.
 Return JSON with summary, detected_objects, extracted_text, topics, sentiment, dominant_colors, audience, and platforms.
 Each requested platform key contains caption, title, hashtags, keywords, call_to_action, rationale, suggested_category,
@@ -124,7 +165,23 @@ Brand preferences: ${JSON.stringify(brand ?? {})}`;
     },
     required: ['caption', 'hashtags', 'alternatives'],
   } as const;
-  const raw = await generateJson(prompt, parts, {
+  const { data, source } = await generateJson(prompt, (raw) => {
+    const review = GeminiAnalysisResultSchema.shape.media_review.safeParse((raw as { media_review?: unknown } | null)?.media_review);
+    if (hasMedia && review.success && review.data?.readable === false) {
+      throw new MediaGroundingError('AI could not identify enough detail in this media. Try a clearer photo or video.');
+    }
+    if (hasMedia && (!review.success || !review.data?.observations.length)) throw new Error('Missing visual observations');
+    const result = GeminiAnalysisResultSchema.parse(raw);
+    for (const platform of targetPlatforms) {
+      const variant = result.platforms[platform];
+      if (!variant || (platform === 'youtube' && !variant.title) || (alternatives && variant.alternatives.length !== 2)) {
+        throw new Error('The provider returned incomplete captions');
+      }
+      variant.title ||= result.summary.trim().slice(0, 100);
+      variant.hashtags = variant.hashtags.slice(0, hashtagLimit);
+    }
+    return result;
+  }, parts, {
     type: SchemaType.OBJECT,
     properties: {
       summary: string, detected_objects: strings, extracted_text: string, topics: strings,
@@ -145,27 +202,17 @@ Brand preferences: ${JSON.stringify(brand ?? {})}`;
     },
     required: hasMedia ? ['summary', 'media_review', 'platforms'] : ['summary', 'platforms'],
   });
-  const review = GeminiAnalysisResultSchema.shape.media_review.safeParse(raw?.media_review);
-  if (hasMedia && (!review.success || !review.data?.readable || !review.data.observations.length)) {
-    throw new MediaGroundingError('Gemini could not identify enough detail in this media. Try a clearer photo or video.');
-  }
-  const data = GeminiAnalysisResultSchema.parse(raw);
-  for (const platform of targetPlatforms) {
-    const variant = data.platforms[platform];
-    if (!variant || (platform === 'youtube' && !variant.title) || (alternatives && variant.alternatives.length !== 2)) {
-      throw new Error('Gemini returned incomplete captions. Try generating again.');
-    }
-    variant.hashtags = variant.hashtags.slice(0, hashtagLimit);
-  }
-  return data;
+  return { ...data, source };
 }
 
 export async function generateWeeklyPlan(theme: string, days: number, brand: unknown) {
-  const plan = await generateJson(`Propose ${days} distinct daily social posts as JSON {schedule: [{day, focus, targetPlatform, suggestedTitle, rationale}]}.
-Choose platform keys instagram, facebook, linkedin, youtube. Keep ideas achievable and clearly suggested.
-Base topics on ${JSON.stringify(theme)} and brand preferences ${JSON.stringify(brand)}. Do not invent optimal times or analytics.`);
-  return z.object({ schedule: z.array(z.object({
+  const schema = z.object({ schedule: z.array(z.object({
     day: z.string(), focus: z.string(), targetPlatform: z.enum(['instagram', 'facebook', 'linkedin', 'youtube']),
     suggestedTitle: z.string(), rationale: z.string(),
-  })).length(days) }).parse(plan).schedule;
+  })).length(days) });
+  const { data } = await generateJson(`Propose ${days} distinct daily social posts as JSON {schedule: [{day, focus, targetPlatform, suggestedTitle, rationale}]}.
+Choose platform keys instagram, facebook, linkedin, youtube. Keep ideas achievable and clearly suggested.
+Base topics on ${JSON.stringify(theme)} and brand preferences ${JSON.stringify(brand)}. Do not invent optimal times or analytics.`,
+  (value) => schema.parse(value));
+  return data.schedule;
 }

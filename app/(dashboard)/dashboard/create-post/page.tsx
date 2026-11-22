@@ -342,7 +342,7 @@ export default function CreatePostPage() {
       return;
     }
     setIsGenerating(true);
-    const notice = toast.loading("Generating platform captions");
+    const notice = toast.loading("Generating captions and titles");
     try {
       let file: Blob | null = attachedFile ?? selectedFile;
       if (!file && savedAssetId) {
@@ -373,7 +373,7 @@ export default function CreatePostPage() {
         }
         return updated;
       });
-      toast.success("Captions ready to review", { id: notice });
+      toast.success("Captions and titles ready to review", { id: notice });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not generate captions", { id: notice });
     } finally {
@@ -419,7 +419,9 @@ export default function CreatePostPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           requestId: requestId.current,
-          mediaAssetId, draft: isDraft, replaceDraft: !!draftId, title: ytVideoTitle || topicPrompt.trim() || "Untitled post",
+          mediaAssetId, draft: isDraft, replaceDraft: !!draftId,
+          title: (selectedPlatforms.includes("youtube") ? ytVideoTitle : platformContents[selectedPlatforms[0]]?.title?.trim()) ||
+            topicPrompt.trim() || "Untitled post",
           rawPrompt: topicPrompt,
           publishingMode: isDraft || review ? "manual_approval" : "automatic",
           queueNext,
@@ -701,7 +703,7 @@ export default function CreatePostPage() {
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-bold text-foreground tracking-tight flex items-center gap-1.5">
                 <Sparkles className="h-4 w-4" />
-                Gemini AI Caption Engine
+                AI Captions and Titles
               </h2>
 
               <div className="flex items-center gap-1 text-xs">
@@ -754,10 +756,10 @@ export default function CreatePostPage() {
                 variant="stitch"
                 onClick={() => void handleGenerateAI()}
                 disabled={isGenerating}
-                className="w-full text-xs font-semibold gap-2 h-10 shadow-md shadow-indigo-500/20"
+                className="w-full text-xs font-semibold gap-2 h-10 shadow-md shadow-blue-500/25"
               >
                 <Sparkles className="h-4 w-4 animate-pulse" />
-                {isGenerating ? "Analyzing with Gemini Multimodal AI…" : "Generate with Gemini AI"}
+                {isGenerating ? "Generating captions and titles…" : "Generate captions and titles"}
               </Button>
             </div>
           </div>
@@ -792,48 +794,24 @@ export default function CreatePostPage() {
               </span>
             </div>
 
-            {/* YouTube Video Title Section */}
-            {activeTab === "youtube" && (
-              <div className="space-y-1.5 p-3 rounded-xl border border-red-500/30 bg-red-500/5 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                    <PlatformIcon platform="youtube" className="h-4 w-4" />
-                    <span>YouTube Video Title</span>
-                    <span className="text-[10px] text-red-500 font-mono font-medium">*Required by YouTube</span>
-                  </label>
-                  <div className="flex items-center gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const base =
-                          topicPrompt ||
-                          currentContent.caption.split("\n")[0] ||
-                          "Next-Gen Multi-Platform Automation";
-                        const clean = base.replace(/[#*]/g, "").trim().substring(0, 90);
-                        const autoYtTitle = clean.length > 5 ? clean : "Next-Gen AI Automation Showcase";
-                        updateCurrentTitle(autoYtTitle);
-                        toast.success("Generated YouTube Video Title!");
-                      }}
-                      className="text-[11px] font-medium text-emerald-500 hover:text-emerald-400 flex items-center gap-1 transition-colors"
-                      title="Generate a catchy YouTube video title automatically"
-                    >
-                      <Sparkles className="h-3 w-3" />
-                      <span>Auto-Generate Title</span>
-                    </button>
-                    <span className="text-[10px] font-mono text-muted-foreground">
-                      {(currentContent.title || "").length}/100
-                    </span>
-                  </div>
-                </div>
-                <Input
-                  maxLength={100}
-                  placeholder="Enter video title (e.g. Next-Gen AI Automation with SocialFlow)..."
-                  value={currentContent.title || ""}
-                  onChange={(e) => updateCurrentTitle(e.target.value)}
-                  className="text-xs font-medium bg-background border-border"
-                />
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label htmlFor="platform-title" className="text-xs font-semibold text-foreground">
+                  {activeTab === "youtube" ? "YouTube video title (required)" : "Post title"}
+                </label>
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  {(currentContent.title || "").length}/100
+                </span>
               </div>
-            )}
+              <Input
+                id="platform-title"
+                maxLength={100}
+                placeholder={activeTab === "youtube" ? "Enter a video title" : "Enter a post title"}
+                value={currentContent.title || ""}
+                onChange={(e) => updateCurrentTitle(e.target.value)}
+                className="text-xs font-medium bg-background border-border"
+              />
+            </div>
 
             {/* Caption Textarea */}
             <div className="space-y-1.5">
@@ -856,7 +834,7 @@ export default function CreatePostPage() {
                 placeholder={
                   activeTab === "youtube"
                     ? "Write YouTube video description..."
-                    : `Write tailored caption for ${activeTab} or generate with Gemini AI above...`
+                    : `Write a caption for ${activeTab} or generate one above`
                 }
                 value={currentContent.caption}
                 onChange={(e) => updateCurrentCaption(e.target.value)}
@@ -965,7 +943,7 @@ export default function CreatePostPage() {
               variant="stitch"
               onClick={() => handleSubmit(false)}
               disabled={isPublishing || isGenerating}
-              className="flex-1 text-xs font-semibold gap-1.5 h-10 shadow-md shadow-indigo-500/25"
+              className="flex-1 text-xs font-semibold gap-1.5 h-10 shadow-md shadow-blue-500/25"
             >
               {isScheduled ? (
                 <>

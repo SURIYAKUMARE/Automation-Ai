@@ -62,7 +62,7 @@ export default function LandingPage() {
             className="h-9 w-9 rounded-xl object-contain shadow-sm"
           />
           <span className="font-bold text-lg tracking-tight">
-            SocialFlow <span className="bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 bg-clip-text text-transparent">AI</span>
+            SocialFlow <span className="bg-gradient-to-r from-blue-600 via-blue-500 to-sky-400 bg-clip-text text-transparent">AI</span>
           </span>
         </div>
 
@@ -84,7 +84,7 @@ export default function LandingPage() {
       {/* Hero Section */}
       <section className="relative px-4 pt-16 pb-20 sm:pt-24 sm:pb-28 text-center max-w-5xl mx-auto overflow-hidden">
         {/* Ambient radial glows */}
-        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[350px] bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
 
         <div className="flex justify-center mb-6">
           <img
@@ -94,14 +94,14 @@ export default function LandingPage() {
           />
         </div>
 
-        <div className="inline-flex items-center gap-2 rounded-full border border-indigo-500/30 bg-indigo-500/10 px-3.5 py-1 text-xs font-semibold text-indigo-400 mb-6">
+        <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3.5 py-1 text-xs font-semibold text-blue-400 mb-6">
           <Sparkles className="h-3.5 w-3.5" />
-          <span>Final Year Major Project • Google Stitch Design System</span>
+          <span>Final Year Major Project • Google Blue Design System</span>
         </div>
 
         <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-foreground leading-[1.15]">
           Intelligent Multi-Platform <br />
-          <span className="bg-gradient-to-r from-indigo-400 via-indigo-200 to-violet-400 bg-clip-text text-transparent">
+          <span className="bg-gradient-to-r from-blue-500 via-sky-300 to-blue-200 bg-clip-text text-transparent">
             Social Media Automation
           </span>
         </h1>
@@ -112,14 +112,14 @@ export default function LandingPage() {
 
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3.5">
           <Link href="/dashboard">
-            <Button variant="stitch" size="lg" className="gap-2 shadow-lg shadow-indigo-500/25">
+            <Button variant="stitch" size="lg" className="gap-2 shadow-lg shadow-blue-500/30">
               <span>Launch Live Dashboard</span>
               <ArrowRight className="h-4 w-4" />
             </Button>
           </Link>
           <Link href="/dashboard/caption-studio">
-            <Button variant="outline" size="lg" className="gap-2">
-              <Sparkles className="h-4 w-4 text-indigo-400" />
+            <Button variant="outline" size="lg" className="gap-2 border-blue-500/30 hover:bg-blue-500/10">
+              <Sparkles className="h-4 w-4 text-blue-400" />
               <span>Explore AI Studio</span>
             </Button>
           </Link>

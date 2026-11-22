@@ -70,7 +70,7 @@ export default function AICaptionStudioPage() {
 
   const handleGenerate = async () => {
     setIsGenerating(true);
-    toast.info("Gemini multimodal analysis initialized...");
+    const notice = toast.loading("Generating captions and titles");
 
     try {
       const media = selectedFile ? await prepareMediaPreview(selectedFile) : {};
@@ -91,9 +91,10 @@ export default function AICaptionStudioPage() {
       if (!res.ok) throw new Error(json.error || "Generation failed");
 
       setAnalysisResult(json.data);
-      toast.success("AI Studio synthesized clean platform copy.");
-    } catch (err: any) {
-      toast.error(err.message || "Failed generating captions");
+      const provider = json.source === "Gemini" || json.source === "OpenAI" ? json.source : "AI";
+      toast.success("Captions and titles generated with " + provider, { id: notice });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not generate captions and titles", { id: notice });
     } finally {
       setIsGenerating(false);
     }
@@ -255,7 +256,7 @@ export default function AICaptionStudioPage() {
                 className="w-full gap-2 text-xs"
               >
                 <Sparkles className={`h-4 w-4 ${isGenerating ? "animate-spin" : ""}`} />
-                <span>{isGenerating ? "Synthesizing Copy..." : "Generate Platform Captions"}</span>
+                <span>{isGenerating ? "Generating…" : "Generate captions and titles"}</span>
               </Button>
             </CardContent>
           </Card>
@@ -266,7 +267,7 @@ export default function AICaptionStudioPage() {
               <CardHeader className="pb-3 border-b border-border/40">
                 <CardTitle className="text-xs font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-2">
                   <Eye className="h-3.5 w-3.5 text-primary" />
-                  Gemini Visual Diagnostics
+                  Visual analysis
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 pt-3 text-xs">

@@ -1,7 +1,7 @@
 import { authorizeAI } from '@/lib/ai/request';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { generateSocialContentWithGemini } from '@/lib/ai/gemini';
+import { generateSocialContent } from '@/lib/ai/gemini';
 
 const SummarizeSchema = z.object({
   content: z.string().min(10),
@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { content } = parsed.data;
-    const result = await generateSocialContentWithGemini({
+    const result = await generateSocialContent({
       brand: access.brand,
       userPrompt: `Summarize this text into a concise, high-impact social media takeaway:\n\n${content}`,
     });

@@ -25,7 +25,7 @@ export class YouTubeAdapter implements PlatformAdapter {
       response_type: 'code',
       scope: youtubeScopes.join(' '),
       access_type: 'offline',
-      prompt: 'consent',
+      prompt: 'select_account consent',
       state: state,
     });
 

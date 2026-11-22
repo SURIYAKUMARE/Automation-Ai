@@ -61,7 +61,7 @@ export function Header({ user, openMenu }: { user: User; openMenu: () => void })
       <Link href="/dashboard/search" className={control + " md:hidden"} aria-label="Search workspace"><Search className="h-4 w-4" /></Link>
       <Link
         href="/dashboard/create-post"
-        className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 via-indigo-600 to-violet-600 hover:from-blue-500 hover:to-indigo-500 text-white px-3 sm:px-3.5 text-xs sm:text-sm font-semibold shadow-md shadow-indigo-500/20 active:scale-[0.98] transition-all"
+        className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 via-blue-500 to-sky-500 hover:from-blue-700 hover:to-sky-600 text-white px-3 sm:px-3.5 text-xs sm:text-sm font-semibold shadow-md shadow-blue-500/25 active:scale-[0.98] transition-all"
         aria-label="Quick create post"
       >
         <Plus className="h-4 w-4" />

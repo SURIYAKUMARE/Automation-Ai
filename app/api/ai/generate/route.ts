@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { generateSocialContentWithGemini, MediaGroundingError } from '@/lib/ai/gemini';
+import { generateSocialContent, MediaGroundingError } from '@/lib/ai/gemini';
 import { authorizeAI } from '@/lib/ai/request';
 import { platformSchema } from '@/lib/publishing/campaign';
 import { matchesMediaSignature } from '@/lib/publishing/media';
+
+export const maxDuration = 60;
 
 const Generate = z.object({
   prompt: z.string().trim().max(4000).optional(),
@@ -41,12 +43,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Add text context or a valid image or video preview' }, { status: 400 });
   }
   try {
-    const data = await generateSocialContentWithGemini({
+    const { source, ...data } = await generateSocialContent({
       ...options, userPrompt: context, mediaBuffer: bytes, mediaFrames: frames, mimeType, brand: access.brand,
     });
-    return NextResponse.json({ success: true, data, variants: data.platforms, source: 'Gemini', hashtagSource: 'AI relevance' });
+    return NextResponse.json({ success: true, data, variants: data.platforms, source, hashtagSource: 'AI relevance' });
   } catch (error) {
     if (error instanceof MediaGroundingError) return NextResponse.json({ error: error.message }, { status: 422 });
-    return NextResponse.json({ error: 'Gemini could not generate captions. Verify the API configuration and quota, or try again.' }, { status: 502 });
+    return NextResponse.json({ error: 'Caption and title generation is unavailable. Check the AI provider configuration and quota, then try again.' }, { status: 502 });
   }
 }

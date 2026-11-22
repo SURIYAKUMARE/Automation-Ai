@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
   try {
     const db = createAdminClient();
-    const { data: userProfiles } = await db.from('profiles').select('id').ilike('email', user.email);
+    const { data: userProfiles } = await db.from('profiles').select('id').eq('email', user.email.toLowerCase());
     const userIds = userProfiles && userProfiles.length > 0 ? userProfiles.map((p) => p.id) : [user.id];
 
     const { data, error } = await db.from('social_accounts')
@@ -26,7 +26,6 @@ export async function GET(req: NextRequest) {
       const key = `${account.platform}:${account.external_account_id}`;
       if (!seen.has(key)) {
         seen.add(key);
-        // Ensure ownership matches active session
         if (account.user_id !== user.id) {
           db.from('social_accounts').update({ user_id: user.id }).eq('id', account.id).then(() => {});
         }

@@ -8,7 +8,7 @@ const other = '20000000-0000-4000-8000-000000000000';
 const facebook = '30000000-0000-4000-8000-000000000000';
 const linkedin = '40000000-0000-4000-8000-000000000000';
 const id = '50000000-0000-4000-8000-000000000000';
-const migrations = ['20261119000000_legacy_workspace_bridge.sql', '20261120000000_initial_schema.sql', '20261121000000_reliable_publishing.sql', '20261122000000_upload_automation.sql', '20261122010000_workspace.sql'];
+const migrations = ['20261119000000_legacy_workspace_bridge.sql', '20261120000000_initial_schema.sql', '20261121000000_reliable_publishing.sql', '20261122000000_upload_automation.sql', '20261122010000_workspace.sql', '20261122020000_claim_campaign_publishing_job.sql'];
 
 async function fixture(t, prepare) {
   const db = await PGlite.create();
@@ -52,6 +52,19 @@ async function result(db, job, platform, status, message) {
     retryable: message === 'Provider rate limit reached.',
   })]);
 }
+
+test('immediate dispatch claims only the selected owned campaign', async (t) => {
+  const db = await fixture(t);
+  const earlier = '50000000-0000-4000-8000-000000000001';
+  await db.query("insert into posts (id,user_id,status) values ($1,$2,'approved')", [earlier, owner]);
+  await db.query("insert into publishing_jobs (post_id,user_id,run_at,idempotency_key) values ($1,$2,now()-interval '1 minute','earlier')",
+    [earlier, owner]);
+  await create(db, { status: 'approved', mode: 'automatic' });
+  assert.equal((await db.query('select * from claim_campaign_publishing_job($1,$2)', [other, id])).rows.length, 0);
+  assert.equal((await db.query('select post_id from claim_campaign_publishing_job($1,$2)', [owner, id])).rows[0].post_id, id);
+  assert.equal((await db.query('select * from claim_campaign_publishing_job($1,$2)', [owner, id])).rows.length, 0);
+  assert.equal((await db.query('select post_id from claim_publishing_job()')).rows[0].post_id, earlier);
+});
 
 test('legacy hosted workspaces keep existing data and gain a working publishing queue', async (t) => {
   const legacyOwner = '60000000-0000-4000-8000-000000000000';

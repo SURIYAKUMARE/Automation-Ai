@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { getSessionUser } from '@/lib/auth/session';
 import { captionSchema, manageCampaign, postIdSchema } from '@/lib/publishing/campaign';
+import { dispatchCampaign } from '@/lib/publishing/engine';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 const Approval = z.object({
   action: z.enum(['approved', 'rejected', 'modified']),
@@ -24,5 +26,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (Object.keys(captions).length > 4 || Object.values(captions).some((caption) => !caption)) {
     return NextResponse.json({ error: 'Supply a caption for each edited variant' }, { status: 400 });
   }
-  return manageCampaign(user.id, id, action, publishImmediately ? new Date().toISOString() : undefined, captions, variantId);
+  const response = await manageCampaign(user.id, id, action, publishImmediately ? new Date().toISOString() : undefined, captions, variantId);
+  if (response.ok && action === 'approved' && publishImmediately) {
+    await dispatchCampaign(createAdminClient(), user.id, id);
+  }
+  return response;
 }

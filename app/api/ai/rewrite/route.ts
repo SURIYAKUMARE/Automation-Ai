@@ -1,7 +1,7 @@
 import { authorizeAI } from '@/lib/ai/request';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { generateSocialContentWithGemini } from '@/lib/ai/gemini';
+import { generateSocialContent } from '@/lib/ai/gemini';
 import { SupportedTone } from '@/types';
 
 const RewriteSchema = z.object({
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { text, tone } = parsed.data;
-    const result = await generateSocialContentWithGemini({
+    const result = await generateSocialContent({
       brand: access.brand,
       userPrompt: `Rewrite this post text with high impact and a ${tone} tone: "${text}"`,
       tone: tone as SupportedTone,

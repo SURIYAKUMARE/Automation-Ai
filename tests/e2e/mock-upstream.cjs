@@ -56,6 +56,7 @@ globalThis.fetch = async (input, init) => {
     return json({ sub: 'fixture-linkedin-member', name: 'Fixture LinkedIn Member' });
   }
   if (url.hostname === 'generativelanguage.googleapis.com') {
+    if (process.env.TEST_GEMINI_UNAVAILABLE === '1') return json({ error: { message: 'Fixture quota exceeded' } }, 429);
     const request = body();
     const parts = request.contents[0].parts;
     const images = parts.filter((part) => part.inlineData?.mimeType.startsWith('image/'));
@@ -75,6 +76,21 @@ globalThis.fetch = async (input, init) => {
       platforms: { facebook: { caption: isVideo ? 'Watch the square move.' : 'A generated fixture caption.', hashtags: ['community'],
         alternatives: ['Fixture alternative one.', 'Fixture alternative two.'] } },
     }) }] }, finishReason: 'STOP' }] });
+  }
+  if (url.hostname === 'api.openai.com' && path === '/v1/responses') {
+    const request = body();
+    assert.equal(request.store, false);
+    assert.equal(request.text.format.type, 'json_object');
+    const content = request.input[0].content;
+    assert.match(content[0].text, /attached visuals are the primary source/);
+    assert.equal(content[1].type, 'input_image');
+    assert.match(content[1].image_url, /^data:image\/jpeg;base64,/);
+    const result = {
+      summary: 'A red poster',
+      media_review: { readable: true, observations: ['A red poster fills the frame'] },
+      platforms: { facebook: { title: 'A bold red poster', caption: 'A bold red poster fills the frame.', hashtags: [], alternatives: [] } },
+    };
+    return json({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: JSON.stringify(result) }] }] });
   }
   if (url.hostname === 'graph.facebook.com') {
     if (path.endsWith('/oauth/access_token')) return json({ access_token: 'fixture-meta-user-token', expires_in: 3600 });
@@ -97,6 +113,13 @@ globalThis.fetch = async (input, init) => {
   assert.equal(url.hostname, 'fixture.supabase.co', 'Unexpected external network request');
   if (path === '/auth/v1/token') {
     const credentials = body();
+    if (url.searchParams.get('grant_type') === 'pkce') {
+      assert.equal(credentials.auth_code, 'fixture-supabase-code');
+      assert.match(credentials.code_verifier, /^[a-f\d]{56,128}$/);
+      return json({ access_token: 'session-fixture', refresh_token: 'refresh-fixture', expires_in: 3600,
+        token_type: 'bearer', user: { id: secondOwner, email: 'second@test.invalid', email_confirmed_at: new Date().toISOString(),
+          identities: [{ id: '987654', provider: 'google' }], user_metadata: {}, created_at: new Date().toISOString() } });
+    }
     if (credentials.password !== 'fixture-password') return json({ code: 'invalid_credentials', msg: 'Invalid credentials' }, 400);
     if (credentials.email === 'unconfirmed@test.invalid') return json({ error_code: 'email_not_confirmed', msg: 'Email not confirmed' }, 400);
     return json({ access_token: 'session-fixture', refresh_token: 'refresh-fixture', expires_in: 3600,
@@ -104,6 +127,10 @@ globalThis.fetch = async (input, init) => {
         user_metadata: { full_name: 'Fixture Owner' }, created_at: new Date().toISOString() } });
   }
   if (path === '/rest/v1/profiles' && method === 'POST') return new Response(null, { status: 201 });
+  if (path === '/rest/v1/profiles' && method === 'GET') {
+    assert.equal(url.searchParams.has('email') && url.searchParams.get('email').startsWith('ilike.'), false);
+    return json([]);
+  }
   if (path.startsWith('/storage/v1/object/sign/')) return json({ signedURL: path.replace('/storage/v1', '') + '?token=fixture' });
   if (/^\/storage\/v1\/object\/(?:authenticated\/)?media-assets\//.test(path)) {
     if (method === 'GET') return new Response(original, { headers: { 'Content-Type': 'image/jpeg' } });
@@ -121,6 +148,7 @@ globalThis.fetch = async (input, init) => {
     if (media && method === 'PATCH') Object.assign(media, body());
     const items = media && (!checksum || checksum === 'eq.' + media.checksum_sha256) &&
       (!collection || collection === 'eq.' + media.collection_name) &&
+      (!url.searchParams.has('user_id') || url.searchParams.get('user_id') === 'eq.' + media.user_id || (url.searchParams.get('user_id').startsWith('in.(') && url.searchParams.get('user_id').includes(media.user_id))) &&
       (!name || media.file_name.toLowerCase().includes(name.replace(/^ilike\.%|%$/g, '').toLowerCase())) ? [media] : [];
     const response = json(items);
     response.headers.set('Content-Range', items.length ? '0-0/1' : '*/0');
@@ -144,7 +172,7 @@ globalThis.fetch = async (input, init) => {
     const filter = url.searchParams.get('user_id');
     const id = url.searchParams.get('id');
     const rows = [{ ...account, account_name: 'Fixture Page' }, ...linkedAccounts]
-      .filter((row) => (!filter || filter === 'eq.' + row.user_id) &&
+      .filter((row) => (!filter || filter === 'eq.' + row.user_id || (filter.startsWith('in.(') && filter.includes(row.user_id))) &&
         (!id || id === 'eq.' + row.id || (id.startsWith('in.(') && id.includes(row.id))));
     if (method === 'PATCH') for (const row of rows) Object.assign(row, body());
     const select = url.searchParams.get('select') || '';
@@ -190,7 +218,11 @@ globalThis.fetch = async (input, init) => {
     queued = true;
     return json(post);
   }
-  if (path === '/rest/v1/rpc/claim_publishing_job') {
+  if (path === '/rest/v1/rpc/claim_publishing_job' || path === '/rest/v1/rpc/claim_campaign_publishing_job') {
+    if (path.endsWith('/claim_campaign_publishing_job')) {
+      assert.equal(body().campaign_id, post.id);
+      assert.equal(body().owner_id, owner);
+    }
     if (!queued) return json([]);
     queued = false;
     post.status = 'publishing';

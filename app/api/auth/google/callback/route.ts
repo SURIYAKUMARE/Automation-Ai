@@ -4,6 +4,7 @@ import { matchesOAuthState } from '@/lib/auth/oauth-state';
 import { createAdminClient, SupabaseConfigurationError } from '@/lib/supabase/admin';
 import { getGoogleOAuthConfig } from '@/lib/auth/google-config';
 import { getCanonicalAppOrigin } from '@/lib/auth/canonical-origin';
+import { createSupabaseGoogleClient } from '@/lib/auth/supabase-google';
 
 export async function GET(req: NextRequest) {
   const origin = getCanonicalAppOrigin(req);
@@ -33,15 +34,51 @@ export async function GET(req: NextRequest) {
       throw new Error('Google authorization code was not returned.');
     }
 
+    const config = getGoogleOAuthConfig();
+    if (!config && !cookieState) {
+      const redirect = NextResponse.redirect(new URL('/login?error=google_sign_in_failed', origin));
+      const supabase = createSupabaseGoogleClient(req, redirect);
+      if (!supabase) {
+        redirect.headers.set('Location', new URL('/login?error=google_configuration', origin).href);
+        return redirect;
+      }
+      const flowId = req.nextUrl.searchParams.get('sb_flow_id');
+      const { data, error } = await supabase.auth.exchangeCodeForSession(code, flowId ? { flowId } : undefined);
+      const authUser = data.user;
+      if (error || !authUser?.email || !authUser.email_confirmed_at) return redirect;
+
+      const db = createAdminClient();
+      const email = authUser.email.toLowerCase();
+      const googleIdentity = authUser.identities?.find((identity) => identity.provider === 'google');
+      if (!googleIdentity) return redirect;
+      const legacyId = stringToUuid(googleIdentity.identity_data?.sub || googleIdentity.id);
+      const { data: profiles, error: lookupError } = await db.from('profiles')
+        .select('id,full_name,avatar_url').in('id', [authUser.id, legacyId]);
+      if (lookupError) throw lookupError;
+      const existing = profiles?.find((profile) => profile.id === authUser.id) || profiles?.[0];
+      const user: AuthUser = {
+        id: existing?.id || authUser.id,
+        email,
+        name: existing?.full_name || authUser.user_metadata.full_name || email.split('@')[0],
+        avatarUrl: existing?.avatar_url || authUser.user_metadata.avatar_url,
+        role: 'user',
+        createdAt: authUser.created_at,
+      };
+      const { error: saveError } = await db.from('profiles').upsert({
+        id: user.id, email, full_name: user.name, avatar_url: user.avatarUrl || null,
+      }, { onConflict: 'id', ignoreDuplicates: true });
+      if (saveError) throw saveError;
+      redirect.headers.set('Location', new URL('/dashboard', origin).href);
+      return setSessionCookie(redirect, user);
+    }
+
     if (!matchesOAuthState(state, cookieState)) {
-      console.warn('Google OAuth state mismatch:', { state, cookieState });
       const redirect = NextResponse.redirect(new URL('/login?error=google_state_mismatch', origin));
       redirect.cookies.delete(cookieName);
       return redirect;
     }
 
     // 3. Check Google OAuth credentials
-    const config = getGoogleOAuthConfig();
     if (!config) {
       const redirect = NextResponse.redirect(new URL('/login?error=google_configuration', origin));
       redirect.cookies.delete(cookieName);
@@ -92,7 +129,7 @@ export async function GET(req: NextRequest) {
 
     const profile = await profileResponse.json();
     const email = profile.email;
-    const isVerified = profile.verified_email === true || profile.email_verified === true || Boolean(email);
+    const isVerified = profile.verified_email === true || profile.email_verified === true;
 
     if (!profile.id || !email || !isVerified) {
       throw new Error('A verified email address is required from Google.');
@@ -100,14 +137,19 @@ export async function GET(req: NextRequest) {
 
     // 6. Upsert user in profiles table (preserve existing profile if already registered with same email)
     const db = createAdminClient();
-    const existing = await db.from('profiles').select('id,email,full_name,avatar_url').eq('email', email).maybeSingle();
+    const { data: existingProfiles, error: lookupError } = await db.from('profiles')
+      .select('id,email,full_name,avatar_url')
+      .eq('email', email)
+      .order('created_at', { ascending: true });
+    if (lookupError) throw lookupError;
+    const existing = existingProfiles?.[0];
 
     let userId: string;
-    if (existing.data?.id) {
-      userId = existing.data.id;
+    if (existing?.id) {
+      userId = existing.id;
       await db.from('profiles').update({
-        full_name: profile.name || existing.data.full_name,
-        avatar_url: profile.picture || existing.data.avatar_url,
+        full_name: profile.name || existing.full_name,
+        avatar_url: profile.picture || existing.avatar_url,
         updated_at: new Date().toISOString(),
       }).eq('id', userId);
     } else {
