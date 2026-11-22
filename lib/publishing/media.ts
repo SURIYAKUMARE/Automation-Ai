@@ -18,11 +18,12 @@ export function matchesMediaSignature(bytes: Buffer, mime: string) {
   return false;
 }
 
-export function isOwnedStoragePath(path: string, userId: string) {
-  return path.startsWith(userId + '/') && /^[\w-]+\/[\w.-]+$/.test(path);
+export function isOwnedStoragePath(path: string, userId: string | string[]) {
+  const ids = Array.isArray(userId) ? userId : [userId];
+  return ids.some((id) => path.startsWith(id + '/')) && /^[\w-]+\/[\w.-]+$/.test(path);
 }
 
-export async function signMedia(path: string, userId: string, expiresIn = 900) {
+export async function signMedia(path: string, userId: string | string[], expiresIn = 900) {
   if (!isOwnedStoragePath(path, userId)) throw new Error('Media asset is outside the user storage folder');
   const { data, error } = await createAdminClient().storage.from('media-assets').createSignedUrl(path, expiresIn);
   if (error || !data?.signedUrl) throw new Error('Stored media is unavailable');

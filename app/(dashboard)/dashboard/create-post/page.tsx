@@ -245,6 +245,9 @@ export default function CreatePostPage() {
     } catch (error) {
       setAutoUploadFailed(true);
       toast.error(error instanceof Error ? error.message : "Automatic upload publishing failed", { id: notice });
+      // Graceful fallback: trigger AI caption generation for manual review so the user is never stuck
+      const platforms = selectedPlatforms.length ? selectedPlatforms : [activeTab];
+      void handleGenerateAI(file, platforms);
     } finally {
       setIsPublishing(false);
     }

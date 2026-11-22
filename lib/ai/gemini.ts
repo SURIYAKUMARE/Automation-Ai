@@ -120,7 +120,7 @@ Brand preferences: ${JSON.stringify(brand ?? {})}`;
     properties: {
       caption: string, title: string, hashtags: strings, keywords: strings, call_to_action: string,
       rationale: string, suggested_category: string, thumbnail_recommendation: string, alt_text: string,
-      alternatives: { ...strings, minItems: alternateCount, maxItems: alternateCount },
+      alternatives: alternatives ? { ...strings, minItems: 2, maxItems: 2 } : strings,
     },
     required: ['caption', 'hashtags', 'alternatives'],
   } as const;
