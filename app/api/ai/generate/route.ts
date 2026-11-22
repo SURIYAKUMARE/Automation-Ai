@@ -50,6 +50,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true, data, variants: data.platforms, source, hashtagSource: 'AI relevance' });
   } catch (error) {
     if (error instanceof MediaGroundingError) return NextResponse.json({ error: error.message }, { status: 422 });
-    return NextResponse.json({ error: 'Caption and title generation is unavailable. Check the AI provider configuration and quota, then try again.' }, { status: 502 });
+    const message = error instanceof Error ? error.message : 'Caption and title generation is unavailable. Check the AI provider configuration and quota, then try again.';
+    console.error('AI generation failure:', message);
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 }
