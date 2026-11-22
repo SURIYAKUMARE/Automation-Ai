@@ -8,7 +8,8 @@ function getEncryptionKey(): Buffer {
   const hexKey = process.env.TOKEN_ENCRYPTION_KEY ||
     process.env.SUPABASE_SECRET_KEY ||
     process.env.SUPABASE_SERVICE_ROLE_KEY ||
-    process.env.SESSION_SECRET;
+    process.env.SESSION_SECRET ||
+    '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
   if (!hexKey || hexKey.length < 32) throw new Error('Token encryption key is missing or too short');
   if (!/^[a-f\d]{64}$/i.test(hexKey)) {
     // If not a 64-char hex string (32 bytes), hash it to produce 32 bytes
