@@ -522,13 +522,29 @@ export default function CreatePostPage() {
                   <span className="text-xs font-mono text-muted-foreground truncate max-w-[200px]">
                     {selectedFile?.name || "Saved media"}{duration !== undefined && " · " + Math.floor(duration / 60) + ":" + String(duration % 60).padStart(2, "0")}
                   </span>
-                  <button
-                    disabled={isGenerating || isPublishing}
-                    onClick={removeFile}
-                    className="text-xs text-destructive hover:underline flex items-center gap-1"
-                  >
-                    <X className="h-3.5 w-3.5" /> Remove
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <label className="text-xs text-primary hover:underline flex items-center gap-1 cursor-pointer">
+                      <UploadCloud className="h-3.5 w-3.5" /> Replace
+                      <input
+                        type="file"
+                        disabled={isGenerating || isPublishing}
+                        accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          event.target.value = "";
+                          if (file) chooseFile(file);
+                        }}
+                        className="sr-only"
+                      />
+                    </label>
+                    <button
+                      disabled={isGenerating || isPublishing}
+                      onClick={removeFile}
+                      className="text-xs text-destructive hover:underline flex items-center gap-1"
+                    >
+                      <X className="h-3.5 w-3.5" /> Remove
+                    </button>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -548,7 +564,11 @@ export default function CreatePostPage() {
                   type="file"
                   disabled={isGenerating || isPublishing}
                   accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
-                  onChange={(event) => chooseFile(event.target.files?.[0])}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) chooseFile(file);
+                  }}
                   className="sr-only"
                 />
               </label>
