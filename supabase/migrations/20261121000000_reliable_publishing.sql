@@ -17,8 +17,18 @@ alter table public.post_targets alter column social_account_id drop not null;
 alter table public.post_targets drop constraint post_targets_social_account_id_fkey;
 alter table public.post_targets add foreign key (social_account_id) references public.social_accounts(id) on delete set null;
 alter table public.publishing_attempts alter column social_account_id drop not null;
-alter table public.publishing_attempts drop constraint publishing_attempts_social_account_id_fkey;
+alter table public.publishing_attempts drop constraint if exists publishing_attempts_social_account_id_fkey;
 alter table public.publishing_attempts add foreign key (social_account_id) references public.social_accounts(id) on delete set null;
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conrelid = 'public.publishing_attempts'::regclass
+      and conname = 'publishing_attempts_job_id_fkey'
+  ) then
+    alter table public.publishing_attempts add foreign key (job_id) references public.publishing_jobs(id) on delete set null;
+  end if;
+end;
+$$;
 
 create table public.brand_profiles (
   user_id uuid primary key references public.profiles(id) on delete cascade,

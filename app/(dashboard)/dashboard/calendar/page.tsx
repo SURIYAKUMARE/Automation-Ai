@@ -140,7 +140,7 @@ export default function PublishingCalendarPage() {
                   draggable onDragStart={(event) => { event.dataTransfer.setData("application/x-socialflow-post", post.id); event.dataTransfer.effectAllowed = "move"; }}
                   onClick={() => { setSelected(key); setEdit(post); setTime(format(new Date(post.scheduled_for), "yyyy-MM-dd'T'HH:mm")); }}
                   className="m-0.5 flex items-center gap-1 w-[calc(100%-0.25rem)] cursor-grab truncate rounded bg-primary/10 px-1 py-0.5 text-left text-[10px] sm:text-xs">
-                  <span className="flex -space-x-1 shrink-0">
+                  <span aria-hidden="true" className="flex -space-x-1 shrink-0">
                     {post.target_platforms.map((p) => (
                       <PlatformIcon key={p} platform={p} className="h-3 w-3 rounded-full border border-background shadow-xs" />
                     ))}

@@ -8,9 +8,9 @@ const other = '20000000-0000-4000-8000-000000000000';
 const facebook = '30000000-0000-4000-8000-000000000000';
 const linkedin = '40000000-0000-4000-8000-000000000000';
 const id = '50000000-0000-4000-8000-000000000000';
-const migrations = ['20261120000000_initial_schema.sql', '20261121000000_reliable_publishing.sql', '20261122000000_upload_automation.sql', '20261122010000_workspace.sql'];
+const migrations = ['20261119000000_legacy_workspace_bridge.sql', '20261120000000_initial_schema.sql', '20261121000000_reliable_publishing.sql', '20261122000000_upload_automation.sql', '20261122010000_workspace.sql'];
 
-async function fixture(t) {
+async function fixture(t, prepare) {
   const db = await PGlite.create();
   t.after(() => db.close());
   await db.exec(`
@@ -20,6 +20,7 @@ async function fixture(t) {
     CREATE SCHEMA storage;
     CREATE TABLE storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
   `);
+  if (prepare) await prepare(db);
   for (const migration of migrations) {
     const sql = await readFile('supabase/migrations/' + migration, 'utf8');
     await db.exec(sql.replace(/^CREATE EXTENSION.*;$/gm, ''));
@@ -51,6 +52,67 @@ async function result(db, job, platform, status, message) {
     retryable: message === 'Provider rate limit reached.',
   })]);
 }
+
+test('legacy hosted workspaces keep existing data and gain a working publishing queue', async (t) => {
+  const legacyOwner = '60000000-0000-4000-8000-000000000000';
+  const legacyPost = '60000000-0000-4000-8000-000000000001';
+  const db = await fixture(t, async (database) => {
+    await database.exec(`
+      create type social_platform as enum ('linkedin','youtube','instagram','facebook');
+      create type account_status as enum ('active','expired','revoked','rate_limited','error');
+      create type media_type as enum ('image','video','poster');
+      create type publishing_mode as enum ('automatic','manual_approval');
+      create type post_status as enum (
+        'draft','pending_approval','scheduled','publishing','published','partially_published','failed'
+      );
+      create table profiles (id uuid primary key, email text not null, full_name text, avatar_url text);
+      create policy "Users can view own profile" on profiles for select using (auth.uid() = id);
+      create table social_accounts (
+        id uuid primary key, user_id uuid references profiles, platform social_platform,
+        external_account_id text, account_name text, encrypted_access_token text,
+        status account_status default 'active', metadata jsonb default '{}'
+      );
+      create table media_assets (
+        id uuid primary key, user_id uuid references profiles, file_path text,
+        mime_type text, media_type media_type, created_at timestamptz default now()
+      );
+      create table posts (
+        id uuid primary key, user_id uuid references profiles, media_asset_id uuid references media_assets,
+        title text, raw_prompt text, publishing_mode publishing_mode default 'manual_approval',
+        status post_status default 'draft', scheduled_for timestamptz, published_at timestamptz,
+        target_platforms text[] default '{}', created_at timestamptz default now(), updated_at timestamptz default now()
+      );
+      create table post_variants (
+        id uuid primary key default gen_random_uuid(), post_id uuid references posts,
+        platform social_platform, caption text, title text, hashtags text[], is_approved boolean, created_at timestamptz default now()
+      );
+      create table post_targets (
+        id uuid primary key default gen_random_uuid(), post_id uuid references posts, platform social_platform,
+        status post_status default 'draft', external_post_id text, external_post_url text, error_message text,
+        published_at timestamptz, created_at timestamptz default now(), updated_at timestamptz default now()
+      );
+      create table publishing_attempts (
+        id uuid primary key, post_id uuid references posts, social_account_id uuid,
+        platform social_platform, status post_status, created_at timestamptz default now()
+      );
+      create table analytics_snapshots (
+        id uuid primary key default gen_random_uuid(), post_id uuid references posts, platform social_platform,
+        likes bigint, recorded_at timestamptz default now()
+      );
+    `);
+    await database.query('insert into profiles values ($1,$2)', [legacyOwner, 'legacy@test.invalid']);
+    await database.query("insert into posts (id,user_id,status,target_platforms) values ($1,$2,'published',array['facebook'])", [legacyPost, legacyOwner]);
+    await database.query("insert into analytics_snapshots (post_id,platform,likes) values ($1,'facebook',7)", [legacyPost]);
+  });
+  assert.deepEqual((await db.query('select target_platforms::text as platforms, status from posts where id=$1', [legacyPost])).rows,
+    [{ platforms: '{facebook}', status: 'published' }]);
+  assert.deepEqual((await db.query('select user_id, likes::int as likes, synced_at = recorded_at as retained_date from analytics_snapshots')).rows,
+    [{ user_id: legacyOwner, likes: 7, retained_date: true }]);
+
+  await create(db, { status: 'approved', mode: 'automatic' });
+  const job = (await db.query('select post_id from claim_publishing_job()')).rows[0];
+  assert.equal(job.post_id, id);
+});
 
 test('approval, ownership, duplicate protection and per-platform publishing', async (t) => {
   const db = await fixture(t);

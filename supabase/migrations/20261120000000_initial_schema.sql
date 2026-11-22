@@ -24,8 +24,14 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 -- -----------------------------------------------------------------------------
 -- 2. Social Accounts Table (Multi-Platform Connected Credentials)
 -- -----------------------------------------------------------------------------
-CREATE TYPE social_platform AS ENUM ('linkedin', 'youtube', 'instagram', 'facebook');
-CREATE TYPE account_status AS ENUM ('active', 'expired', 'revoked', 'rate_limited', 'error');
+DO $type$ BEGIN
+    CREATE TYPE public.social_platform AS ENUM ('linkedin', 'youtube', 'instagram', 'facebook');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $type$;
+DO $type$ BEGIN
+    CREATE TYPE public.account_status AS ENUM ('active', 'expired', 'revoked', 'rate_limited', 'error');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $type$;
 
 CREATE TABLE IF NOT EXISTS public.social_accounts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -51,7 +57,10 @@ CREATE TABLE IF NOT EXISTS public.social_accounts (
 -- -----------------------------------------------------------------------------
 -- 3. Media Assets Table
 -- -----------------------------------------------------------------------------
-CREATE TYPE media_type AS ENUM ('image', 'video', 'poster');
+DO $type$ BEGIN
+    CREATE TYPE public.media_type AS ENUM ('image', 'video', 'poster');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $type$;
 
 CREATE TABLE IF NOT EXISTS public.media_assets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -74,8 +83,12 @@ CREATE TABLE IF NOT EXISTS public.media_assets (
 -- -----------------------------------------------------------------------------
 -- 4. Posts Table (Core Campaign / Post Container)
 -- -----------------------------------------------------------------------------
-CREATE TYPE publishing_mode AS ENUM ('automatic', 'manual_approval');
-CREATE TYPE post_status AS ENUM (
+DO $type$ BEGIN
+    CREATE TYPE public.publishing_mode AS ENUM ('automatic', 'manual_approval');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $type$;
+DO $type$ BEGIN
+    CREATE TYPE public.post_status AS ENUM (
     'draft',
     'analyzing',
     'ready',
@@ -89,6 +102,8 @@ CREATE TYPE post_status AS ENUM (
     'reauthorization_required',
     'cancelled'
 );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $type$;
 
 CREATE TABLE IF NOT EXISTS public.posts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -164,7 +179,10 @@ CREATE TABLE IF NOT EXISTS public.automation_rules (
 -- -----------------------------------------------------------------------------
 -- 8. Publishing Jobs (Background Queue for Scheduled / Async Execution)
 -- -----------------------------------------------------------------------------
-CREATE TYPE job_status AS ENUM ('queued', 'running', 'completed', 'failed', 'cancelled');
+DO $type$ BEGIN
+    CREATE TYPE public.job_status AS ENUM ('queued', 'running', 'completed', 'failed', 'cancelled');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $type$;
 
 CREATE TABLE IF NOT EXISTS public.publishing_jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -238,7 +256,10 @@ CREATE TABLE IF NOT EXISTS public.analytics_snapshots (
 -- -----------------------------------------------------------------------------
 -- 12. Notifications Table
 -- -----------------------------------------------------------------------------
-CREATE TYPE notification_type AS ENUM ('info', 'success', 'warning', 'error');
+DO $type$ BEGIN
+    CREATE TYPE public.notification_type AS ENUM ('info', 'success', 'warning', 'error');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $type$;
 
 CREATE TABLE IF NOT EXISTS public.notifications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -298,25 +319,31 @@ ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
 
 -- Profiles: Users can view and update their own profile
+DROP POLICY IF EXISTS "Users can view own profile" ON public.profiles;
 CREATE POLICY "Users can view own profile" ON public.profiles
     FOR SELECT USING (auth.uid() = id);
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
 CREATE POLICY "Users can update own profile" ON public.profiles
     FOR UPDATE USING (auth.uid() = id);
 
 -- Social Accounts: Users can only see and manage their own connected accounts
 -- Note: Tokens are encrypted at rest; client queries should never request raw secret fields
+DROP POLICY IF EXISTS "Users manage own social accounts" ON public.social_accounts;
 CREATE POLICY "Users manage own social accounts" ON public.social_accounts
     FOR ALL USING (auth.uid() = user_id);
 
 -- Media Assets: Users can manage their own uploaded media
+DROP POLICY IF EXISTS "Users manage own media assets" ON public.media_assets;
 CREATE POLICY "Users manage own media assets" ON public.media_assets
     FOR ALL USING (auth.uid() = user_id);
 
 -- Posts: Users can manage their own posts
+DROP POLICY IF EXISTS "Users manage own posts" ON public.posts;
 CREATE POLICY "Users manage own posts" ON public.posts
     FOR ALL USING (auth.uid() = user_id);
 
 -- Post Variants: Linked via post_id to posts owned by auth.uid()
+DROP POLICY IF EXISTS "Users manage own post variants" ON public.post_variants;
 CREATE POLICY "Users manage own post variants" ON public.post_variants
     FOR ALL USING (
         EXISTS (
@@ -326,6 +353,7 @@ CREATE POLICY "Users manage own post variants" ON public.post_variants
     );
 
 -- Post Targets: Linked via post_id to posts owned by auth.uid()
+DROP POLICY IF EXISTS "Users manage own post targets" ON public.post_targets;
 CREATE POLICY "Users manage own post targets" ON public.post_targets
     FOR ALL USING (
         EXISTS (
@@ -335,14 +363,17 @@ CREATE POLICY "Users manage own post targets" ON public.post_targets
     );
 
 -- Automation Rules: Users manage their own rules
+DROP POLICY IF EXISTS "Users manage own automation rules" ON public.automation_rules;
 CREATE POLICY "Users manage own automation rules" ON public.automation_rules
     FOR ALL USING (auth.uid() = user_id);
 
 -- Publishing Jobs: Users view their own jobs
+DROP POLICY IF EXISTS "Users manage own publishing jobs" ON public.publishing_jobs;
 CREATE POLICY "Users manage own publishing jobs" ON public.publishing_jobs
     FOR ALL USING (auth.uid() = user_id);
 
 -- Publishing Attempts: Users view attempts for their posts
+DROP POLICY IF EXISTS "Users view own publishing attempts" ON public.publishing_attempts;
 CREATE POLICY "Users view own publishing attempts" ON public.publishing_attempts
     FOR SELECT USING (
         EXISTS (
@@ -352,18 +383,22 @@ CREATE POLICY "Users view own publishing attempts" ON public.publishing_attempts
     );
 
 -- Approvals: Users manage their approvals
+DROP POLICY IF EXISTS "Users manage own approvals" ON public.approvals;
 CREATE POLICY "Users manage own approvals" ON public.approvals
     FOR ALL USING (auth.uid() = user_id);
 
 -- Analytics Snapshots: Users view their analytics
+DROP POLICY IF EXISTS "Users view own analytics" ON public.analytics_snapshots;
 CREATE POLICY "Users view own analytics" ON public.analytics_snapshots
     FOR ALL USING (auth.uid() = user_id);
 
 -- Notifications: Users view and update their notifications
+DROP POLICY IF EXISTS "Users manage own notifications" ON public.notifications;
 CREATE POLICY "Users manage own notifications" ON public.notifications
     FOR ALL USING (auth.uid() = user_id);
 
 -- Audit Logs: Users view their own logs
+DROP POLICY IF EXISTS "Users view own audit logs" ON public.audit_logs;
 CREATE POLICY "Users view own audit logs" ON public.audit_logs
     FOR SELECT USING (auth.uid() = user_id);
 

@@ -15,6 +15,8 @@ The existing project had account, studio, calendar, approval and analytics scree
 5. Open `http://localhost:3000`. Create a Supabase account or sign in with Google, connect destinations, and open **Create post**.
 6. Attach media or enter text context. The composer generates media captions automatically unless you turn off that setting. Review the platform previews and account selections before saving, publishing, or requesting approval. Open **Calendar** for editing, cancellation, and rescheduling.
 
+For an older SocialFlow database created before the publishing queue, check its migration history and schema before applying the migration chain. The legacy bridge adds the columns and enum values required by the baseline while preserving older post and analytics records. Test the upgrade against a database copy before applying it to a live workspace.
+
 **Add to queue** reserves the next available hourly slot in the workspace. The calendar shows times in the browser's timezone. Posts requiring approval keep their requested slot and are scheduled after approval. The media library supports batch uploads, name and type filters, collection labels, and attachment reuse. A post currently accepts one media asset.
 
 For a bucket provisioned on a project with a smaller storage limit, the provider limit takes precedence. The application accepts up to 15 MB for images and 100 MB for video on hosts that permit those request sizes. Video captions use up to six chronologically sampled frames prepared by the browser.
@@ -43,7 +45,7 @@ Configure Gemini with a valid API key and model available for that project. Live
 - Use `npm ci && npm run build && npm start` on a Node host with FFmpeg and FFprobe, or build the included Docker image with both tools. Configure HTTPS, the exact OAuth origin, and proxy body and request-time limits that accommodate uploads and analysis. Set platform API versions supported by your developer projects.
 - Run `npm run worker` as a supervised process, or call `POST /api/scheduler/execute` on a managed schedule with `Authorization: Bearer <CRON_SECRET>`. The database is the durable queue. Each worker call claims one due post. Parallel workers use row locks, and successful destinations are retained when other targets fail.
 - For rate-limit rejections and transient errors before the final provider submission, the worker schedules bounded exponential retries. For an unreconciled submission, History shows an unknown outcome and the destination must be checked before another attempt. Run multiple worker instances if queue latency requires it.
-- `GET /api/health` checks database access. Monitor worker uptime and queued and failed jobs. Production approval should include live OAuth, sandbox or designated test-account publishing, and metrics checks for each configured provider.
+- `GET /api/health` checks connectivity and required database schema, including the queue, media collections, notifications, and AI quota storage. Monitor worker uptime and queued and failed jobs. Production approval should include live OAuth, sandbox or designated test-account publishing, and metrics checks for each configured provider.
 
 ## Workspace API
 
