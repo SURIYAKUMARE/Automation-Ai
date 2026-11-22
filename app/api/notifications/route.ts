@@ -36,18 +36,10 @@ export async function PATCH(req: NextRequest) {
     const userId = user.id;
     const supabase = createAdminClient();
 
-    if (id) {
-      await supabase
-        .from('notifications')
-        .update({ is_read: true })
-        .eq('id', id)
-        .eq('user_id', userId);
-    } else {
-      await supabase
-        .from('notifications')
-        .update({ is_read: true })
-        .eq('user_id', userId);
-    }
+    let update = supabase.from('notifications').update({ is_read: true }).eq('user_id', userId);
+    if (id) update = update.eq('id', id);
+    const { error } = await update;
+    if (error) return NextResponse.json({ error: 'Could not update notifications' }, { status: 503 });
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

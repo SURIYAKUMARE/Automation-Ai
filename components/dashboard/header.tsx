@@ -1,226 +1,91 @@
 "use client";
 
-import * as React from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  Menu,
-  Bell,
-  Sun,
-  Moon,
-  Plus,
-  CheckCircle2,
-  AlertTriangle,
-  LogOut,
-  User,
-  Shield,
-  Search,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Bell, ChevronDown, LogOut, Menu, Moon, Plus, Search, Settings2, Sun } from "lucide-react";
+import { toast } from "sonner";
 import { useTheme } from "@/components/theme-provider";
+import { workspaceLinks } from "./navigation";
 
-const PAGE_TITLES: Record<string, string> = {
-  "/dashboard": "Overview",
-  "/dashboard/create-post": "Create Post",
-  "/dashboard/calendar": "Scheduled Posts",
-  "/dashboard/accounts": "Connected Accounts",
-  "/dashboard/approvals": "Approval Center",
-  "/dashboard/history": "Post History",
-  "/dashboard/analytics": "Analytics",
-  "/dashboard/automation": "Settings & Automation",
-  "/dashboard/caption-studio": "AI Caption Studio",
-  "/dashboard/profile": "User Profile",
-  "/dashboard/security": "Security Settings",
-};
+type User = { name: string; email: string };
+type Notification = { id: string; title: string; message: string; is_read: boolean; link?: string | null };
+const control = "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-lg border border-border bg-card px-2.5 text-sm font-medium hover:bg-muted";
 
-export function Header({
-  onMenuToggle,
-}: {
-  onMenuToggle: () => void;
-}) {
+export function Header({ user, openMenu }: { user: User; openMenu: () => void }) {
   const pathname = usePathname();
+  const pageTitle = workspaceLinks.find((item) => item.url === pathname)?.label ?? (pathname.endsWith("/search") ? "Search" : "Workspace");
   const { theme, setTheme } = useTheme();
-  const [notificationsOpen, setNotificationsOpen] = React.useState(false);
-  const [profileOpen, setProfileOpen] = React.useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>();
+  const [notificationError, setNotificationError] = useState(false);
 
-  const currentPageTitle = PAGE_TITLES[pathname] || "Dashboard";
+  useEffect(() => {
+    const controller = new AbortController();
+    async function load() {
+      try {
+        const response = await fetch("/api/notifications", { signal: controller.signal });
+        if (!response.ok) throw new Error();
+        const data = await response.json();
+        setNotifications(data.notifications);
+        setNotificationError(false);
+      } catch {
+        if (!controller.signal.aborted) setNotificationError(true);
+      }
+    }
+    void load();
+    const timer = window.setInterval(load, 30000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, []);
 
-  const notifications = [
-    {
-      id: "1",
-      title: "YouTube Video Published",
-      desc: "System demonstration video successfully uploaded and verified",
-      time: "10m ago",
-      type: "success",
-    },
-    {
-      id: "2",
-      title: "Manual Approval Pending",
-      desc: "Post variant for LinkedIn is awaiting editorial confirmation",
-      time: "45m ago",
-      type: "warning",
-    },
-    {
-      id: "3",
-      title: "Instagram Connection Verified",
-      desc: "Meta Graph token validated for Professional account",
-      time: "2h ago",
-      type: "info",
-    },
-  ];
+  const unread = notifications?.filter((notice) => !notice.is_read).length ?? 0;
+  async function markRead() {
+    const response = await fetch("/api/notifications", { method: "PATCH" }).catch(() => null);
+    if (!response?.ok) { toast.error("Could not mark notifications as read"); return; }
+    setNotifications((current) => current?.map((item) => ({ ...item, is_read: true })));
+  }
+  async function signOut() {
+    const response = await fetch("/api/auth/logout", { method: "POST" }).catch(() => null);
+    if (!response?.ok) { toast.error("Could not sign out"); return; }
+    window.location.assign(new URL("/login", window.location.origin));
+  }
 
-  return (
-    <header className="sticky top-0 z-30 flex h-16 w-full items-center justify-between border-b border-border bg-card px-4 sm:px-6">
-      {/* Left: Mobile menu toggle & Current Page Title */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={onMenuToggle}
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground lg:hidden"
-        >
-          <Menu className="h-4 w-4" />
-        </button>
-
-        <div className="flex items-center gap-2">
-          <h2 className="text-sm font-semibold text-foreground tracking-tight">
-            {currentPageTitle}
-          </h2>
-          <div className="hidden sm:flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-medium text-emerald-500">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-            <span>APIs Active</span>
+  return <header className="sticky top-0 z-20 border-b border-border bg-card/95 backdrop-blur">
+    <div className="flex h-[66px] min-w-0 items-center gap-2 px-3 sm:gap-3 sm:px-6">
+      <button type="button" aria-label="Open navigation" className={control + " lg:hidden"} onClick={openMenu}><Menu className="h-4 w-4" /></button>
+      <span className="min-w-0 flex-1 truncate text-sm font-semibold sm:text-base">{pageTitle}</span>
+      <form action="/dashboard/search" className="hidden min-w-0 items-center gap-2 rounded-lg border border-border bg-background px-3 md:flex">
+        <Search className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+        <input name="q" maxLength={100} required aria-label="Search workspace" placeholder="Search posts and media"
+          className="h-9 w-36 bg-transparent text-sm outline-none placeholder:text-muted-foreground lg:w-48" />
+      </form>
+      <Link href="/dashboard/search" className={control + " md:hidden"} aria-label="Search workspace"><Search className="h-4 w-4" /></Link>
+      <Link href="/dashboard/create-post" className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-[#bef5e4] px-2.5 text-sm font-semibold text-[#173832] hover:bg-[#a7efda] sm:px-3" aria-label="Quick create post"><Plus className="h-4 w-4" /><span className="hidden sm:inline">Create</span></Link>
+      <details className="static sm:relative">
+        <summary className={control + " relative cursor-pointer list-none"} aria-label={unread ? unread + " unread notifications" : "Notifications"}><Bell className="h-4 w-4" />{unread > 0 && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-emerald-500" />}</summary>
+        <div className="absolute left-2 right-2 top-full mt-2 rounded-xl border border-border bg-card p-3 shadow-xl sm:left-auto sm:right-0 sm:w-80">
+          <div className="flex items-center justify-between gap-2"><h2 className="text-sm font-semibold">Notifications</h2>
+            {unread > 0 && <button type="button" className="text-xs text-primary hover:underline" onClick={() => void markRead()}>Mark all read</button>}</div>
+          <div className="mt-2 max-h-80 divide-y overflow-y-auto">
+            {notificationError && <p className="py-2 text-sm text-muted-foreground">Notifications are unavailable.</p>}
+            {!notificationError && !notifications && <p className="py-2 text-sm text-muted-foreground">Loading…</p>}
+            {notifications?.length === 0 && !notificationError && <p className="py-2 text-sm text-muted-foreground">No notifications yet.</p>}
+            {notifications?.map((notice) => <div key={notice.id} className="py-2">
+              {notice.link?.startsWith("/dashboard") && !notice.link.startsWith("//") ? <Link href={notice.link} className="text-sm font-semibold hover:underline" onClick={(event) => { const panel = event.currentTarget.closest("details"); if (panel) panel.open = false; }}>{notice.title}</Link> : <p className="text-sm font-semibold">{notice.title}</p>}
+              <p className="text-xs text-muted-foreground">{notice.message}</p>
+            </div>)}
           </div>
         </div>
-      </div>
-
-      {/* Right: Search, Create Post, Notifications, Theme, Profile */}
-      <div className="flex items-center gap-2.5">
-        {/* Global Search input (hidden on small screens) */}
-        <div className="relative hidden md:block w-48 lg:w-60">
-          <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
-          <input
-            type="text"
-            placeholder="Search campaigns..."
-            className="h-8 w-full rounded-md border border-input bg-transparent pl-8 pr-3 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-          />
+      </details>
+      <details className="relative">
+        <summary className={control + " cursor-pointer list-none pl-1.5"} aria-label="Profile menu"><span className="grid h-6 w-6 place-items-center rounded-full bg-primary/10 text-[11px] font-bold text-primary">{(user.name || user.email || "S").slice(0, 1).toUpperCase()}</span><ChevronDown className="hidden h-3 w-3 sm:block" /></summary>
+        <div className="absolute right-0 top-full mt-2 w-56 rounded-xl border border-border bg-card p-2 shadow-xl">
+          <div className="mb-1 border-b p-2"><p className="truncate text-sm font-semibold">{user.name}</p><p className="truncate text-xs text-muted-foreground">{user.email}</p></div>
+          <Link href="/dashboard/profile" className="flex items-center gap-2 rounded-lg p-2 text-sm hover:bg-muted" onClick={(event) => { const panel = event.currentTarget.closest("details"); if (panel) panel.open = false; }}><Settings2 className="h-4 w-4" />Settings</Link>
+          <button type="button" className="flex w-full items-center gap-2 rounded-lg p-2 text-left text-sm hover:bg-muted" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}{theme === "dark" ? "Light theme" : "Dark theme"}</button>
+          <button type="button" className="flex w-full items-center gap-2 rounded-lg p-2 text-left text-sm hover:bg-muted" onClick={() => void signOut()}><LogOut className="h-4 w-4" />Sign out</button>
         </div>
-
-        {/* Create Post quick button */}
-        <Link href="/dashboard/create-post">
-          <Button variant="default" size="sm" className="hidden sm:inline-flex h-8 text-xs gap-1.5 font-medium">
-            <Plus className="h-3.5 w-3.5" />
-            <span>Create Post</span>
-          </Button>
-        </Link>
-
-        {/* Notifications Dropdown */}
-        <div className="relative">
-          <button
-            onClick={() => {
-              setNotificationsOpen(!notificationsOpen);
-              setProfileOpen(false);
-            }}
-            className="relative flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          >
-            <Bell className="h-4 w-4" />
-            <span className="absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full bg-primary" />
-          </button>
-
-          {notificationsOpen && (
-            <div className="absolute right-0 mt-2 w-80 rounded-lg border border-border bg-card p-3 shadow-lg z-50 animate-in fade-in zoom-in-95 duration-100">
-              <div className="flex items-center justify-between border-b border-border pb-2 px-1">
-                <span className="font-semibold text-xs text-foreground">Notifications</span>
-                <span className="text-[10px] text-muted-foreground cursor-pointer hover:text-primary">
-                  Mark all as read
-                </span>
-              </div>
-              <div className="divide-y divide-border/60 max-h-64 overflow-y-auto">
-                {notifications.map((n) => (
-                  <div key={n.id} className="py-2 px-1 hover:bg-accent/40 rounded transition-colors">
-                    <div className="flex items-start gap-2">
-                      {n.type === "success" ? (
-                        <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500 mt-0.5 shrink-0" />
-                      ) : (
-                        <AlertTriangle className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
-                      )}
-                      <div className="flex-1">
-                        <p className="text-xs font-medium text-foreground">{n.title}</p>
-                        <p className="text-[11px] text-muted-foreground">{n.desc}</p>
-                        <span className="text-[10px] text-muted-foreground font-mono mt-0.5 block">
-                          {n.time}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Theme Toggle */}
-        <button
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-          title="Toggle light/dark mode"
-        >
-          {theme === "dark" ? (
-            <Sun className="h-4 w-4 text-amber-400" />
-          ) : (
-            <Moon className="h-4 w-4 text-slate-700" />
-          )}
-        </button>
-
-        {/* User Profile Avatar */}
-        <div className="relative">
-          <button
-            onClick={() => {
-              setProfileOpen(!profileOpen);
-              setNotificationsOpen(false);
-            }}
-            className="flex items-center rounded-md border border-border p-1 hover:bg-accent transition-colors"
-          >
-            <div className="flex h-6 w-6 items-center justify-center rounded bg-primary text-[10px] font-bold text-primary-foreground">
-              SS
-            </div>
-          </button>
-
-          {profileOpen && (
-            <div className="absolute right-0 mt-2 w-52 rounded-lg border border-border bg-card p-2 shadow-lg z-50 animate-in fade-in zoom-in-95 duration-100">
-              <div className="border-b border-border px-2.5 py-1.5">
-                <p className="text-xs font-semibold text-foreground">SocialFlow Admin</p>
-                <p className="text-[11px] text-muted-foreground font-mono truncate">admin@socialsync.ai</p>
-              </div>
-              <div className="py-1">
-                <Link
-                  href="/dashboard/profile"
-                  onClick={() => setProfileOpen(false)}
-                  className="flex items-center gap-2 rounded px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  <User className="h-3.5 w-3.5" />
-                  <span>Profile Settings</span>
-                </Link>
-                <Link
-                  href="/dashboard/security"
-                  onClick={() => setProfileOpen(false)}
-                  className="flex items-center gap-2 rounded px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-                >
-                  <Shield className="h-3.5 w-3.5" />
-                  <span>Security & Keys</span>
-                </Link>
-              </div>
-              <div className="border-t border-border pt-1">
-                <Link
-                  href="/login"
-                  onClick={() => setProfileOpen(false)}
-                  className="flex items-center gap-2 rounded px-2.5 py-1.5 text-xs text-rose-500 hover:bg-rose-500/10"
-                >
-                  <LogOut className="h-3.5 w-3.5" />
-                  <span>Sign Out</span>
-                </Link>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </header>
-  );
+      </details>
+    </div>
+  </header>;
 }

@@ -8,7 +8,7 @@ const other = '20000000-0000-4000-8000-000000000000';
 const facebook = '30000000-0000-4000-8000-000000000000';
 const linkedin = '40000000-0000-4000-8000-000000000000';
 const id = '50000000-0000-4000-8000-000000000000';
-const migrations = ['20261120000000_initial_schema.sql', '20261121000000_reliable_publishing.sql', '20261122000000_upload_automation.sql'];
+const migrations = ['20261120000000_initial_schema.sql', '20261121000000_reliable_publishing.sql', '20261122000000_upload_automation.sql', '20261122010000_workspace.sql'];
 
 async function fixture(t) {
   const db = await PGlite.create();
@@ -82,6 +82,29 @@ test('future schedule can be edited and cancelled without dispatch', async (t) =
   assert.equal(await manage(db, owner, 'queue', new Date(Date.now() + 7200_000).toISOString()), 'scheduled');
   assert.equal(await manage(db, owner, 'cancel'), 'cancelled');
   assert.equal((await db.query("select * from publishing_jobs where status='queued'")).rows.length, 0);
+});
+
+test('next available slots are reserved and approval notifications are created once', async (t) => {
+  const db = await fixture(t);
+  const nextId = '51000000-0000-4000-8000-000000000000';
+  const queue = async (postId, mode) => {
+    const { rows } = await db.query('select result.* from create_queued_campaign($1, $2, $3, $4) result', [
+      owner, JSON.stringify({ id: postId, title: 'Queued fixture', publishing_mode: mode, target_platforms: ['facebook'] }),
+      JSON.stringify([{ platform: 'facebook', caption: 'Fixture caption', hashtags: [] }]),
+      JSON.stringify([{ id: facebook }]),
+    ]);
+    return rows[0];
+  };
+  assert.equal((await db.query("select has_function_privilege('anon', 'create_queued_campaign(uuid,jsonb,jsonb,jsonb)', 'execute') allowed")).rows[0].allowed, false);
+  const first = await queue(id, 'manual_approval');
+  const second = await queue(nextId, 'automatic');
+  const duplicate = await queue(id, 'manual_approval');
+  assert.equal(first.status, 'pending_approval');
+  assert.equal(second.status, 'scheduled');
+  assert.equal(second.scheduled_for - first.scheduled_for, 3600_000);
+  assert.equal(duplicate.scheduled_for.getTime(), first.scheduled_for.getTime());
+  assert.deepEqual((await db.query('select title, user_id from notifications')).rows, [{ title: 'Post needs approval', user_id: owner }]);
+  assert.equal((await db.query('select post_id from publishing_jobs')).rows[0].post_id, nextId);
 });
 
 test('explicit rate limit retains confirmed provider outcomes', async (t) => {

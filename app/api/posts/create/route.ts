@@ -5,6 +5,7 @@ import { getSessionUser } from '@/lib/auth/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { captionSchema, platformSchema, postIdSchema } from '@/lib/publishing/campaign';
 import { captionLimits, mediaCompatibilityError } from '@/lib/publishing/compatibility';
+import { executePostPublishing, ClaimedJob } from '@/lib/publishing/engine';
 
 const CreatePost = z.object({
   requestId: postIdSchema.optional(),
@@ -13,6 +14,7 @@ const CreatePost = z.object({
   rawPrompt: z.string().trim().max(4000).optional(),
   draft: z.boolean().default(false),
   replaceDraft: z.boolean().default(false),
+  queueNext: z.boolean().default(false),
   publishingMode: z.enum(['automatic', 'manual_approval']).default('manual_approval'),
   scheduledFor: z.string().datetime({ offset: true }).optional(),
   recurrences: z.array(z.string().datetime({ offset: true })).max(7).default([]),
@@ -42,8 +44,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Select valid platforms and use an uploaded media asset' }, { status: 400 });
   }
   const post = parsed.data;
+  if (post.queueNext && (post.draft || post.recurrences.length || post.scheduledFor)) {
+    return NextResponse.json({ error: 'Choose either the next queue slot or a custom schedule' }, { status: 400 });
+  }
   if (!post.draft && post.scheduledFor && Date.parse(post.scheduledFor) <= Date.now()) {
     return NextResponse.json({ error: 'Choose a future date and time' }, { status: 400 });
+  }
+  if (!post.draft && post.accountIds?.length === 0) {
+    return NextResponse.json({ error: 'Choose a connected account for each platform' }, { status: 400 });
   }
   if (post.recurrences.length && (post.draft || !post.scheduledFor || post.publishingMode !== 'automatic' ||
     post.recurrences.some((date, index) => {
@@ -90,11 +98,11 @@ export async function POST(req: NextRequest) {
     let query = db.from('social_accounts').select('id').eq('user_id', user.id)
       .in('platform', post.targetPlatforms).eq('status', 'active');
     if (post.accountIds?.length) query = query.in('id', post.accountIds);
-    const { data: accounts, error: accountError } = await query;
+    const { data: accounts, error: accountError } = post.accountIds?.length === 0 ? { data: [], error: null } : await query;
     if (accountError) throw accountError;
     const status = post.draft ? 'draft' : post.publishingMode === 'manual_approval' ? 'pending_approval' :
       post.scheduledFor ? 'scheduled' : 'approved';
-    const { data, error } = await db.rpc('create_campaign', {
+    const { data, error } = await db.rpc(post.queueNext ? 'create_queued_campaign' : 'create_campaign', {
       owner_id: user.id,
       campaign: {
         id, title: post.title || 'Untitled post', raw_prompt: post.rawPrompt, media_asset_id: post.mediaAssetId,
@@ -110,6 +118,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 409 });
     }
     if (error || !data?.id) throw error ?? new Error('Post was not saved');
+
+    if (status === 'approved' && !post.scheduledFor && !post.queueNext && post.publishingMode === 'automatic') {
+      try {
+        const { data: jobs } = await db.rpc('claim_publishing_job');
+        const job = jobs?.[0] as ClaimedJob | undefined;
+        if (job) {
+          await executePostPublishing(db, job);
+        }
+      } catch (execErr) {
+        console.warn('Immediate dispatch notice (will be processed by worker):', execErr);
+      }
+    }
+
     return NextResponse.json({ success: true, post: data }, { status: 201 });
   } catch {
     return NextResponse.json({ error: 'Could not save the post. Try again.' }, { status: 503 });

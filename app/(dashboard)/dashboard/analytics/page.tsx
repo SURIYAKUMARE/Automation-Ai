@@ -43,8 +43,11 @@ export default function AnalyticsPage() {
     return () => controller.abort();
   }, []);
 
+  const completed = overview ? (overview.totalPosts ?? 0) + (overview.failedPosts ?? 0) : 0;
+  const publishedRate = overview && completed ? (100 * overview.totalPosts / completed).toFixed(1) + "%" : "—";
   const cards = [
     ["Published posts", overview?.totalPosts], ["Posts with failures", overview?.failedPosts],
+    ["Publication success rate", publishedRate],
     ["Scheduled or in progress", overview?.queuedPosts], ["Connected accounts", overview?.connectedPlatforms],
   ] as const;
   return (
@@ -59,7 +62,7 @@ export default function AnalyticsPage() {
         </label>
       </div>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
         {cards.map(([title, count]) => <Card key={title}><CardContent className="p-4">
           <p className="text-sm text-muted-foreground">{title}</p><p className="mt-2 text-2xl font-semibold tabular-nums">{count ?? "—"}</p>
         </CardContent></Card>)}

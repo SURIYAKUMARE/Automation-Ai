@@ -10,10 +10,12 @@ The existing project had account, studio, calendar, approval and analytics scree
 
 1. Use Node.js 24 and run `npm ci`. Install FFmpeg and FFprobe locally for video uploads and server-side caption generation.
 2. Copy `.env.example` to `.env.local`. Set `SUPABASE_URL` and `SUPABASE_SECRET_KEY` to values from the same Supabase project. The legacy `SUPABASE_SERVICE_ROLE_KEY` is also supported. Generate unique random values for the session, token encryption and worker secrets.
-3. Check the project's migration history with `supabase migration list` and apply unapplied migrations with `supabase db push` on the linked staging project. The existing migrations define the private media bucket and persistent queue. The latest migration adds media checksums and metadata, explicit upload consent, visibility and alt text, and destination-level retries.
+3. Check the project's migration history with `supabase migration list` and apply unapplied migrations with `supabase db push` on the linked staging project. The migrations define the private media bucket and persistent queue. Apply `20261122010000_workspace.sql` before using media collections, next-slot queueing, or workspace notifications.
 4. Run `npm run dev`. In a second terminal, run `npm run worker`.
-5. Open `http://localhost:3000`. Create a Supabase account or sign in with Google, connect destinations, and open **Publish Now**.
-6. Add media or text context, choose the target platforms, and generate or write captions. Review each platform tab before sending to Approval Center, queuing immediately, or scheduling. Open **History** for confirmed outcomes and **Schedules** for editing, cancellation, and weekly occurrences.
+5. Open `http://localhost:3000`. Create a Supabase account or sign in with Google, connect destinations, and open **Create post**.
+6. Attach media or enter text context. The composer generates media captions automatically unless you turn off that setting. Review the platform previews and account selections before saving, publishing, or requesting approval. Open **Calendar** for editing, cancellation, and rescheduling.
+
+**Add to queue** reserves the next available hourly slot in the workspace. The calendar shows times in the browser's timezone. Posts requiring approval keep their requested slot and are scheduled after approval. The media library supports batch uploads, name and type filters, collection labels, and attachment reuse. A post currently accepts one media asset.
 
 For a bucket provisioned on a project with a smaller storage limit, the provider limit takes precedence. The application accepts up to 15 MB for images and 100 MB for video on hosts that permit those request sizes. Video captions use up to six chronologically sampled frames prepared by the browser.
 
@@ -43,6 +45,18 @@ Configure Gemini with a valid API key and model available for that project. Live
 - For rate-limit rejections and transient errors before the final provider submission, the worker schedules bounded exponential retries. For an unreconciled submission, History shows an unknown outcome and the destination must be checked before another attempt. Run multiple worker instances if queue latency requires it.
 - `GET /api/health` checks database access. Monitor worker uptime and queued and failed jobs. Production approval should include live OAuth, sandbox or designated test-account publishing, and metrics checks for each configured provider.
 
+## Workspace API
+
+| Route | Behavior |
+| --- | --- |
+| `GET /api/dashboard/summary` | Returns workspace counts, recent activity, and upcoming publication dates. |
+| `GET /api/posts` | Accepts `view=queue\|draft\|scheduled\|published`, a post ID, or a scheduled date range using `from` and `until`. |
+| `POST /api/posts/create` | Pass `queueNext: true` to reserve the next available slot. For a custom time, pass `scheduledFor` instead. |
+| `GET /api/media/list` | Lists owned media. Accepts `q`, `type`, `collection`, and a zero-based `page`. |
+| `GET /api/media/[id]` | Returns owned media details and a signed preview URL. |
+| `PATCH /api/media/[id]` | Accepts a `collection` string. An empty value clears the label. |
+| `GET /api/notifications` | Returns approval requests, completed publications, and failures. `PATCH` marks notifications as read. |
+
 ## Test commands
 
 ```sh
@@ -55,4 +69,4 @@ npm run test:e2e
 npm audit
 ```
 
-The database tests load all migrations in embedded PostgreSQL with local Supabase schema stubs. The end-to-end suite starts the built app and checks the API and a mobile-width Chromium session with mocked Supabase, Gemini and Facebook responses. Automated verification creates no live account connections or provider posts. Analytics displays observed metrics and follower or subscriber changes where supported. The worker checks YouTube processing for recorded video IDs. General reconciliation where a provider never returned a receipt, audio transcription, media conversion, account or channel selection during OAuth, resumable upload recovery, and a dedicated admin panel remain incomplete.
+The database tests load all migrations in embedded PostgreSQL with local Supabase schema stubs. The end-to-end suite starts the built app and checks the API and mobile and desktop Chromium sessions with mocked Supabase, Gemini and Facebook responses. Automated verification creates no live account connections or provider posts. Analytics displays observed metrics and follower or subscriber changes where supported. The worker checks YouTube processing for recorded video IDs. Native multi-image posts, audio transcription, account or channel selection during OAuth, resumable upload recovery, a dedicated admin panel, and reconciliation when a provider sends no receipt remain incomplete.

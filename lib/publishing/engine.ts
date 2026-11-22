@@ -53,10 +53,28 @@ export async function executePostPublishing(db: Database, job: ClaimedJob) {
     .eq('id', job.post_id).eq('user_id', job.user_id).single();
   if (error || !post) throw new Error('Could not load the queued post');
 
-  const media = post.media;
-  const mediaUrl = media?.user_id === job.user_id
-    ? await signMedia(media.file_path, job.user_id).catch(() => undefined)
-    : undefined;
+  let media = Array.isArray(post.media) ? post.media[0] : post.media;
+  if (!media && post.media_asset_id) {
+    const { data: assetData } = await db.from('media_assets')
+      .select('*')
+      .eq('id', post.media_asset_id)
+      .eq('user_id', job.user_id)
+      .maybeSingle();
+    if (assetData) media = assetData;
+  }
+
+  let mediaUrl: string | undefined = undefined;
+  if (media?.user_id === job.user_id && media.file_path) {
+    if (media.file_path.startsWith('http://') || media.file_path.startsWith('https://')) {
+      mediaUrl = media.file_path;
+    } else {
+      mediaUrl = await signMedia(media.file_path, job.user_id, 86400).catch(() => undefined);
+      if (!mediaUrl) {
+        const { data: pubData } = db.storage.from('media-assets').getPublicUrl(media.file_path);
+        if (pubData?.publicUrl) mediaUrl = pubData.publicUrl;
+      }
+    }
+  }
 
   const targetStatuses = job.retry_count > 0 ? ['scheduled'] : eligible;
   const results = await Promise.all(post.targets.filter((target: { id: string; status: string; external_post_id?: string }) =>

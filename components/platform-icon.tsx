@@ -35,24 +35,26 @@ export function PlatformIcon({
   ...props
 }: PlatformIconProps) {
   const normPlatform = (platform || "").toLowerCase().trim();
-  const ext = useJpg ? "jpg" : "png";
-  const src = `/platforms/${normPlatform}.${ext}`;
+  const [src, setSrc] = React.useState(`/platforms/${normPlatform}.${useJpg ? "jpg" : "png"}`);
   const label = PLATFORM_NAMES[normPlatform] || normPlatform;
+
+  React.useEffect(() => {
+    setSrc(`/platforms/${normPlatform}.${useJpg ? "jpg" : "png"}`);
+  }, [normPlatform, useJpg]);
 
   return (
     <img
       src={src}
       alt={alt || `${label} logo`}
       className={cn(
-        "object-contain shrink-0 select-none inline-block",
+        "object-contain shrink-0 select-none inline-block rounded-md",
         size ? SIZE_MAP[size] : "",
         className
       )}
       loading="lazy"
-      onError={(e) => {
-        const target = e.currentTarget;
-        if (!target.src.endsWith(".jpg")) {
-          target.src = `/platforms/${normPlatform}.jpg`;
+      onError={() => {
+        if (!src.endsWith(".jpg")) {
+          setSrc(`/platforms/${normPlatform}.jpg`);
         }
       }}
       {...props}

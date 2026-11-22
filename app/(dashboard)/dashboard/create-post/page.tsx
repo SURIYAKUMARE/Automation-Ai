@@ -21,19 +21,20 @@ import { convertImageToVideo } from "@/lib/media/image-to-video";
 import { UploadPublishingSettings } from "@/components/dashboard/upload-publishing-settings";
 import { SocialPlatform, SupportedTone } from "@/types";
 import { PlatformIcon } from "@/components/platform-icon";
+import { SocialMediaLivePreview } from "@/components/dashboard/social-media-live-preview";
+import Link from "next/link";
 
 interface PlatformOption {
   id: SocialPlatform;
   name: string;
   tag: string;
-  note?: string;
 }
 
 const PLATFORMS: PlatformOption[] = [
-  { id: "facebook", name: "Facebook", tag: "Meta Graph" },
-  { id: "instagram", name: "Instagram", tag: "IG Business" },
-  { id: "linkedin", name: "LinkedIn", tag: "UGC REST" },
-  { id: "youtube", name: "YouTube", tag: "Data API v3", note: "Video only" },
+  { id: "facebook", name: "Facebook", tag: "Text, photo, video" },
+  { id: "instagram", name: "Instagram", tag: "Photo or Reel" },
+  { id: "linkedin", name: "LinkedIn", tag: "Text, photo, video" },
+  { id: "youtube", name: "YouTube", tag: "Video only" },
 ];
 
 interface PlatformContent {
@@ -47,6 +48,8 @@ interface PlatformContent {
   rationale?: string;
 }
 
+type Destination = { id: string; platform: SocialPlatform; account_name: string; account_handle?: string; avatar_url?: string; status: string };
+
 export default function CreatePostPage() {
   const router = useRouter();
 
@@ -54,12 +57,16 @@ export default function CreatePostPage() {
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null);
   const [mediaPreview, setMediaPreview] = React.useState<string | null>(null);
   const [isVideo, setIsVideo] = React.useState(false);
+  const [duration, setDuration] = React.useState<number>();
   const [draftId, setDraftId] = React.useState<string>();
   const [savedAssetId, setSavedAssetId] = React.useState<string>();
 
   // Platform selection
-  const [connectedPlatforms, setConnectedPlatforms] = React.useState<SocialPlatform[]>([]);
+  const [accounts, setAccounts] = React.useState<Destination[]>([]);
+  const [accountIds, setAccountIds] = React.useState<string[]>([]);
+  const connectedPlatforms = accounts.map((account) => account.platform);
   const [selectedPlatforms, setSelectedPlatforms] = React.useState<SocialPlatform[]>([]);
+  const destinationChosen = React.useRef(false);
 
   const [activeTab, setActiveTab] = React.useState<SocialPlatform>("instagram");
 
@@ -70,13 +77,14 @@ export default function CreatePostPage() {
         const res = await fetch("/api/accounts");
         if (res.ok) {
           const data = await res.json();
-          const active = (data.accounts || [])
-            .filter((a: any) => a.status === "active")
-            .map((a: any) => a.platform as SocialPlatform);
-          setConnectedPlatforms([...new Set<SocialPlatform>(active)]);
-          if (active.length > 0 && !new URLSearchParams(window.location.search).has("draft")) {
-            setSelectedPlatforms([...new Set<SocialPlatform>(active)]);
-            setActiveTab(active[0]);
+          const active = ((data.accounts || []) as Destination[]).filter((account) => account.status === "active");
+          setAccounts(active);
+          if (new URLSearchParams(window.location.search).has("draft")) return;
+          setAccountIds(active.map((account) => account.id));
+          if (active.length > 0 && !destinationChosen.current) {
+            const platforms = [...new Set(active.map((account) => account.platform))];
+            setSelectedPlatforms(platforms);
+            setActiveTab(platforms[0]);
           }
         }
       } catch (e) {
@@ -107,6 +115,7 @@ export default function CreatePostPage() {
   const uploadedAsset = React.useRef<{ file: File; id: string } | undefined>(undefined);
   const [uploadProgress, setUploadProgress] = React.useState<number | null>(null);
   const [isGenerating, setIsGenerating] = React.useState(false);
+  const [autoGenerate, setAutoGenerate] = React.useState(true);
 
   // Scheduling
   const [isScheduled, setIsScheduled] = React.useState(false);
@@ -121,9 +130,21 @@ export default function CreatePostPage() {
   const uploadRequest = React.useRef<XMLHttpRequest | null>(null);
 
   React.useEffect(() => {
-    const id = new URLSearchParams(window.location.search).get("draft");
-    if (!id) return;
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get("draft");
+    const asset = params.get("media") || params.get("assetId");
     const controller = new AbortController();
+    if (!id) {
+      if (!asset) return;
+      fetch("/api/media/" + encodeURIComponent(asset), { signal: controller.signal }).then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) throw new Error("Media unavailable");
+        setSavedAssetId(data.media.id);
+        setMediaPreview(data.previewUrl);
+        setIsVideo(data.media.mime_type.startsWith("video/"));
+      }).catch(() => { if (!controller.signal.aborted) toast.error("Could not attach the saved media."); });
+      return () => controller.abort();
+    }
     fetch("/api/posts/" + encodeURIComponent(id), { signal: controller.signal }).then(async (response) => {
       const data = await response.json();
       if (!response.ok || data.post.status !== "draft") throw new Error("Draft unavailable");
@@ -131,6 +152,7 @@ export default function CreatePostPage() {
       setDraftId(post.id);
       setTopicPrompt(post.raw_prompt || post.title || "");
       setSelectedPlatforms(post.target_platforms);
+      setAccountIds((post.post_targets ?? []).map((target: { social_account_id: string }) => target.social_account_id));
       setActiveTab(post.target_platforms[0] || "instagram");
       setSavedAssetId(post.media_asset_id || undefined);
       setMediaPreview(data.previewUrl || null);
@@ -150,6 +172,7 @@ export default function CreatePostPage() {
 
   // Toggle platform
   const togglePlatform = (id: SocialPlatform) => {
+    destinationChosen.current = true;
     setSelectedPlatforms((prev) => {
       const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
       if (next.length > 0 && !next.includes(activeTab)) {
@@ -239,12 +262,19 @@ export default function CreatePostPage() {
     setAutoUploadFailed(false);
     setSavedAssetId(undefined);
     setSelectedFile(file);
+    setDuration(undefined);
     const isVid = file.type.startsWith("video/");
     setIsVideo(isVid);
 
     const objectUrl = URL.createObjectURL(file);
     setMediaPreview(objectUrl);
     if (uploadPublishing && !draftId) void publishUpload(file);
+    else if (autoGenerate) {
+      const platforms = selectedPlatforms.length ? selectedPlatforms : [activeTab];
+      destinationChosen.current = true;
+      if (!selectedPlatforms.length) setSelectedPlatforms(platforms);
+      void handleGenerateAI(file, platforms);
+    }
   };
 
   const removeFile = () => {
@@ -253,6 +283,7 @@ export default function CreatePostPage() {
     setSavedAssetId(undefined);
     setSelectedFile(null);
     setMediaPreview(null);
+    setDuration(undefined);
     setIsVideo(false);
   };
 
@@ -302,35 +333,38 @@ export default function CreatePostPage() {
     }
   };
 
-  const handleGenerateAI = async () => {
-    if (!selectedPlatforms.length || (!selectedFile && !savedAssetId && !topicPrompt.trim())) {
+  const handleGenerateAI = async (attachedFile?: File, platforms = selectedPlatforms) => {
+    if (!platforms.length || (!attachedFile && !selectedFile && !savedAssetId && !topicPrompt.trim())) {
       toast.error("Select a platform and add media or text context.");
       return;
     }
     setIsGenerating(true);
     const notice = toast.loading("Generating platform captions");
     try {
-      let file: Blob | null = selectedFile;
+      let file: Blob | null = attachedFile ?? selectedFile;
       if (!file && savedAssetId) {
-        if (!mediaPreview) throw new Error("Reattach the saved media to generate a caption for it.");
-        const saved = await fetch(mediaPreview).catch(() => null);
+        const asset = await fetch("/api/media/" + encodeURIComponent(savedAssetId));
+        if (!asset.ok) throw new Error("Could not access the saved media.");
+        const { previewUrl } = await asset.json();
+        setMediaPreview(previewUrl);
+        const saved = await fetch(previewUrl).catch(() => null);
         if (!saved?.ok) throw new Error("Could not read the saved media. Reattach it and try again.");
         file = await saved.blob();
       }
-      const media = file ? await prepareMediaPreview(file, isVideo) : {};
+      const media = file ? await prepareMediaPreview(file, file.type ? file.type.startsWith("video/") : isVideo) : {};
       const res = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...media, prompt: topicPrompt, language, tone, captionLength, hashtagLimit,
-          targetPlatforms: selectedPlatforms, alternatives: true }),
+          targetPlatforms: platforms, alternatives: true }),
       });
       const result = await res.json();
       if (!res.ok) throw new Error(result.error || "Could not generate captions");
       setSummary(result.data.summary);
-      generatedPlatforms.current = [...new Set([...generatedPlatforms.current, ...selectedPlatforms])];
+      generatedPlatforms.current = [...new Set([...generatedPlatforms.current, ...platforms])];
       setPlatformContents((previous) => {
         const updated = { ...previous };
-        for (const p of selectedPlatforms) {
+        for (const p of platforms) {
           const variant = result.variants[p];
           if (variant) updated[p] = { ...variant, hashtags: variant.hashtags.join(" "), youtubePrivacy: previous[p].youtubePrivacy };
         }
@@ -344,7 +378,8 @@ export default function CreatePostPage() {
     }
   };
 
-  const handleSubmit = async (isDraft = false) => {
+  const handleSubmit = async (isDraft = false, queueNext = false) => {
+    const customSchedule = isScheduled && !queueNext;
     if (!selectedPlatforms.length) {
       toast.error("Select at least one platform.");
       return;
@@ -357,11 +392,11 @@ export default function CreatePostPage() {
         toast.error("Add a caption for " + missing + ".");
         return;
       }
-      if (selectedPlatforms.some((p) => !connectedPlatforms.includes(p))) {
-        toast.error("Connect an account for each selected platform.");
+      if (selectedPlatforms.some((p) => !accounts.some((account) => account.platform === p && accountIds.includes(account.id)))) {
+        toast.error("Choose a connected account for each selected platform.");
         return;
       }
-      if (isScheduled && (!scheduledDateTime || new Date(scheduledDateTime).getTime() <= Date.now())) {
+      if (customSchedule && (!scheduledDateTime || new Date(scheduledDateTime).getTime() <= Date.now())) {
         toast.error("Choose a future date and time.");
         return;
       }
@@ -384,8 +419,10 @@ export default function CreatePostPage() {
           mediaAssetId, draft: isDraft, replaceDraft: !!draftId, title: ytVideoTitle || topicPrompt.trim() || "Untitled post",
           rawPrompt: topicPrompt,
           publishingMode: isDraft || review ? "manual_approval" : "automatic",
-          scheduledFor: !isDraft && isScheduled ? new Date(scheduledDateTime).toISOString() : undefined,
-          recurrences: isScheduled && !isDraft && !review ? Array.from({ length: weeklyOccurrences - 1 }, (_, index) => {
+          queueNext,
+          accountIds: accounts.filter((account) => selectedPlatforms.includes(account.platform) && accountIds.includes(account.id)).map((account) => account.id),
+          scheduledFor: !isDraft && customSchedule ? new Date(scheduledDateTime).toISOString() : undefined,
+          recurrences: customSchedule && !isDraft && !review ? Array.from({ length: weeklyOccurrences - 1 }, (_, index) => {
             const date = new Date(scheduledDateTime);
             date.setDate(date.getDate() + 7 * (index + 1));
             return date.toISOString();
@@ -407,8 +444,8 @@ export default function CreatePostPage() {
         throw new Error(data.error || "Could not save this post");
       }
       requestId.current = undefined;
-      toast.success(isDraft ? "Draft saved" : review ? "Sent for approval" : isScheduled ? "Post scheduled" : "Post queued for publishing");
-      router.push(review && !isDraft ? "/dashboard/approvals" : isScheduled && !isDraft ? "/dashboard/calendar" : "/dashboard/history");
+      toast.success(isDraft ? "Draft saved" : review ? "Sent for approval" : queueNext ? "Queued for " + new Date(data.post.scheduled_for).toLocaleString() : customSchedule ? "Post scheduled" : "Post queued for publishing");
+      router.push(isDraft ? "/dashboard/drafts" : review ? "/dashboard/approvals" : queueNext ? "/dashboard/queue" : customSchedule ? "/dashboard/calendar" : "/dashboard/history");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save the post");
     } finally {
@@ -418,6 +455,7 @@ export default function CreatePostPage() {
   };
 
   const currentContent = platformContents[activeTab] || { caption: "", hashtags: "" };
+  const previewAccount = accounts.find((account) => account.platform === activeTab && accountIds.includes(account.id));
 
   return (
     <div className="space-y-6">
@@ -431,10 +469,10 @@ export default function CreatePostPage() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between pb-2 border-b border-border gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
-            Publish Now
+            Create a post
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Direct multi-platform media publishing and automated Gemini caption generation.
+            Attach media, tailor captions, and choose when to publish.
           </p>
         </div>
       </div>
@@ -446,15 +484,23 @@ export default function CreatePostPage() {
           {/* Media Upload Box */}
           <div className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
             <h2 className="text-sm font-bold text-foreground tracking-tight">
-              1. Media Content
+              Media
             </h2>
 
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" checked={autoGenerate} onChange={(event) => setAutoGenerate(event.target.checked)} />
+              Generate captions when media is attached
+            </label>
             {mediaPreview ? (
               <div className="relative rounded-lg border border-border overflow-hidden bg-muted/30">
                 {isVideo ? (
                   <video
                     src={mediaPreview}
                     controls
+                    onLoadedMetadata={(event) => {
+                      const seconds = event.currentTarget.duration;
+                      if (Number.isFinite(seconds)) setDuration(Math.round(seconds));
+                    }}
                     className="w-full max-h-64 object-contain mx-auto"
                   />
                 ) : (
@@ -466,7 +512,7 @@ export default function CreatePostPage() {
                 )}
                 <div className="p-3 bg-card border-t border-border flex items-center justify-between">
                   <span className="text-xs font-mono text-muted-foreground truncate max-w-[200px]">
-                    {selectedFile?.name}
+                    {selectedFile?.name || "Saved media"}{duration !== undefined && " · " + Math.floor(duration / 60) + ":" + String(duration % 60).padStart(2, "0")}
                   </span>
                   <button
                     disabled={isGenerating || isPublishing}
@@ -525,7 +571,7 @@ export default function CreatePostPage() {
           {/* Platforms Selection */}
           <div className="rounded-xl border border-border bg-card p-5 space-y-4 shadow-sm">
             <h2 className="text-sm font-bold text-foreground tracking-tight">
-              2. Target Platforms
+              Destinations
             </h2>
 
             <div className="grid grid-cols-2 gap-3">
@@ -536,6 +582,7 @@ export default function CreatePostPage() {
                   <button
                     key={platform.id}
                     type="button"
+                    aria-pressed={isSelected}
                     onClick={() => togglePlatform(platform.id)}
                     className={`p-3.5 rounded-lg border text-left transition-all flex items-center justify-between ${
                       isSelected
@@ -543,7 +590,7 @@ export default function CreatePostPage() {
                         : "border-border text-muted-foreground hover:border-foreground/30"
                     }`}
                   >
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-1.5 sm:gap-3">
                       <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-card/90 p-1.5 border border-border/60 shrink-0 shadow-sm">
                         <PlatformIcon platform={platform.id} className="h-5 w-5" />
                       </div>
@@ -574,6 +621,17 @@ export default function CreatePostPage() {
                 );
               })}
             </div>
+            {accounts.filter((account) => selectedPlatforms.includes(account.platform)).length > 0 && <fieldset className="grid gap-2 text-sm">
+              <legend className="mb-2 text-xs font-semibold text-muted-foreground">Publishing accounts</legend>
+              {accounts.filter((account) => selectedPlatforms.includes(account.platform)).map((account) => <label key={account.id} className="flex items-center gap-2">
+                <input type="checkbox" checked={accountIds.includes(account.id)} onChange={(event) => {
+                  const checked = event.target.checked;
+                  setAccountIds((current) => checked ? [...current, account.id] : current.filter((id) => id !== account.id));
+                }} />
+                <PlatformIcon platform={account.platform} className="size-4 shrink-0" /> <span className="break-all">{account.account_name}</span>
+              </label>)}
+            </fieldset>}
+            {!accounts.length && <Link href="/dashboard/accounts" className="text-xs underline underline-offset-2">Manage connected accounts</Link>}
           </div>
 
           {/* Schedule (Optional) */}
@@ -675,7 +733,7 @@ export default function CreatePostPage() {
               </div>
               <Button
                 type="button"
-                onClick={handleGenerateAI}
+                  onClick={() => void handleGenerateAI()}
                 disabled={isGenerating}
                 className="w-full text-xs font-medium gap-2 bg-neutral-900 text-white hover:bg-neutral-800 dark:bg-neutral-100 dark:text-neutral-900"
               >
@@ -828,8 +886,46 @@ export default function CreatePostPage() {
             </div>
           </div>
 
+          {selectedPlatforms.length > 0 && (
+            <div className="space-y-2 pt-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground font-mono">
+                  Real-Time Feed Preview
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={!currentContent.caption.trim()}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText([currentContent.caption, currentContent.hashtags].filter(Boolean).join("\n\n"));
+                      toast.success("Caption and hashtags copied to clipboard!");
+                    } catch {
+                      toast.error("Could not copy caption");
+                    }
+                  }}
+                  className="h-7 text-[11px] gap-1"
+                >
+                  Copy Caption
+                </Button>
+              </div>
+
+              <SocialMediaLivePreview
+                platform={activeTab}
+                caption={currentContent.caption}
+                hashtags={currentContent.hashtags}
+                title={currentContent.title || topicPrompt}
+                mediaUrl={mediaPreview}
+                isVideo={isVideo}
+                authorName={previewAccount?.account_name || "SocialSync Creator"}
+                authorAvatar={previewAccount?.avatar_url || null}
+                authorHandle={previewAccount?.account_handle || `@${activeTab}_user`}
+              />
+            </div>
+          )}
           {/* Action Buttons */}
-          <div className="flex items-center gap-3 pt-2">
+          <div className="flex flex-wrap items-center gap-3 pt-2">
             <Button
               type="button"
               variant="outline"
@@ -839,6 +935,10 @@ export default function CreatePostPage() {
             >
               <Save className="h-3.5 w-3.5" />
               Save Draft
+            </Button>
+            <Button type="button" variant="outline" onClick={() => void handleSubmit(false, true)}
+              disabled={isPublishing || isGenerating} title="Uses the next available hourly slot">
+              Add to queue
             </Button>
 
             <Button

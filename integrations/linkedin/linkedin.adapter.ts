@@ -195,7 +195,7 @@ export class LinkedInAdapter implements PlatformAdapter {
             if (mimeMatch) mimeType = mimeMatch[1];
             mediaBuffer = Buffer.from(b64, 'base64');
           } else {
-            const fileRes = await fetch(mediaUrl, { redirect: 'error', signal: AbortSignal.timeout(30_000) });
+            const fileRes = await fetch(mediaUrl, { redirect: 'follow', signal: AbortSignal.timeout(30_000) });
             if (fileRes.ok) {
               const cType = fileRes.headers.get('content-type');
               if (cType) mimeType = cType.split(';')[0].trim();
@@ -216,6 +216,10 @@ export class LinkedInAdapter implements PlatformAdapter {
 
       let uploadedRestMediaUrn: string | null = null;
       let uploadedAssetUrn: string | null = null;
+      const apiVersion = process.env.LINKEDIN_API_VERSION || '202401';
+      const versionCandidates = [apiVersion, '202401', '202410', '202501', '202610'].filter(
+        (v, idx, arr) => arr.indexOf(v) === idx
+      );
 
       if (mediaBuffer && isVideo) {
         const modernVideo = await this.prepareVideo(mediaBuffer, authorUrn, accessToken);
@@ -225,44 +229,59 @@ export class LinkedInAdapter implements PlatformAdapter {
 
       // 2. Try Modern LinkedIn REST Images API (/rest/images)
       if (mediaBuffer && !isVideo) {
-        try {
-          const initRes = await fetch('https://api.linkedin.com/rest/images?action=initializeUpload', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-              'LinkedIn-Version': process.env.LINKEDIN_API_VERSION || '202610',
-              'X-Restli-Protocol-Version': '2.0.0',
-            },
-            body: JSON.stringify({
-              initializeUploadRequest: {
-                owner: authorUrn,
+        for (const v of versionCandidates) {
+          try {
+            const initRes = await fetch('https://api.linkedin.com/rest/images?action=initializeUpload', {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'LinkedIn-Version': v,
+                'X-Restli-Protocol-Version': '2.0.0',
               },
-            }),
-          });
-
-          if (initRes.ok) {
-            const initData = await initRes.json();
-            const uploadUrl = initData.value?.uploadUrl;
-            const imageUrn = initData.value?.image;
-
-            if (uploadUrl && imageUrn) {
-              const putRes = await fetch(uploadUrl, {
-                method: 'PUT',
-                headers: {
-                  Authorization: `Bearer ${accessToken}`,
-                  'Content-Type': mimeType || 'application/octet-stream',
+              body: JSON.stringify({
+                initializeUploadRequest: {
+                  owner: authorUrn,
                 },
-                body: new Uint8Array(mediaBuffer),
-              });
+              }),
+            });
 
-              if (putRes.ok || putRes.status === 201) {
-                uploadedRestMediaUrn = imageUrn;
+            if (initRes.ok) {
+              const initData = await initRes.json();
+              const uploadUrl = initData.value?.uploadUrl;
+              const imageUrn = initData.value?.image;
+
+              if (uploadUrl && imageUrn) {
+                // Try PUT with Authorization header first
+                let putRes = await fetch(uploadUrl, {
+                  method: 'PUT',
+                  headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    'Content-Type': mimeType || 'application/octet-stream',
+                  },
+                  body: new Uint8Array(mediaBuffer),
+                });
+
+                // If rejected (e.g. S3 pre-signed URL rejects Auth header), retry without
+                if (!putRes.ok && putRes.status !== 201) {
+                  putRes = await fetch(uploadUrl, {
+                    method: 'PUT',
+                    headers: {
+                      'Content-Type': mimeType || 'application/octet-stream',
+                    },
+                    body: new Uint8Array(mediaBuffer),
+                  });
+                }
+
+                if (putRes.ok || putRes.status === 201) {
+                  uploadedRestMediaUrn = imageUrn;
+                  break;
+                }
               }
             }
+          } catch (restImgErr) {
+            console.warn(`LinkedIn /rest/images initialize failed with version ${v}:`, restImgErr);
           }
-        } catch (restImgErr) {
-          console.warn('LinkedIn /rest/images initialize failed, trying legacy UGC assets:', restImgErr);
         }
       }
 
@@ -303,17 +322,28 @@ export class LinkedInAdapter implements PlatformAdapter {
             const assetUrn = regData.value?.asset;
 
             if (uploadUrl && assetUrn) {
-              const putHeaders: Record<string, string> = {
-                Authorization: `Bearer ${accessToken}`,
-                'Content-Type': mimeType || 'application/octet-stream',
-                ...regHeaders,
-              };
-
-              const putRes = await fetch(uploadUrl, {
+              // Try upload with provider headers first
+              let putRes = await fetch(uploadUrl, {
                 method: 'PUT',
-                headers: putHeaders,
+                headers: {
+                  'Content-Type': mimeType || 'application/octet-stream',
+                  ...regHeaders,
+                },
                 body: new Uint8Array(mediaBuffer),
               });
+
+              // If that fails, try with Authorization header
+              if (!putRes.ok && putRes.status !== 201) {
+                putRes = await fetch(uploadUrl, {
+                  method: 'PUT',
+                  headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                    'Content-Type': mimeType || 'application/octet-stream',
+                    ...regHeaders,
+                  },
+                  body: new Uint8Array(mediaBuffer),
+                });
+              }
 
               if (putRes.ok || putRes.status === 201) {
                 uploadedAssetUrn = assetUrn;
@@ -332,50 +362,52 @@ export class LinkedInAdapter implements PlatformAdapter {
 
       // Publish once the image or video has an official media URN.
       if (uploadedRestMediaUrn) {
-        try {
-          const restPostRes = await fetch('https://api.linkedin.com/rest/posts', {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              'Content-Type': 'application/json',
-              'LinkedIn-Version': process.env.LINKEDIN_API_VERSION || '202610',
-              'X-Restli-Protocol-Version': '2.0.0',
-            },
-            body: JSON.stringify({
-              author: authorUrn,
-              commentary: text,
-              visibility: 'PUBLIC',
-              distribution: {
-                feedDistribution: 'MAIN_FEED',
-                targetEntities: [],
-                thirdPartyDistributionChannels: [],
+        for (const v of versionCandidates) {
+          try {
+            const restPostRes = await fetch('https://api.linkedin.com/rest/posts', {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+                'Content-Type': 'application/json',
+                'LinkedIn-Version': v,
+                'X-Restli-Protocol-Version': '2.0.0',
               },
-              content: {
-                media: {
-                  title: request.title || 'SocialSync AI Post',
-                  id: uploadedRestMediaUrn,
+              body: JSON.stringify({
+                author: authorUrn,
+                commentary: text,
+                visibility: 'PUBLIC',
+                distribution: {
+                  feedDistribution: 'MAIN_FEED',
+                  targetEntities: [],
+                  thirdPartyDistributionChannels: [],
                 },
-              },
-              lifecycleState: 'PUBLISHED',
-              isReshareDisabledByAuthor: false,
-            }),
-          });
+                content: {
+                  media: {
+                    title: request.title || 'SocialSync AI Post',
+                    id: uploadedRestMediaUrn,
+                  },
+                },
+                lifecycleState: 'PUBLISHED',
+                isReshareDisabledByAuthor: false,
+              }),
+            });
 
-          if (restPostRes.ok) {
-            const restUrn =
-              restPostRes.headers.get('x-restli-id') ||
-              restPostRes.headers.get('x-linkedin-id') || undefined;
-            return {
-              success: true,
-              externalPostId: restUrn,
-              externalPostUrl: restUrn ? `https://www.linkedin.com/feed/update/${restUrn}/` : undefined,
-            };
+            if (restPostRes.ok) {
+              const restUrn =
+                restPostRes.headers.get('x-restli-id') ||
+                restPostRes.headers.get('x-linkedin-id') || undefined;
+              return {
+                success: true,
+                externalPostId: restUrn,
+                externalPostUrl: restUrn ? `https://www.linkedin.com/feed/update/${restUrn}/` : undefined,
+              };
+            }
+          } catch (restPostErr) {
+            console.warn(`LinkedIn /rest/posts with version ${v} failed:`, restPostErr);
           }
-          return { success: false, errorCode: `LINKEDIN_API_${restPostRes.status}`,
-            actionRequired: 'Check that your LinkedIn app has permission to create posts.' };
-        } catch (restPostErr) {
-          return { success: false, errorCode: 'LINKEDIN_NETWORK_ERROR', errorMessage: 'LinkedIn submission could not be confirmed.' };
         }
+        return { success: false, errorCode: 'LINKEDIN_API_ERROR',
+          actionRequired: 'Check that your LinkedIn app has permission to create posts.' };
       }
 
       // 5. Publish via Community Management / UGC Post REST API (/v2/ugcPosts)
@@ -425,7 +457,7 @@ export class LinkedInAdapter implements PlatformAdapter {
             headers: {
               Authorization: `Bearer ${accessToken}`,
               'Content-Type': 'application/json',
-              'LinkedIn-Version': process.env.LINKEDIN_API_VERSION || '202610',
+              'LinkedIn-Version': apiVersion,
               'X-Restli-Protocol-Version': '2.0.0',
             },
             body: JSON.stringify({

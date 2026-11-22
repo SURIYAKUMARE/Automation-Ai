@@ -92,7 +92,15 @@ globalThis.fetch = async (input, init) => {
   }
   if (path === '/rest/v1/media_assets') {
     const checksum = url.searchParams.get('checksum_sha256');
-    return json(media && (!checksum || checksum === 'eq.' + media.checksum_sha256) ? [media] : []);
+    const collection = url.searchParams.get('collection_name');
+    const name = url.searchParams.get('file_name');
+    if (media && method === 'PATCH') Object.assign(media, body());
+    const items = media && (!checksum || checksum === 'eq.' + media.checksum_sha256) &&
+      (!collection || collection === 'eq.' + media.collection_name) &&
+      (!name || media.file_name.toLowerCase().includes(name.replace(/^ilike\.%|%$/g, '').toLowerCase())) ? [media] : [];
+    const response = json(items);
+    response.headers.set('Content-Range', items.length ? '0-0/1' : '*/0');
+    return response;
   }
   if (path === '/rest/v1/upload_automation') {
     if (method !== 'POST') return json(automation ? [automation] : []);
@@ -100,9 +108,10 @@ globalThis.fetch = async (input, init) => {
     return json(automation);
   }
   if (path === '/rest/v1/brand_profiles') return json([]);
+  if (path === '/rest/v1/notifications' || path === '/rest/v1/publishing_jobs') return json([]);
   if (path === '/rest/v1/social_accounts') return json([{ id: accountId, platform: 'facebook', status: 'active', account_name: 'Fixture Page' }]);
   if (path === '/rest/v1/rpc/consume_ai_request') return json(true);
-  if (path === '/rest/v1/rpc/create_campaign' || path === '/rest/v1/rpc/create_automatic_campaign') {
+  if (path === '/rest/v1/rpc/create_campaign' || path === '/rest/v1/rpc/create_automatic_campaign' || path === '/rest/v1/rpc/create_queued_campaign') {
     const input = body();
     assert.equal(input.owner_id, owner);
     if (path.endsWith('create_automatic_campaign')) {
@@ -112,6 +121,10 @@ globalThis.fetch = async (input, init) => {
     }
     if (!post) {
       post = { ...input.campaign, user_id: owner, created_at: new Date().toISOString() };
+      if (path.endsWith('create_queued_campaign')) {
+        post.status = 'scheduled';
+        post.scheduled_for = new Date(Date.now() + 3600_000).toISOString();
+      }
       variants = input.variants.map((variant) => ({ ...variant, id: '70000000-0000-4000-8000-000000000000', is_approved: false }));
       targets = [{ id: targetId, platform: 'facebook', status: 'pending_approval' }];
     }
@@ -121,6 +134,11 @@ globalThis.fetch = async (input, init) => {
     const input = body();
     assert.equal(input.owner_id, owner);
     assert.equal(input.campaign_id, post.id);
+    if (input.operation === 'queue' && input.run_time) {
+      post.scheduled_for = input.run_time;
+      post.status = 'scheduled';
+      return json(post);
+    }
     assert.equal(input.operation, 'approved');
     variants[0].caption = Object.values(input.edits)[0];
     variants[0].is_approved = true;
@@ -153,7 +171,8 @@ globalThis.fetch = async (input, init) => {
     return json('published');
   }
   if (path === '/rest/v1/posts') {
-    if (!post || (url.searchParams.has('status') && url.searchParams.get('status') !== 'eq.' + post.status)) return json([]);
+    const filter = url.searchParams.get('status');
+    if (!post || (filter && filter !== 'eq.' + post.status && !(filter.startsWith('in.(') && filter.includes(post.status)))) return json([]);
     const select = url.searchParams.get('select') || '';
     if (select.includes('variants:')) return json({ ...post, media, variants, targets: targets.map((target) => ({ ...target, account })) });
     return json([{ ...post, post_targets: targets, post_variants: variants }]);

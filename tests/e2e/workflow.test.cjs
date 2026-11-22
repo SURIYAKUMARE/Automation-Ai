@@ -89,7 +89,7 @@ test('production HTTP workflow with mocked providers', { timeout: 55_000 }, asyn
   assert.ok(new URL(rejected.headers.get('location')).searchParams.has('error'));
   await request('/api/ai/generate', { status: 401, json: { prompt: 'test' }, headers: { Origin: 'https://different.test' } });
   const studio = await request('/dashboard/create-post');
-  assert.match(await studio.text(), /Publish Now/);
+  assert.match(await studio.text(), /Create a post/);
 
   const picture = await fixturePhoto();
   const form = new FormData();
@@ -198,7 +198,11 @@ test('mobile browser reviews, approves and tracks an uploaded post', { timeout: 
   await page.locator('input[type=password]').fill('fixture-password');
   await page.locator('button[type=submit]').click();
   await page.waitForURL('**/dashboard');
-  await page.goto(origin + '/dashboard/create-post', { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Publishing overview' }).waitFor();
+  await page.getByRole('button', { name: 'Open navigation' }).click();
+  await page.getByRole('dialog').getByRole('link', { name: 'Create post' }).click();
+  await page.waitForURL('**/dashboard/create-post');
+  await page.getByRole('checkbox', { name: 'Fixture Page' }).waitFor();
   const video = await page.evaluate(async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 96;
@@ -223,7 +227,6 @@ test('mobile browser reviews, approves and tracks an uploaded post', { timeout: 
     return Array.from(new Uint8Array(await new Blob(chunks).arrayBuffer()));
   });
   await page.locator('input[type=file]').setInputFiles({ name: 'moving-square.webm', mimeType: 'video/webm', buffer: Buffer.from(video) });
-  await page.getByRole('button', { name: 'Generate with Gemini AI' }).click();
   await page.getByText('A square moves across the frame', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Remove', exact: true }).click();
   assert.equal(await page.getByText('A square moves across the frame', { exact: true }).count(), 0);
@@ -233,7 +236,6 @@ test('mobile browser reviews, approves and tracks an uploaded post', { timeout: 
     return canvas.toDataURL('image/jpeg').split(',')[1];
   });
   await page.locator('input[type=file]').setInputFiles({ name: 'poster.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(jpeg, 'base64') });
-  await page.getByRole('button', { name: 'Generate with Gemini AI' }).click();
   await page.getByText('A test poster', { exact: true }).waitFor();
   await page.getByLabel('Send to Approval Center before publishing').check();
   await page.getByRole('button', { name: 'Publish Now', exact: true }).click();
@@ -251,4 +253,74 @@ test('mobile browser reviews, approves and tracks an uploaded post', { timeout: 
   const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   assert.equal(fits, true, 'mobile history must not overflow the viewport');
   assert.deepEqual(failures, []);
+});
+
+test('desktop organizes media and reschedules a queued post by dragging it', { timeout: 90_000 }, async (t) => {
+  const { chromium } = require('playwright');
+  const { origin } = await startApp(t);
+  const browser = await chromium.launch({ channel: process.env.SOCIALFLOW_BROWSER_CHANNEL || undefined });
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+  page.setDefaultTimeout(15_000);
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto(origin + '/login');
+  await page.locator('input[type=email]').fill('fixture@test.invalid');
+  await page.locator('input[type=password]').fill('fixture-password');
+  await page.locator('button[type=submit]').click();
+  await page.waitForURL('**/dashboard');
+  await page.getByRole('heading', { name: 'Publishing overview' }).waitFor();
+  await page.getByRole('navigation', { name: 'Workspace' }).getByRole('link', { name: 'Media library' }).click();
+  await page.getByText('No media matches this view.').waitFor();
+  const jpeg = await page.evaluate(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 12;
+    return canvas.toDataURL('image/jpeg').split(',')[1];
+  });
+  await page.getByLabel('Upload media').setInputFiles({ name: 'campaign.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(jpeg, 'base64') });
+  await page.getByText('campaign.jpg', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Collection', exact: true }).click();
+  await page.getByRole('textbox', { name: 'Collection for campaign.jpg' }).fill('Launch');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await page.getByText('Collection updated', { exact: true }).waitFor();
+  await page.getByRole('textbox', { name: 'File name' }).fill('nothing');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByText('No media matches this view.').waitFor();
+  await page.getByRole('textbox', { name: 'File name' }).fill('campaign');
+  await page.getByRole('textbox', { name: 'Collection filter' }).fill('Launch');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.getByRole('link', { name: 'Use in post' }).click();
+  await page.getByText('Saved media', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await page.getByRole('checkbox', { name: 'Fixture Page' }).waitFor();
+  await page.locator('input[type=file]').setInputFiles({ name: 'campaign.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(jpeg, 'base64') });
+  await page.getByText('A test poster', { exact: true }).waitFor();
+  const created = page.waitForResponse((response) => response.url().endsWith('/api/posts/create') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Add to queue', exact: true }).click();
+  const response = await created;
+  assert.equal(response.status(), 201);
+  const { post } = await response.json();
+  await page.waitForURL('**/dashboard/queue');
+  await page.getByRole('cell', { name: post.title }).waitFor();
+  await page.getByRole('navigation', { name: 'Workspace' }).getByRole('link', { name: 'Calendar', exact: true }).click();
+  const chip = page.getByRole('button', { name: post.title, exact: true });
+  await chip.waitFor();
+  const date = new Date(post.scheduled_for);
+  date.setDate(date.getDate() + 1);
+  const localKey = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+  let target = page.locator('[data-date="' + localKey + '"]');
+  if (!(await target.count())) {
+    date.setDate(date.getDate() - 2);
+    const prior = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+    target = page.locator('[data-date="' + prior + '"]');
+  }
+  const moved = page.waitForResponse((entry) => entry.url().endsWith('/api/posts/schedule') && entry.request().method() === 'POST');
+  await chip.dragTo(target);
+  assert.equal((await moved).status(), 200);
+  await target.getByRole('button', { name: post.title, exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Week', exact: true }).click();
+  await page.getByRole('button', { name: 'Next week' }).waitFor();
+  await page.getByRole('button', { name: 'Day', exact: true }).click();
+  await page.getByRole('button', { name: 'Next day' }).waitFor();
+  assert.deepEqual(errors, []);
 });
