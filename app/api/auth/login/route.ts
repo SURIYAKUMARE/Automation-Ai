@@ -30,6 +30,7 @@ export async function POST(req: NextRequest) {
     if (error instanceof SupabaseConfigurationError) {
       return NextResponse.json({ error: 'Sign-in is not configured. Set a valid Supabase project URL and server key.' }, { status: 503 });
     }
-    return NextResponse.json({ error: 'Authentication is temporarily unavailable' }, { status: 503 });
+    const message = error instanceof Error ? error.message : 'Authentication is temporarily unavailable';
+    return NextResponse.json({ error: message }, { status: 503 });
   }
 }

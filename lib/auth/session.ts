@@ -23,10 +23,12 @@ function sessionKey(): Buffer {
     process.env.SUPABASE_ANON_KEY,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     process.env.GEMINI_API_KEY,
+    '66fcab6f-86e5-4ad7-b550-b2f11b12de3c',
+    '3soI+iAFIoVTdHYuXHqPf72hOZtO0uVfHEH9I0HP82oxZAZ9p2IOoNv/7T55+xK+QanW5fr4hWK9wdKEmAA0eA==',
     'socialflow-ai-session-secret-production-fallback-key-32b',
   ];
   const secret = candidates.find((c) => typeof c === 'string' && c.trim().length >= 32) ||
-    'socialflow-ai-session-secret-production-fallback-key-32b';
+    '66fcab6f-86e5-4ad7-b550-b2f11b12de3c-fallback-key-32b';
   return crypto.createHash('sha256').update(secret).digest();
 }
 
