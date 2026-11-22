@@ -9,9 +9,11 @@ import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 
 const GOOGLE_ERRORS: Record<string, string> = {
-  google_configuration: "Google sign-in is unavailable until the app's Google OAuth credentials are configured.",
+  google_configuration: "Google sign-in is unavailable until the app's Google OAuth credentials are configured in environment variables.",
   supabase_configuration: "Sign-in is unavailable until a valid Supabase project URL and server key are configured.",
-  google_sign_in_failed: "Google sign-in could not be completed. Start again from this page.",
+  google_sign_in_failed: "Google sign-in could not be completed. Please ensure https://automation-ai-dusky.vercel.app/api/auth/google/callback is added to Authorized Redirect URIs in Google Cloud Console.",
+  google_access_denied: "Google access was cancelled or denied. If your Google Cloud app is in Testing mode, ensure your Gmail is added under Test Users in Google Cloud Console.",
+  google_state_mismatch: "Google sign-in session expired. Please click 'Continue with Google' to try again.",
 };
 
 export default function LoginPage() {
@@ -21,8 +23,14 @@ export default function LoginPage() {
   const [errorMessage, setErrorMessage] = React.useState("");
 
   React.useEffect(() => {
-    const code = new URLSearchParams(window.location.search).get("error");
-    if (code && Object.hasOwn(GOOGLE_ERRORS, code)) setErrorMessage(GOOGLE_ERRORS[code]);
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("error");
+    const details = params.get("details");
+    if (details) {
+      setErrorMessage(details);
+    } else if (code && Object.hasOwn(GOOGLE_ERRORS, code)) {
+      setErrorMessage(GOOGLE_ERRORS[code]);
+    }
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {

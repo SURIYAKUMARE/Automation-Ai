@@ -4,12 +4,13 @@ import { getSessionUser } from '@/lib/auth/session';
 import { matchesOAuthState, newOAuthState, oauthCookieOptions } from '@/lib/auth/oauth-state';
 import { encryptToken } from '@/lib/security/encryption';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { getCanonicalAppOrigin } from '@/lib/auth/canonical-origin';
 import { SocialPlatform } from '@/types';
 
 export const socialPlatforms = ['facebook', 'instagram', 'linkedin', 'youtube'] as const;
 
 function appOrigin(req: NextRequest) {
-  return new URL(process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin).origin;
+  return getCanonicalAppOrigin(req);
 }
 
 export async function authorizeSocial(req: NextRequest, platform: SocialPlatform) {

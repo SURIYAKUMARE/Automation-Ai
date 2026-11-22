@@ -2,32 +2,40 @@ import { NextRequest, NextResponse } from 'next/server';
 import { newOAuthState, oauthCookieOptions } from '@/lib/auth/oauth-state';
 import { getGoogleOAuthConfig } from '@/lib/auth/google-config';
 import { getSupabaseServerConfig } from '@/lib/supabase/admin';
+import { getCanonicalAppOrigin } from '@/lib/auth/canonical-origin';
 
-function redirectToLogin(error: string) {
-  return new NextResponse(null, { status: 307, headers: { Location: '/login?error=' + error } });
+function redirectToLogin(error: string, origin: string) {
+  return NextResponse.redirect(new URL('/login?error=' + error, origin));
 }
 
 export function GET(req: NextRequest) {
+  const origin = getCanonicalAppOrigin(req);
   const config = getGoogleOAuthConfig();
-  const base = URL.parse(process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || req.nextUrl.origin);
-  if (!config || !base || !['http:', 'https:'].includes(base.protocol)) {
-    return redirectToLogin('google_configuration');
+
+  if (!config) {
+    return redirectToLogin('google_configuration', origin);
   }
+
   try {
     getSupabaseServerConfig();
   } catch {
-    return redirectToLogin('supabase_configuration');
+    return redirectToLogin('supabase_configuration', origin);
   }
-  const requestHost = req.headers.get('host') || req.nextUrl.host;
-  if (base.host !== requestHost || base.protocol !== req.nextUrl.protocol) {
-    return NextResponse.redirect(new URL('/api/auth/google', base));
-  }
+
   const state = newOAuthState();
+  const redirectUri = `${origin}/api/auth/google/callback`;
+
   const url = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   url.search = new URLSearchParams({
-    client_id: config.clientId, redirect_uri: new URL('/api/auth/google/callback', base).href,
-    response_type: 'code', scope: 'openid email profile', state,
+    client_id: config.clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'openid email profile',
+    state,
+    access_type: 'offline',
+    prompt: 'select_account',
   }).toString();
+
   const response = NextResponse.redirect(url);
   response.cookies.set('socialflow_google_state', state, oauthCookieOptions);
   return response;
