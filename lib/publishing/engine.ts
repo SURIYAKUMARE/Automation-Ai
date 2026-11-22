@@ -49,11 +49,38 @@ const eligible = ['draft', 'ready', 'approved', 'scheduled', 'pending_approval',
 
 export async function dispatchCampaign(db: Database, ownerId: string, campaignId: string) {
   try {
+    let job: ClaimedJob | undefined;
     const { data, error } = await db.rpc('claim_campaign_publishing_job', {
       owner_id: ownerId, campaign_id: campaignId,
     });
-    if (error) throw error;
-    const job = data?.[0] as ClaimedJob | undefined;
+    if (!error && data?.[0]) {
+      job = data[0] as ClaimedJob;
+    } else if (error?.code === 'PGRST202' || error?.message?.includes('claim_campaign_publishing_job')) {
+      // Direct claim fallback when RPC is pending migration in remote PostgreSQL
+      const { data: queued } = await db.from('publishing_jobs')
+        .select('*')
+        .eq('user_id', ownerId)
+        .eq('post_id', campaignId)
+        .eq('status', 'queued')
+        .lte('run_at', new Date().toISOString())
+        .order('run_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (queued) {
+        await db.from('posts').update({ status: 'publishing', updated_at: new Date().toISOString() })
+          .eq('id', campaignId).eq('user_id', ownerId);
+        const { data: claimed } = await db.from('publishing_jobs')
+          .update({ status: 'running', updated_at: new Date().toISOString() })
+          .eq('id', queued.id)
+          .eq('status', 'queued')
+          .select()
+          .maybeSingle();
+        if (claimed) job = claimed as ClaimedJob;
+      }
+    } else if (error) {
+      throw error;
+    }
     if (job) await executePostPublishing(db, job);
   } catch (error) {
     // The worker handles queued jobs and reconciles interrupted dispatches.
