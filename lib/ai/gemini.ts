@@ -59,7 +59,7 @@ async function generateJson(prompt: string, parts: Part[] = [], responseSchema?:
   const key = process.env.GEMINI_API_KEY?.trim();
   if (!key) throw new Error('Gemini is not configured');
   const client = new GoogleGenerativeAI(key);
-  const models = (process.env.GEMINI_MODELS || 'gemini-flash-latest,gemini-flash-lite-latest')
+  const models = (process.env.GEMINI_MODELS || 'gemini-2.5-flash,gemini-3.5-flash,gemini-flash-latest')
     .split(',').map((model) => model.trim()).filter(Boolean).slice(0, 3);
   for (const model of models) {
     try {
@@ -68,7 +68,8 @@ async function generateJson(prompt: string, parts: Part[] = [], responseSchema?:
       }, { timeout: 30_000 });
       const { response } = await gemini.generateContent([{ text: prompt }, ...parts]);
       return JSON.parse(response.text());
-    } catch {
+    } catch (err: any) {
+      console.warn(`Gemini model ${model} failed:`, err?.message || err);
       // Try the next configured model after request or JSON decoding failure.
     }
   }
