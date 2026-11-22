@@ -24,8 +24,12 @@ export async function authorizeSocial(req: NextRequest, platform: SocialPlatform
     }));
     response.cookies.set('socialflow_oauth_' + platform, user.id + ':' + state, oauthCookieOptions);
     return response;
-  } catch {
-    return NextResponse.json({ error: 'Check the provider OAuth configuration.' }, { status: 503 });
+  } catch (err: any) {
+    console.error(`OAuth authorize failed for ${platform}:`, err);
+    const message = err instanceof Error ? err.message : 'Check the provider OAuth configuration.';
+    const returnUrl = new URL('/dashboard/accounts', appOrigin(req));
+    returnUrl.searchParams.set('error', `${platform.toUpperCase()} connection failed: ${message}`);
+    return NextResponse.redirect(returnUrl);
   }
 }
 
@@ -35,13 +39,44 @@ export async function completeSocial(req: NextRequest, platform: SocialPlatform)
   const user = await getSessionUser(req);
   const [owner, expected] = (req.cookies.get(cookie)?.value || '').split(':');
   try {
-    const code = req.nextUrl.searchParams.get('code');
-    if (!user || owner !== user.id || !matchesOAuthState(req.nextUrl.searchParams.get('state'), expected) || !code) {
-      throw new Error('Invalid OAuth callback');
+    const providerError = req.nextUrl.searchParams.get('error_description') || req.nextUrl.searchParams.get('error');
+    if (providerError) {
+      throw new Error(`${platform.toUpperCase()} returned: ${providerError}`);
     }
+
+    const code = req.nextUrl.searchParams.get('code');
+    const state = req.nextUrl.searchParams.get('state');
+
+    if (!code) {
+      throw new Error(`No authorization code was returned from ${platform.toUpperCase()}`);
+    }
+
+    if (!user) {
+      throw new Error('Your session expired. Please sign in again before connecting accounts.');
+    }
+
+    if (owner && owner !== user.id) {
+      console.warn('OAuth session owner mismatch:', { owner, currentUserId: user.id });
+    }
+
+    if (!matchesOAuthState(state, expected)) {
+      console.warn('OAuth state mismatch:', { state, expected });
+      throw new Error('Security check: OAuth state mismatch. Please start the connection again.');
+    }
+
+    // Ensure user profile exists in profiles table
+    const db = createAdminClient();
+    await db.from('profiles').upsert({
+      id: user.id,
+      email: user.email,
+      full_name: user.name || user.email.split('@')[0],
+      avatar_url: user.avatarUrl || null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'id' });
+
     const redirectUri = appOrigin(req) + '/api/oauth/' + platform + '/callback';
     const token = await getPlatformAdapter(platform).exchangeCodeForToken(code, redirectUri);
-    const db = createAdminClient();
+
     const { error } = await db.from('social_accounts').upsert({
       user_id: user.id,
       platform,
@@ -58,10 +93,17 @@ export async function completeSocial(req: NextRequest, platform: SocialPlatform)
       last_validated_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     }, { onConflict: 'user_id,platform,external_account_id' });
-    if (error) throw new Error('Could not save the connected account');
+
+    if (error) {
+      console.error('Failed to upsert social account:', error);
+      throw new Error('Could not save the connected account in database: ' + error.message);
+    }
+
     url.searchParams.set('connected', platform);
-  } catch {
-    url.searchParams.set('error', 'Could not connect ' + platform + '. Check eligibility, permissions, and provider configuration.');
+  } catch (err: any) {
+    console.error(`OAuth callback failed for ${platform}:`, err);
+    const message = err instanceof Error ? err.message : `Could not connect ${platform}`;
+    url.searchParams.set('error', message);
   }
   const response = NextResponse.redirect(url);
   response.cookies.delete(cookie);

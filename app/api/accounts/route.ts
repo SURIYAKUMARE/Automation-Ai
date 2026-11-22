@@ -8,11 +8,35 @@ export async function GET(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
   try {
-    const { data, error } = await createAdminClient().from('social_accounts')
+    const db = createAdminClient();
+    let userIds = [user.id];
+    if (user.email) {
+      const { data: userProfiles } = await db
+        .from('profiles')
+        .select('id')
+        .ilike('email', user.email);
+      if (userProfiles?.length) {
+        userIds = Array.from(new Set([...userIds, ...userProfiles.map((p) => p.id)]));
+      }
+    }
+
+    const { data, error } = await db.from('social_accounts')
       .select('id,platform,external_account_id,account_name,account_handle,avatar_url,granted_scopes,token_expires_at,status,last_validated_at')
-      .eq('user_id', user.id).neq('status', 'revoked').order('created_at');
+      .in('user_id', userIds).neq('status', 'revoked').order('created_at', { ascending: false });
     if (error) throw error;
-    const accounts = data.map((account) => ({
+
+    // Deduplicate by platform + external_account_id
+    const seen = new Set<string>();
+    const uniqueList: typeof data = [];
+    for (const account of data || []) {
+      const key = `${account.platform}:${account.external_account_id}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueList.push(account);
+      }
+    }
+
+    const accounts = uniqueList.map((account) => ({
       ...account,
       expires_in_days: account.token_expires_at ? Math.max(0, Math.ceil((Date.parse(account.token_expires_at) - Date.now()) / 86_400_000)) : null,
     }));

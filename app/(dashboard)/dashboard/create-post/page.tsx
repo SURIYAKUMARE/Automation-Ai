@@ -600,7 +600,14 @@ export default function CreatePostPage() {
                           {isConnected ? (
                             <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" title="Connected & Active" />
                           ) : (
-                            <span className="text-[10px] font-normal text-amber-500 font-mono">(Offline)</span>
+                            <Link
+                              href="/dashboard/accounts"
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-[10px] font-normal text-amber-500 hover:underline font-mono"
+                              title="Connect account in Accounts page"
+                            >
+                              (Offline)
+                            </Link>
                           )}
                         </div>
                         <div className="text-[10px] font-mono text-muted-foreground">
@@ -621,6 +628,14 @@ export default function CreatePostPage() {
                 );
               })}
             </div>
+            {selectedPlatforms.some((p) => !connectedPlatforms.includes(p)) && (
+              <div className="flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/10 p-2.5 text-xs text-amber-600 dark:text-amber-400">
+                <span>Selected destination requires an active connected channel.</span>
+                <Link href="/dashboard/accounts" className="font-semibold underline ml-2 shrink-0 hover:text-amber-500">
+                  Connect channel →
+                </Link>
+              </div>
+            )}
             {accounts.filter((account) => selectedPlatforms.includes(account.platform)).length > 0 && <fieldset className="grid gap-2 text-sm">
               <legend className="mb-2 text-xs font-semibold text-muted-foreground">Publishing accounts</legend>
               {accounts.filter((account) => selectedPlatforms.includes(account.platform)).map((account) => <label key={account.id} className="flex items-center gap-2">

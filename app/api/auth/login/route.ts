@@ -20,10 +20,43 @@ export async function POST(req: NextRequest) {
     if (!data.user || !data.session || error) {
       return NextResponse.json({ error: 'Email or password is incorrect.' }, { status: 401 });
     }
+    const db = createAdminClient();
+    const userEmail = (data.user.email || input.data.email).toLowerCase();
+
+    // Ensure profile row exists for this authenticated user ID
+    const { data: existingProfile } = await db.from('profiles').select('id,email,full_name,avatar_url')
+      .eq('id', data.user.id).maybeSingle();
+
+    if (!existingProfile) {
+      await db.from('profiles').upsert({
+        id: data.user.id,
+        email: userEmail,
+        full_name: data.user.user_metadata?.full_name || userEmail.split('@')[0],
+        avatar_url: data.user.user_metadata?.avatar_url || null,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+    }
+
+    // Unify connected accounts across same email
+    const { data: otherProfiles } = await db.from('profiles').select('id').ilike('email', userEmail).neq('id', data.user.id);
+    if (otherProfiles && otherProfiles.length > 0) {
+      const otherIds = otherProfiles.map((p) => p.id);
+      const { data: existingAccounts } = await db.from('social_accounts').select('*').in('user_id', otherIds).neq('status', 'revoked');
+      for (const acc of existingAccounts || []) {
+        const clone = { ...acc };
+        delete clone.id;
+        clone.user_id = data.user.id;
+        await db.from('social_accounts').upsert(clone, { onConflict: 'user_id,platform,external_account_id' });
+      }
+    }
+
     const user: AuthUser = {
-      id: data.user.id, email: data.user.email || input.data.email,
-      name: data.user.user_metadata?.full_name || input.data.email.split('@')[0],
-      avatarUrl: data.user.user_metadata?.avatar_url, role: 'user', createdAt: data.user.created_at,
+      id: data.user.id,
+      email: userEmail,
+      name: existingProfile?.full_name || data.user.user_metadata?.full_name || userEmail.split('@')[0],
+      avatarUrl: existingProfile?.avatar_url || data.user.user_metadata?.avatar_url,
+      role: 'user',
+      createdAt: data.user.created_at,
     };
     return setSessionCookie(NextResponse.json({ success: true, user }), user);
   } catch (error) {
