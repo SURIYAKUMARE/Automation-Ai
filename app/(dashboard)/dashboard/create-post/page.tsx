@@ -372,7 +372,18 @@ export default function CreatePostPage() {
         const updated = { ...previous };
         for (const p of targetPlatforms) {
           const variant = result.variants[p];
-          if (variant) updated[p] = { ...variant, hashtags: variant.hashtags.join(" "), youtubePrivacy: previous[p].youtubePrivacy };
+          if (variant) {
+            const tags = (variant.hashtags || []).map((t: string) => (t.startsWith("#") ? t : `#${t}`)).join(" ");
+            const captionWithHashtags = tags && !variant.caption.includes("#")
+              ? `${variant.caption}\n\n${tags}`
+              : variant.caption;
+            updated[p] = {
+              ...variant,
+              caption: captionWithHashtags,
+              hashtags: tags,
+              youtubePrivacy: previous[p].youtubePrivacy,
+            };
+          }
         }
         return updated;
       });
@@ -851,6 +862,20 @@ export default function CreatePostPage() {
                   {activeTab === "youtube" ? "Video Description for" : "Caption for"}{" "}
                   <span className="capitalize font-semibold">{activeTab}</span>
                 </span>
+                {currentContent.hashtags && !currentContent.caption.includes(currentContent.hashtags.split(" ")[0] || "#") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const tags = currentContent.hashtags.trim();
+                      if (tags) {
+                        updateCurrentCaption((currentContent.caption.trim() + "\n\n" + tags).trim());
+                      }
+                    }}
+                    className="text-[11px] text-primary hover:underline font-mono"
+                  >
+                    + Append hashtags to caption
+                  </button>
+                )}
               </label>
               <Textarea
                 rows={6}

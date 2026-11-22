@@ -88,7 +88,9 @@ export async function POST(req: NextRequest) {
         if (variant.platform === 'youtube' && (!variant.title || variant.title.length > 100)) {
           return NextResponse.json({ error: 'YouTube requires a video and a title of at most 100 characters' }, { status: 400 });
         }
-        const length = variant.caption.length + (variant.hashtags.length ? 2 + variant.hashtags.join(' ').length : 0);
+        const existingTags = new Set((variant.caption.match(/#[\p{L}\p{M}\p{N}_]+/gu) || []).map((t: string) => t.toLowerCase()));
+        const extraTags = (variant.hashtags || []).filter((t: string) => !existingTags.has((t.startsWith('#') ? t : '#' + t).toLowerCase()));
+        const length = variant.caption.length + (extraTags.length ? 2 + extraTags.join(' ').length : 0);
         if (length > captionLimits[variant.platform]) {
           return NextResponse.json({ error: variant.platform + ' caption and hashtags exceed the length limit' }, { status: 400 });
         }

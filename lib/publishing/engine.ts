@@ -136,8 +136,10 @@ export async function executePostPublishing(db: Database, job: ClaimedJob) {
             result = { success: false, errorCode: 'RECONNECT', errorMessage: 'The connection expired. Reconnect the account and retry.' };
           } else {
             const tags = (variant.hashtags as string[] | null) ?? [];
-            const text = [variant.caption, tags.map((tag) => tag.startsWith('#') ? tag : '#' + tag).join(' ')]
-              .filter(Boolean).join('\n\n');
+            const existingTags = new Set((variant.caption.match(/#[\p{L}\p{M}\p{N}_]+/gu) || []).map((t: string) => t.toLowerCase()));
+            const newTags = tags.map((tag) => (tag.startsWith('#') ? tag : '#' + tag))
+              .filter((tag) => !existingTags.has(tag.toLowerCase()));
+            const text = [variant.caption, newTags.join(' ')].filter(Boolean).join('\n\n');
             try {
               result = await getPlatformAdapter(platform).publish({
                 text, title: variant.title || post.title,

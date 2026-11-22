@@ -103,6 +103,11 @@ export default function AICaptionStudioPage() {
     }
   };
 
+  const formatCaptionWithHashtags = (caption: string, hashtags?: string[]) => {
+    const tags = (hashtags || []).map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ");
+    return [caption, tags].filter(Boolean).join("\n\n");
+  };
+
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard.writeText(text);
     setCopiedKey(key);
@@ -327,7 +332,7 @@ export default function AICaptionStudioPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => copyToClipboard(analysisResult.platforms.linkedin.caption, "linkedin")}
+                      onClick={() => copyToClipboard(formatCaptionWithHashtags(analysisResult.platforms.linkedin.caption, analysisResult.platforms.linkedin.hashtags), "linkedin")}
                       className="h-7 px-2 text-xs"
                     >
                       {copiedKey === "linkedin" ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
@@ -370,7 +375,7 @@ export default function AICaptionStudioPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => copyToClipboard(analysisResult.platforms.instagram.caption, "instagram")}
+                      onClick={() => copyToClipboard(formatCaptionWithHashtags(analysisResult.platforms.instagram.caption, analysisResult.platforms.instagram.hashtags), "instagram")}
                       className="h-7 px-2 text-xs"
                     >
                       {copiedKey === "instagram" ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
@@ -413,7 +418,7 @@ export default function AICaptionStudioPage() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => copyToClipboard(analysisResult.platforms.facebook.caption, "facebook")}
+                      onClick={() => copyToClipboard(formatCaptionWithHashtags(analysisResult.platforms.facebook.caption, analysisResult.platforms.facebook.hashtags), "facebook")}
                       className="h-7 px-2 text-xs"
                     >
                       {copiedKey === "facebook" ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
@@ -457,7 +462,7 @@ export default function AICaptionStudioPage() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() => copyToClipboard(analysisResult.platforms.youtube!.caption, "youtube")}
+                        onClick={() => copyToClipboard(formatCaptionWithHashtags(analysisResult.platforms.youtube!.caption, analysisResult.platforms.youtube!.hashtags), "youtube")}
                         className="h-7 px-2 text-xs"
                       >
                         {copiedKey === "youtube" ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
