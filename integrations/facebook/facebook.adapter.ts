@@ -5,7 +5,7 @@ export class FacebookAdapter implements PlatformAdapter {
   platform = 'facebook' as const;
 
   private get appId(): string {
-    return process.env.META_APP_ID || '';
+    return process.env.META_APP_ID || '1105730908969288';
   }
 
   private get appSecret(): string {
@@ -103,8 +103,10 @@ export class FacebookAdapter implements PlatformAdapter {
 
   async validateToken(accessToken: string, accountId: string): Promise<boolean> {
     try {
-      const res = await fetch(`https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${accountId}?fields=id,name&access_token=${accessToken}`);
-      return res.ok;
+      const res = await fetch(`https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${encodeURIComponent(accountId)}?fields=id`, {
+        headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(10_000),
+      });
+      return res.ok && (await res.json()).id === accountId;
     } catch {
       return false;
     }

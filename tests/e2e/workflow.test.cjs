@@ -33,6 +33,8 @@ async function startApp(t, overrides = {}) {
         GEMINI_API_KEY: 'test-gemini-key', GEMINI_MODELS: 'gemini-fixture',
         META_APP_ID: 'test-meta-app-id', META_APP_SECRET: 'test-meta-app-secret',
         GOOGLE_CLIENT_ID: 'fixture.apps.googleusercontent.com', GOOGLE_CLIENT_SECRET: 'test-google-secret',
+        YOUTUBE_CLIENT_ID: 'fixture-youtube.apps.googleusercontent.com', YOUTUBE_CLIENT_SECRET: 'test-youtube-secret',
+        LINKEDIN_CLIENT_ID: 'test-linkedin-app-id', LINKEDIN_CLIENT_SECRET: 'test-linkedin-secret',
         ...overrides,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -134,6 +136,54 @@ test('production HTTP workflow with mocked providers', { timeout: 55_000 }, asyn
   const status = await (await request('/api/posts/status?postId=' + id)).json();
   assert.equal(status.post.status, 'published');
   assert.equal(status.post.post_targets[0].status, 'published');
+});
+
+test('signed-in users can connect and verify their own social accounts', { timeout: 55_000 }, async (t) => {
+  const { origin } = await startApp(t);
+  async function signIn(email) {
+    const response = await fetch(origin + '/api/auth/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: 'fixture-password' }),
+    });
+    assert.equal(response.status, 200);
+    return response.headers.get('set-cookie').split(';')[0];
+  }
+  async function connect(cookie, platform) {
+    const headers = { Cookie: cookie };
+    const start = await fetch(origin + '/api/oauth/' + platform, { headers, redirect: 'manual' });
+    assert.equal(start.status, 307);
+    const consent = new URL(start.headers.get('location'));
+    assert.equal(consent.searchParams.get('redirect_uri'), origin + '/api/oauth/' + platform + '/callback');
+    if (platform === 'youtube') assert.equal(consent.searchParams.get('client_id'), 'fixture-youtube.apps.googleusercontent.com');
+    const binding = start.headers.get('set-cookie').split(';')[0];
+    const params = new URLSearchParams({ state: consent.searchParams.get('state'), code: 'fixture-' + platform + '-code' });
+    const complete = await fetch(origin + '/api/oauth/' + platform + '/callback?' + params, {
+      headers: { Cookie: cookie + '; ' + binding }, redirect: 'manual',
+    });
+    assert.equal(complete.status, 307);
+    assert.equal(new URL(complete.headers.get('location')).searchParams.get('connected'), platform);
+  }
+  async function accounts(cookie) {
+    const response = await fetch(origin + '/api/accounts', { headers: { Cookie: cookie } });
+    assert.equal(response.status, 200);
+    return (await response.json()).accounts;
+  }
+  const first = await signIn('fixture@test.invalid');
+  const second = await signIn('second@test.invalid');
+  for (const platform of ['linkedin', 'youtube', 'instagram', 'facebook']) await connect(first, platform);
+  await connect(second, 'linkedin');
+  const firstAccounts = await accounts(first);
+  const secondAccounts = await accounts(second);
+  assert.deepEqual([...new Set(firstAccounts.map((item) => item.platform))].sort(), ['facebook', 'instagram', 'linkedin', 'youtube']);
+  assert.deepEqual(secondAccounts.map((item) => item.platform), ['linkedin']);
+  assert.equal(firstAccounts.some((item) => item.id === secondAccounts[0].id), false);
+  assert.equal(firstAccounts.some((item) => 'encrypted_access_token' in item), false);
+  const result = await fetch(origin + '/api/accounts', {
+    method: 'POST', headers: { Cookie: first, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ accountId: firstAccounts.find((item) => item.platform === 'youtube').id }),
+  });
+  assert.equal(result.status, 200);
+  assert.ok((await result.json()).lastValidatedAt);
 });
 
 test('placeholder credentials report a configuration error on both sign-in methods', async (t) => {
@@ -238,8 +288,11 @@ test('mobile browser reviews, approves and tracks an uploaded post', { timeout: 
   await page.locator('input[type=file]').setInputFiles({ name: 'poster.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(jpeg, 'base64') });
   await page.getByText('A test poster', { exact: true }).waitFor();
   await page.getByLabel('Send to Approval Center before publishing').check();
+  const saved = page.waitForResponse((response) => response.url().endsWith('/api/posts/create') && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Publish Now', exact: true }).click();
-  await page.waitForURL('**/dashboard/approvals');
+  const creation = await saved;
+  assert.equal(creation.status(), 201, await creation.text());
+  await page.waitForURL('**/dashboard/approvals', { waitUntil: 'domcontentloaded' });
   await page.locator('textarea').fill('Human-edited caption.');
   await page.getByRole('button', { name: 'Approve & Publish Now' }).click();
   await page.getByText('Post approved and queued', { exact: true }).waitFor();

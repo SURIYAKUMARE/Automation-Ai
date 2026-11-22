@@ -1,14 +1,17 @@
 import { PlatformAdapter, OAuthUrlParams, OAuthTokenResult, PublishRequest, PublishResult } from '../types';
+import { getYouTubeOAuthConfig } from '@/lib/auth/google-config';
+
+const youtubeScopes = ['https://www.googleapis.com/auth/youtube.upload', 'https://www.googleapis.com/auth/youtube.readonly'];
 
 export class YouTubeAdapter implements PlatformAdapter {
   platform = 'youtube' as const;
 
   private get clientId(): string {
-    return process.env.GOOGLE_CLIENT_ID || '';
+    return getYouTubeOAuthConfig()?.clientId || '';
   }
 
   private get clientSecret(): string {
-    return process.env.GOOGLE_CLIENT_SECRET || '';
+    return getYouTubeOAuthConfig()?.clientSecret || '';
   }
 
   getAuthorizationUrl({ redirectUri, state }: OAuthUrlParams): string {
@@ -16,18 +19,11 @@ export class YouTubeAdapter implements PlatformAdapter {
       throw new Error('GOOGLE_CLIENT_ID is not configured');
     }
 
-    const scopes = [
-      'https://www.googleapis.com/auth/userinfo.profile',
-      'https://www.googleapis.com/auth/userinfo.email',
-      'https://www.googleapis.com/auth/youtube.upload',
-      'https://www.googleapis.com/auth/youtube.readonly',
-    ];
-
     const params = new URLSearchParams({
       client_id: this.clientId,
       redirect_uri: redirectUri,
       response_type: 'code',
-      scope: scopes.join(' '),
+      scope: youtubeScopes.join(' '),
       access_type: 'offline',
       prompt: 'consent',
       state: state,
@@ -83,9 +79,8 @@ export class YouTubeAdapter implements PlatformAdapter {
     }
 
     if (channelId === 'unknown') throw new Error('A YouTube channel is required to connect this account');
-    if (!(tokenData.scope || '').split(' ').includes('https://www.googleapis.com/auth/youtube.upload')) {
-      throw new Error('YouTube upload permission was not granted');
-    }
+    const grantedScopes = (tokenData.scope || '').split(/\s+/);
+    if (!youtubeScopes.every((scope) => grantedScopes.includes(scope))) throw new Error('Required YouTube permissions were not granted');
     return {
       accessToken,
       refreshToken,
@@ -94,7 +89,7 @@ export class YouTubeAdapter implements PlatformAdapter {
       accountName: channelTitle,
       accountHandle: `@${channelTitle.replace(/\s+/g, '').toLowerCase()}`,
       avatarUrl,
-      grantedScopes: tokenData.scope ? tokenData.scope.split(' ') : [],
+      grantedScopes,
       rawMetadata: { channelId, channelTitle },
     };
   }
@@ -124,15 +119,17 @@ export class YouTubeAdapter implements PlatformAdapter {
     };
   }
 
-  async validateToken(accessToken: string): Promise<boolean> {
+  async validateToken(accessToken: string, accountId: string): Promise<boolean> {
     try {
       const res = await fetch(
-        'https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true',
+        'https://www.googleapis.com/youtube/v3/channels?part=id&mine=true',
         {
-          headers: { Authorization: `Bearer ${accessToken}` },
+          headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(10_000),
         }
       );
-      return res.ok;
+      if (!res.ok) return false;
+      const data = await res.json();
+      return Array.isArray(data.items) && data.items.some((channel: { id: string }) => channel.id === accountId);
     } catch {
       return false;
     }

@@ -1,8 +1,9 @@
 // Test-only transport. Reject every unrelated external request.
-const { createCipheriv, randomBytes } = require('node:crypto');
+const { createCipheriv, randomBytes, randomUUID } = require('node:crypto');
 const assert = require('node:assert/strict');
 const fetchReal = globalThis.fetch;
 const owner = '10000000-0000-4000-8000-000000000000';
+const secondOwner = '10000000-0000-4000-8000-000000000001';
 const accountId = '20000000-0000-4000-8000-000000000000';
 const assetId = '30000000-0000-4000-8000-000000000000';
 const targetId = '40000000-0000-4000-8000-000000000000';
@@ -25,6 +26,7 @@ let targets = [];
 let variants = [];
 let queued = false;
 let publishes = 0;
+const linkedAccounts = [];
 
 globalThis.fetch = async (input, init) => {
   const url = new URL(input instanceof Request ? input.url : input);
@@ -34,11 +36,24 @@ globalThis.fetch = async (input, init) => {
   const json = (data, status = 200) => Response.json(data, { status });
   if (url.hostname === '127.0.0.1' || url.hostname === 'localhost') return fetchReal(input, init);
   if (url.hostname === 'oauth2.googleapis.com') {
-    assert.equal(new URLSearchParams(init.body).get('code'), 'fixture-google-code');
+    const code = new URLSearchParams(init.body).get('code');
+    if (code === 'fixture-youtube-code') return json({ access_token: 'fixture-youtube-token', refresh_token: 'fixture-youtube-refresh',
+      scope: 'https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.readonly' });
+    assert.equal(code, 'fixture-google-code');
     return json({ access_token: 'fixture-google-access-token' });
   }
   if (url.hostname === 'www.googleapis.com' && path === '/oauth2/v2/userinfo') {
     return json({ id: '123456', email: 'google@test.invalid', verified_email: true, name: 'Google Fixture' });
+  }
+  if (url.hostname === 'www.googleapis.com' && path === '/youtube/v3/channels') {
+    return json({ items: [{ id: 'fixture-channel', snippet: { title: 'Fixture Channel' } }] });
+  }
+  if (url.hostname === 'www.linkedin.com' && path === '/oauth/v2/accessToken') {
+    assert.equal(new URLSearchParams(init.body).get('code'), 'fixture-linkedin-code');
+    return json({ access_token: 'fixture-linkedin-token', scope: 'openid profile email w_member_social' });
+  }
+  if (url.hostname === 'api.linkedin.com' && path === '/v2/userinfo') {
+    return json({ sub: 'fixture-linkedin-member', name: 'Fixture LinkedIn Member' });
   }
   if (url.hostname === 'generativelanguage.googleapis.com') {
     const request = body();
@@ -62,6 +77,14 @@ globalThis.fetch = async (input, init) => {
     }) }] }, finishReason: 'STOP' }] });
   }
   if (url.hostname === 'graph.facebook.com') {
+    if (path.endsWith('/oauth/access_token')) return json({ access_token: 'fixture-meta-user-token', expires_in: 3600 });
+    if (path.endsWith('/me/permissions')) {
+      return json({ data: ['pages_show_list','pages_read_engagement','pages_manage_posts','instagram_basic','instagram_content_publish']
+        .map((permission) => ({ permission, status: 'granted' })) });
+    }
+    if (path.endsWith('/me/accounts')) return json({ data: [{ id: 'fixture-meta-page', name: 'Fixture Meta Page',
+      tasks: ['CREATE_CONTENT'], access_token: 'fixture-meta-page-token',
+      instagram_business_account: { id: 'fixture-instagram-account', username: 'fixture_instagram' } }] });
     assert.equal(method, 'POST');
     assert.match(path, /\/test-page\/photos$/);
     const form = new URLSearchParams(init.body);
@@ -77,7 +100,8 @@ globalThis.fetch = async (input, init) => {
     if (credentials.password !== 'fixture-password') return json({ code: 'invalid_credentials', msg: 'Invalid credentials' }, 400);
     if (credentials.email === 'unconfirmed@test.invalid') return json({ error_code: 'email_not_confirmed', msg: 'Email not confirmed' }, 400);
     return json({ access_token: 'session-fixture', refresh_token: 'refresh-fixture', expires_in: 3600,
-      token_type: 'bearer', user: { id: owner, email: credentials.email, user_metadata: { full_name: 'Fixture Owner' }, created_at: new Date().toISOString() } });
+      token_type: 'bearer', user: { id: credentials.email === 'second@test.invalid' ? secondOwner : owner, email: credentials.email,
+        user_metadata: { full_name: 'Fixture Owner' }, created_at: new Date().toISOString() } });
   }
   if (path === '/rest/v1/profiles' && method === 'POST') return new Response(null, { status: 201 });
   if (path.startsWith('/storage/v1/object/sign/')) return json({ signedURL: path.replace('/storage/v1', '') + '?token=fixture' });
@@ -109,7 +133,27 @@ globalThis.fetch = async (input, init) => {
   }
   if (path === '/rest/v1/brand_profiles') return json([]);
   if (path === '/rest/v1/notifications' || path === '/rest/v1/publishing_jobs') return json([]);
-  if (path === '/rest/v1/social_accounts') return json([{ id: accountId, platform: 'facebook', status: 'active', account_name: 'Fixture Page' }]);
+  if (path === '/rest/v1/social_accounts') {
+    if (method === 'POST') {
+      const row = body();
+      assert.ok([owner, secondOwner].includes(row.user_id));
+      assert.match(row.encrypted_access_token, /^[a-f\d]+:[a-f\d]+:[a-f\d]+$/);
+      linkedAccounts.push({ ...row, id: randomUUID() });
+      return new Response(null, { status: 201 });
+    }
+    const filter = url.searchParams.get('user_id');
+    const id = url.searchParams.get('id');
+    const rows = [{ ...account, account_name: 'Fixture Page' }, ...linkedAccounts]
+      .filter((row) => (!filter || filter === 'eq.' + row.user_id) &&
+        (!id || id === 'eq.' + row.id || (id.startsWith('in.(') && id.includes(row.id))));
+    if (method === 'PATCH') for (const row of rows) Object.assign(row, body());
+    const select = url.searchParams.get('select') || '';
+    return json(rows.map((row) => {
+      if (select.includes('encrypted_access_token')) return row;
+      const { encrypted_access_token, encrypted_refresh_token, ...safe } = row;
+      return safe;
+    }));
+  }
   if (path === '/rest/v1/rpc/consume_ai_request') return json(true);
   if (path === '/rest/v1/rpc/create_campaign' || path === '/rest/v1/rpc/create_automatic_campaign' || path === '/rest/v1/rpc/create_queued_campaign') {
     const input = body();

@@ -95,12 +95,12 @@ export class LinkedInAdapter implements PlatformAdapter {
     return { accessToken: token.access_token, expiresInSeconds: token.expires_in, refreshToken: token.refresh_token };
   }
 
-  async validateToken(accessToken: string): Promise<boolean> {
+  async validateToken(accessToken: string, accountId: string): Promise<boolean> {
     try {
       const res = await fetch('https://api.linkedin.com/v2/userinfo', {
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: { Authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(10_000),
       });
-      return res.ok;
+      return res.ok && (await res.json()).sub === accountId;
     } catch {
       return false;
     }

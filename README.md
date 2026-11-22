@@ -27,6 +27,8 @@ Under **Publish automatically on upload**, select the exact accounts, confirm au
 
 Register the callback URL exactly as shown with the provider, using your deployed `APP_URL` as the origin. Google sign-in and the YouTube connection use separate grants.
 
+For public onboarding, configure one OAuth app per provider integration. Each signed-in SocialFlow user grants access from **Social accounts**. Set Google’s audience to External and publish the YouTube OAuth app after completing any required verification. Separate `YOUTUBE_CLIENT_ID` and `YOUTUBE_CLIENT_SECRET` values let you manage that consent flow separately from Google sign-in. For Meta, move the app to Live and obtain Advanced Access for the Page and Instagram permissions used here. For LinkedIn, enable Share on LinkedIn and Sign In with LinkedIn using OpenID Connect. [Google OAuth audience](https://support.google.com/cloud/answer/15549945) · [Meta App Review](https://developers.facebook.com/docs/app-review/) · [LinkedIn publishing permissions](https://learn.microsoft.com/linkedin/consumer/integrations/self-serve/share-on-linkedin)
+
 | Provider | Callback path | Requirements and current coverage |
 | --- | --- | --- |
 | Google sign-in | `/api/auth/google/callback` | OAuth client for OpenID, email and profile. |

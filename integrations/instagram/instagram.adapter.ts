@@ -5,7 +5,7 @@ export class InstagramAdapter implements PlatformAdapter {
   platform = 'instagram' as const;
 
   private get appId(): string {
-    return process.env.META_APP_ID || '';
+    return process.env.META_APP_ID || '1105730908969288';
   }
 
   private get appSecret(): string {
@@ -65,7 +65,7 @@ export class InstagramAdapter implements PlatformAdapter {
     const longLivedData = longLivedRes.ok ? await longLivedRes.json() : tokenData;
     const finalAccessToken = longLivedData.access_token || userAccessToken;
 
-    const grantedScopes = await readMetaPermissions(finalAccessToken, ["pages_show_list", "instagram_basic", "instagram_content_publish"]);
+    const grantedScopes = await readMetaPermissions(finalAccessToken, ["pages_show_list", "pages_read_engagement", "instagram_basic", "instagram_content_publish"]);
     // Discover connected Instagram Business / Creator account via Facebook Pages
     const pagesRes = await fetch(
       `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/me/accounts?fields=id,name,tasks,instagram_business_account{id,username,profile_picture_url}&access_token=${finalAccessToken}`
@@ -107,8 +107,10 @@ export class InstagramAdapter implements PlatformAdapter {
 
   async validateToken(accessToken: string, accountId: string): Promise<boolean> {
     try {
-      const res = await fetch(`https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${accountId}?fields=id,username&access_token=${accessToken}`);
-      return res.ok;
+      const res = await fetch(`https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${encodeURIComponent(accountId)}?fields=id`, {
+        headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(10_000),
+      });
+      return res.ok && (await res.json()).id === accountId;
     } catch {
       return false;
     }
