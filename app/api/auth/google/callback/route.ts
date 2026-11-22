@@ -126,28 +126,22 @@ export async function GET(req: NextRequest) {
       throw new Error('A verified email address is required from Google.');
     }
 
-    // 6. Upsert user in profiles table (preserve existing profile if already registered with same email)
+    // 6. Upsert user in profiles table strictly by Google ID
     const db = createAdminClient();
-    const { data: existingProfiles, error: lookupError } = await db.from('profiles')
+    const userId = stringToUuid(profile.id);
+    const { data: existing, error: lookupError } = await db.from('profiles')
       .select('id,email,full_name,avatar_url')
-      .eq('email', email)
-      .order('created_at', { ascending: true });
+      .eq('id', userId)
+      .maybeSingle();
     if (lookupError) throw lookupError;
-    const googleId = stringToUuid(profile.id);
-    const existing = existingProfiles?.find((candidate) => candidate.id === googleId) ||
-      (existingProfiles?.length === 1 ? existingProfiles[0] : undefined);
-    if (!existing && existingProfiles?.length) throw new Error('Google profile ownership could not be determined');
 
-    let userId: string;
-    if (existing?.id) {
-      userId = existing.id;
+    if (existing) {
       await db.from('profiles').update({
         full_name: profile.name || existing.full_name,
         avatar_url: profile.picture || existing.avatar_url,
         updated_at: new Date().toISOString(),
       }).eq('id', userId);
     } else {
-      userId = googleId;
       const { error: insertError } = await db.from('profiles').upsert({
         id: userId,
         email: email,
