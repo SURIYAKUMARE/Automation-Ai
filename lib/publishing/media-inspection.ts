@@ -238,7 +238,7 @@ export async function prepareStoredMedia(bytes: Buffer, mime: string) {
     try {
       const video = await probeVideo(file, mime);
       const mediaFrames: Buffer[] = [];
-      for (const position of [0.04, 0.22, 0.4, 0.58, 0.76, 0.94]) {
+      for (const position of [0.15, 0.5, 0.85]) {
         const f = await frame(file, position * video.duration).catch(() => null);
         if (f) mediaFrames.push(f);
       }

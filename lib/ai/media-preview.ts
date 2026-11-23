@@ -1,6 +1,6 @@
 const photoBudget = 3_800_000;
-const frameBudget = 550_000;
-const samplePoints = [0.04, 0.22, 0.4, 0.58, 0.76, 0.94];
+const frameBudget = 400_000;
+const samplePoints = [0.15, 0.5, 0.85];
 
 function makeImagePreview(source: CanvasImageSource, width: number, height: number, size: number, budget: number) {
   if (!width || !height) throw new Error('The selected file has no readable image');
@@ -66,7 +66,7 @@ export async function prepareMediaPreview(file: Blob, isVideo = file.type.starts
       if (Math.abs(clip.currentTime - time) > 0.001) {
         await waitForVideo(clip, 'seeked', () => { clip.currentTime = time; });
       }
-      frames.push(makeImagePreview(clip, clip.videoWidth, clip.videoHeight, 960, frameBudget));
+      frames.push(makeImagePreview(clip, clip.videoWidth, clip.videoHeight, 640, frameBudget));
     }
     return { mediaFrames: frames, isMediaVideo: true };
   } finally {

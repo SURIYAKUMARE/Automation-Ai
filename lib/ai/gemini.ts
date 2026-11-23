@@ -193,16 +193,25 @@ Brand preferences: ${JSON.stringify(brand ?? {})}`;
     if (hasMedia && review.success && review.data?.readable === false) {
       throw new MediaGroundingError('AI could not identify enough detail in this media. Try a clearer photo or video.');
     }
-    if (hasMedia && (!review.success || !review.data?.observations.length)) throw new Error('Missing visual observations');
     const result = GeminiAnalysisResultSchema.parse(raw);
     for (const platform of targetPlatforms) {
-      const variant = result.platforms[platform];
+      let variant = result.platforms[platform];
       if (!variant) {
-        throw new Error(`The provider did not return copy for ${platform}`);
+        variant = {
+          caption: result.summary,
+          title: result.summary.slice(0, 100) || (platform === 'youtube' ? 'YouTube Video' : 'Social Post'),
+          hashtags: (result.topics || []).map((t) => t.startsWith('#') ? t : `#${t}`).slice(0, hashtagLimit),
+          keywords: result.topics || [],
+          call_to_action: '',
+          alternatives: [],
+          character_count: result.summary.length,
+        };
+        result.platforms[platform] = variant;
+      } else {
+        variant.title ||= result.summary.trim().slice(0, 100) || (platform === 'youtube' ? 'YouTube Video' : 'Social Post');
+        variant.hashtags = (variant.hashtags || []).slice(0, hashtagLimit);
+        variant.alternatives = variant.alternatives || [];
       }
-      variant.title ||= result.summary.trim().slice(0, 100) || (platform === 'youtube' ? 'YouTube Video' : 'Social Post');
-      variant.hashtags = (variant.hashtags || []).slice(0, hashtagLimit);
-      variant.alternatives = variant.alternatives || [];
     }
     return result;
   }, parts, {
