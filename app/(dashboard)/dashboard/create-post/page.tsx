@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { prepareMediaPreview } from "@/lib/ai/media-preview";
-import { convertImageToVideo, formatImageForInstagram } from "@/lib/media/image-to-video";
+import { convertImageToVideo, autoFormatImage, formatImageForInstagram } from "@/lib/media/image-to-video";
 import { UploadPublishingSettings } from "@/components/dashboard/upload-publishing-settings";
 import { SocialPlatform, SupportedTone } from "@/types";
 import { PlatformIcon } from "@/components/platform-icon";
@@ -125,6 +125,7 @@ export default function CreatePostPage() {
   // Submitting
   const [isPublishing, setIsPublishing] = React.useState(false);
   const [isConvertingVideo, setIsConvertingVideo] = React.useState(false);
+  const [targetPhotoFormat, setTargetPhotoFormat] = React.useState<"jpeg" | "png">("jpeg");
   const [uploadPublishing, setUploadPublishing] = React.useState(false);
   const [autoUploadFailed, setAutoUploadFailed] = React.useState(false);
   const uploadRequest = React.useRef<XMLHttpRequest | null>(null);
@@ -339,15 +340,30 @@ export default function CreatePostPage() {
   const handleConvertToVideo = async () => {
     if (!selectedFile) return;
     setIsConvertingVideo(true);
-    const notice = toast.loading("Converting image into YouTube video clip (1080p)...");
+    const notice = toast.loading("Generating 30-second 1080p video with FFmpeg & FFprobe...");
     try {
-      const videoFile = await convertImageToVideo(selectedFile);
+      const videoFile = await convertImageToVideo(selectedFile, 30);
       chooseFile(videoFile);
-      toast.success("Image successfully converted to MP4 video for YouTube!", { id: notice });
+      toast.success("30-second 1080p MP4 video generated for YouTube!", { id: notice });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Video conversion failed", { id: notice });
     } finally {
       setIsConvertingVideo(false);
+    }
+  };
+
+  const handleAutoFormatPhoto = async (format: "jpeg" | "png") => {
+    if (!selectedFile || isVideo) return;
+    setTargetPhotoFormat(format);
+    const notice = toast.loading(`Auto-sizing photo into ${format.toUpperCase()} (1080p)...`);
+    try {
+      const formatted = await autoFormatImage(selectedFile, { format, targetRatio: "auto" });
+      setSelectedFile(formatted);
+      const objectUrl = URL.createObjectURL(formatted);
+      setMediaPreview(objectUrl);
+      toast.success(`Photo auto-sized to ${format.toUpperCase()} (1080p)!`, { id: notice });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Auto-sizing failed", { id: notice });
     }
   };
 
@@ -451,14 +467,14 @@ export default function CreatePostPage() {
         // 1. Upload original photo for Instagram, Facebook, and LinkedIn
         const photoAssetId = await storeFile(selectedFile);
 
-        // 2. Convert to video FOR YOUTUBE ONLY
+        // 2. Convert to video FOR YOUTUBE ONLY (30-second 1080p video with FFmpeg & FFprobe)
         setIsConvertingVideo(true);
-        const notice = toast.loading("Converting 1080p video clip for YouTube only...");
+        const notice = toast.loading("Generating 30-second 1080p video for YouTube with FFmpeg & FFprobe...");
         let ytAssetId: string;
         try {
-          const ytVideo = await convertImageToVideo(selectedFile);
+          const ytVideo = await convertImageToVideo(selectedFile, 30);
           ytAssetId = await storeFile(ytVideo);
-          toast.success("Ready for YouTube!", { id: notice });
+          toast.success("30-second video ready for YouTube!", { id: notice });
         } catch (err) {
           toast.error("Could not convert video for YouTube", { id: notice });
           return;
@@ -523,10 +539,10 @@ export default function CreatePostPage() {
       let uploadFile = selectedFile;
       if (!isDraft && hasYouTube && !isVideo && selectedFile) {
         setIsConvertingVideo(true);
-        const notice = toast.loading("Converting photo to 1080p video clip for YouTube only...");
+        const notice = toast.loading("Generating 30-second 1080p video for YouTube with FFmpeg & FFprobe...");
         try {
-          uploadFile = await convertImageToVideo(selectedFile);
-          toast.success("Ready for YouTube!", { id: notice });
+          uploadFile = await convertImageToVideo(selectedFile, 30);
+          toast.success("30-second video ready for YouTube!", { id: notice });
         } catch (err) {
           toast.error("Could not convert image for YouTube", { id: notice });
           return;
@@ -704,26 +720,61 @@ export default function CreatePostPage() {
                 </p>
               </div>
             )}
-            {mediaPreview && !isVideo && !selectedPlatforms.includes("youtube") && (
-              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 space-y-1 text-xs">
-                <div className="flex items-center gap-1.5 font-semibold text-emerald-500">
-                  <Sparkles className="h-4 w-4" />
-                  <span>Photo Formatted for Instagram, Facebook & LinkedIn</span>
+            {mediaPreview && !isVideo && (
+              <div className="rounded-lg border border-border bg-card/60 p-3 space-y-2.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-foreground flex items-center gap-1.5">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                    Auto-Size Photo for Instagram, Facebook &amp; LinkedIn
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => void handleAutoFormatPhoto("jpeg")}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
+                        targetPhotoFormat === "jpeg"
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      JPEG (Meta/Social)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleAutoFormatPhoto("png")}
+                      className={`px-2 py-0.5 rounded text-[11px] font-medium border transition-colors ${
+                        targetPhotoFormat === "png"
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "border-border text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      PNG (Lossless)
+                    </button>
+                  </div>
                 </div>
-                <p className="text-muted-foreground">
-                  Auto-formatted as high-resolution JPEG conforming to Instagram feed requirements (4:5 to 1.91:1).
+                <p className="text-[11px] text-muted-foreground">
+                  Auto-sized to crisp standard dimensions (1080x1080 square, 1080x1350 vertical, or 1080x566 landscape) without awkward cropping or distortion.
                 </p>
-              </div>
-            )}
-            {mediaPreview && !isVideo && selectedPlatforms.includes("youtube") && (
-              <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 space-y-1 text-xs">
-                <div className="flex items-center gap-1.5 font-semibold text-blue-500">
-                  <Sparkles className="h-4 w-4" />
-                  <span>Photo (Instagram, Facebook & LinkedIn) · Video for YouTube Only</span>
-                </div>
-                <p className="text-muted-foreground">
-                  Your uploaded photo publishes directly as a photo on Instagram, Facebook, and LinkedIn. Postgram converts it to a 1080p video clip for YouTube only upon publishing.
-                </p>
+
+                {selectedPlatforms.includes("youtube") && (
+                  <div className="pt-2 border-t border-border/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                    <div className="text-[11px] text-blue-400 font-medium flex items-center gap-1.5">
+                      <Video className="h-4 w-4 shrink-0 text-blue-400" />
+                      <span>YouTube: 30-Second 1080p Video (FFmpeg &amp; FFprobe Engine)</span>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isConvertingVideo}
+                      onClick={() => void handleConvertToVideo()}
+                      className="text-[11px] h-7 px-2.5 gap-1.5 border-blue-500/40 text-blue-400 hover:bg-blue-500/10 shrink-0"
+                    >
+                      <Video className="h-3 w-3" />
+                      {isConvertingVideo ? "Encoding 30s MP4..." : "Convert to 30s Video Now"}
+                    </Button>
+                  </div>
+                )}
               </div>
             )}
           </div>
