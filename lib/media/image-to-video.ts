@@ -112,3 +112,104 @@ export async function convertImageToVideo(
     img.src = url;
   });
 }
+
+/**
+ * Automatically formats an image for Instagram, Facebook, and LinkedIn.
+ * - Converts non-JPEG images (PNG, WebP, etc.) to high-quality JPEG (Meta Graph API requirement).
+ * - Enforces Instagram's aspect ratio requirements (between 4:5 [0.8] and 1.91:1 [1.91]).
+ * - Scales to standard social resolution (1080px width) preserving maximum quality.
+ */
+export async function formatImageForInstagram(imageFile: File): Promise<File> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(imageFile);
+
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      try {
+        const naturalWidth = img.naturalWidth;
+        const naturalHeight = img.naturalHeight;
+        const ratio = naturalWidth / naturalHeight;
+
+        // Instagram bounds: minimum 4:5 (0.8), maximum 1.91:1 (1.91)
+        const MIN_RATIO = 0.8; // 4:5 portrait
+        const MAX_RATIO = 1.91; // 1.91:1 landscape
+
+        const isRatioValid = ratio >= MIN_RATIO && ratio <= MAX_RATIO;
+        const isJpeg = imageFile.type === "image/jpeg";
+
+        // If it's already a valid JPEG within aspect ratio limits, keep original file
+        if (isRatioValid && isJpeg && naturalWidth <= 2048 && naturalHeight <= 2048) {
+          resolve(imageFile);
+          return;
+        }
+
+        let canvasWidth = naturalWidth;
+        let canvasHeight = naturalHeight;
+
+        if (ratio < MIN_RATIO) {
+          // Too tall (e.g. 9:16 vertical) -> fit into 4:5 canvas (1080x1350)
+          canvasWidth = 1080;
+          canvasHeight = 1350;
+        } else if (ratio > MAX_RATIO) {
+          // Too wide (e.g. panorama) -> fit into 1.91:1 canvas (1080x565)
+          canvasWidth = 1080;
+          canvasHeight = Math.round(1080 / MAX_RATIO);
+        } else if (canvasWidth > 1440) {
+          // Scale down ultra-large images to crisp 1080p
+          canvasWidth = 1080;
+          canvasHeight = Math.round(1080 / ratio);
+        }
+
+        const canvas = document.createElement("canvas");
+        canvas.width = canvasWidth;
+        canvas.height = canvasHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Canvas context could not be initialized."));
+          return;
+        }
+
+        // Fill background with neutral dark fill for letterbox/pillarbox
+        ctx.fillStyle = "#0f172a"; // Tailwind Slate-900
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+
+        // Draw image centered and contained
+        const scale = Math.min(canvasWidth / naturalWidth, canvasHeight / naturalHeight);
+        const drawWidth = naturalWidth * scale;
+        const drawHeight = naturalHeight * scale;
+        const drawX = (canvasWidth - drawWidth) / 2;
+        const drawY = (canvasHeight - drawHeight) / 2;
+
+        ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
+
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              reject(new Error("Image formatting failed."));
+              return;
+            }
+            const baseName = imageFile.name.replace(/\.[^/.]+$/, "");
+            const formattedFile = new File([blob], `${baseName}-social.jpg`, {
+              type: "image/jpeg",
+              lastModified: Date.now(),
+            });
+            resolve(formattedFile);
+          },
+          "image/jpeg",
+          0.92
+        );
+      } catch (err) {
+        reject(err);
+      }
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("Could not decode image for social formatting."));
+    };
+
+    img.src = url;
+  });
+}
+

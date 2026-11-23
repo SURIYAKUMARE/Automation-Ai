@@ -17,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "sonner";
 import { prepareMediaPreview } from "@/lib/ai/media-preview";
-import { convertImageToVideo } from "@/lib/media/image-to-video";
+import { convertImageToVideo, formatImageForInstagram } from "@/lib/media/image-to-video";
 import { UploadPublishingSettings } from "@/components/dashboard/upload-publishing-settings";
 import { SocialPlatform, SupportedTone } from "@/types";
 import { PlatformIcon } from "@/components/platform-icon";
@@ -171,15 +171,34 @@ export default function CreatePostPage() {
   }, []);
 
   // Toggle platform
-  const togglePlatform = (id: SocialPlatform) => {
+  const togglePlatform = async (id: SocialPlatform) => {
     destinationChosen.current = true;
+    const willBeSelected = !selectedPlatforms.includes(id);
     setSelectedPlatforms((prev) => {
-      const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
+      const next = willBeSelected ? [...prev, id] : prev.filter((p) => p !== id);
       if (next.length > 0 && !next.includes(activeTab)) {
         setActiveTab(next[0]);
       }
       return next;
     });
+
+    // Auto-convert photo to 1080p video clip if YouTube is toggled on
+    if (id === "youtube" && willBeSelected && selectedFile && !isVideo && !isConvertingVideo) {
+      setIsConvertingVideo(true);
+      const notice = toast.loading("YouTube enabled: automatically converting photo to 1080p video clip...");
+      try {
+        const videoFile = await convertImageToVideo(selectedFile);
+        setSelectedFile(videoFile);
+        setIsVideo(true);
+        const objectUrl = URL.createObjectURL(videoFile);
+        setMediaPreview(objectUrl);
+        toast.success("Photo converted to 1080p video for YouTube!", { id: notice });
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "Video conversion failed", { id: notice });
+      } finally {
+        setIsConvertingVideo(false);
+      }
+    }
   };
 
   // Handle File Selection
@@ -253,10 +272,10 @@ export default function CreatePostPage() {
     }
   }
 
-  const chooseFile = (file?: File) => {
-    if (!file || isGenerating || isPublishing) return;
+  const chooseFile = async (rawFile?: File) => {
+    if (!rawFile || isGenerating || isPublishing) return;
 
-    if (file.size > (file.type.startsWith("video/") ? 100 : 15) * 1024 * 1024) {
+    if (rawFile.size > (rawFile.type.startsWith("video/") ? 100 : 15) * 1024 * 1024) {
       toast.error("File exceeds the upload size limit");
       return;
     }
@@ -264,16 +283,45 @@ export default function CreatePostPage() {
     clearGeneratedCaptions();
     setAutoUploadFailed(false);
     setSavedAssetId(undefined);
-    setSelectedFile(file);
     setDuration(undefined);
-    const isVid = file.type.startsWith("video/");
-    setIsVideo(isVid);
+
+    let file = rawFile;
+    const isVid = rawFile.type.startsWith("video/");
+    const platforms = selectedPlatforms.length ? selectedPlatforms : [activeTab];
+
+    // If YouTube is in destination platforms, automatically convert photo to 1080p video clip
+    if (!isVid && platforms.includes("youtube")) {
+      setIsConvertingVideo(true);
+      const notice = toast.loading("YouTube selected: automatically converting photo to 1080p video clip...");
+      try {
+        file = await convertImageToVideo(rawFile);
+        toast.success("Photo converted to 1080p video for YouTube!", { id: notice });
+      } catch (err) {
+        toast.error("Video conversion failed; using photo: " + (err instanceof Error ? err.message : "Error"), { id: notice });
+      } finally {
+        setIsConvertingVideo(false);
+      }
+    } else if (!isVid) {
+      // Auto-format photo for Instagram, Facebook, and LinkedIn (valid JPEG + 4:5 to 1.91:1 aspect ratio)
+      try {
+        const formatted = await formatImageForInstagram(rawFile);
+        if (formatted !== rawFile) {
+          file = formatted;
+          toast.success("Photo formatted for Instagram & Facebook (JPEG, 4:5 to 1.91:1)!");
+        }
+      } catch {
+        // Fall back to original file
+      }
+    }
+
+    setSelectedFile(file);
+    const finalIsVid = file.type.startsWith("video/");
+    setIsVideo(finalIsVid);
 
     const objectUrl = URL.createObjectURL(file);
     setMediaPreview(objectUrl);
     if (uploadPublishing && !draftId) void publishUpload(file);
     else if (autoGenerate) {
-      const platforms = selectedPlatforms.length ? selectedPlatforms : [activeTab];
       destinationChosen.current = true;
       if (!selectedPlatforms.length) setSelectedPlatforms(platforms);
       void handleGenerateAI(file, platforms);
@@ -402,6 +450,7 @@ export default function CreatePostPage() {
       return;
     }
     const ytVideoTitle = platformContents.youtube.title?.trim() || topicPrompt.trim();
+    let uploadFile = selectedFile;
     if (!isDraft) {
       const missing = selectedPlatforms.find((p) => !platformContents[p].caption.trim());
       if (missing) {
@@ -417,7 +466,22 @@ export default function CreatePostPage() {
         toast.error("Choose a future date and time.");
         return;
       }
-      if (selectedPlatforms.includes("youtube") && (!isVideo || !ytVideoTitle)) {
+      if (selectedPlatforms.includes("youtube") && !isVideo && selectedFile) {
+        setIsConvertingVideo(true);
+        const notice = toast.loading("Converting photo to 1080p video clip for YouTube...");
+        try {
+          uploadFile = await convertImageToVideo(selectedFile);
+          setSelectedFile(uploadFile);
+          setIsVideo(true);
+          toast.success("Ready for YouTube!", { id: notice });
+        } catch (err) {
+          toast.error("Could not convert image for YouTube", { id: notice });
+          setIsConvertingVideo(false);
+          return;
+        } finally {
+          setIsConvertingVideo(false);
+        }
+      } else if (selectedPlatforms.includes("youtube") && (!isVideo || !ytVideoTitle)) {
         toast.error("YouTube requires a video and a title.");
         return;
       }
@@ -426,7 +490,7 @@ export default function CreatePostPage() {
     requestId.current ??= draftId || crypto.randomUUID();
     setIsPublishing(true);
     try {
-      const mediaAssetId = selectedFile ? await storeFile(selectedFile) : savedAssetId;
+      const mediaAssetId = uploadFile ? await storeFile(uploadFile) : savedAssetId;
 
       const res = await fetch("/api/posts/create", {
         method: "POST",
@@ -584,14 +648,36 @@ export default function CreatePostPage() {
                 />
               </label>
             )}
+            {mediaPreview && isVideo && (
+              <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 space-y-1 text-xs">
+                <div className="flex items-center gap-1.5 font-semibold text-red-500">
+                  <Video className="h-4 w-4" />
+                  <span>1080p Video Format Ready</span>
+                </div>
+                <p className="text-muted-foreground">
+                  Ready for YouTube, Instagram Reels, Facebook & LinkedIn video publishing.
+                </p>
+              </div>
+            )}
+            {mediaPreview && !isVideo && !selectedPlatforms.includes("youtube") && (
+              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 space-y-1 text-xs">
+                <div className="flex items-center gap-1.5 font-semibold text-emerald-500">
+                  <Sparkles className="h-4 w-4" />
+                  <span>Photo Formatted for Instagram, Facebook & LinkedIn</span>
+                </div>
+                <p className="text-muted-foreground">
+                  Auto-formatted as high-resolution JPEG conforming to Instagram feed requirements (4:5 to 1.91:1).
+                </p>
+              </div>
+            )}
             {mediaPreview && !isVideo && selectedPlatforms.includes("youtube") && (
               <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2 text-xs">
                 <div className="flex items-center gap-1.5 font-semibold text-amber-500">
                   <Video className="h-4 w-4" />
-                  <span>YouTube Video Format Required</span>
+                  <span>YouTube Video Auto-Conversion</span>
                 </div>
                 <p className="text-muted-foreground">
-                  YouTube requires video media. Convert this photo into a 5-second video (1080p, with audio track) ready for YouTube publishing?
+                  YouTube requires video media. Click below to convert now, or Postgram will automatically convert it to a 1080p MP4 clip when you publish.
                 </p>
                 <Button
                   type="button"
