@@ -1,10 +1,12 @@
-import { Activity, BarChart3, CalendarDays, CalendarRange, CircleCheck, Clock3, FilePenLine, History, Images, LayoutGrid, Link2, Send, Settings2, ShieldCheck, Sparkles } from "lucide-react";
+import { Activity, BarChart3, CalendarDays, CalendarRange, CircleCheck, Clock3, FilePenLine, History, Images, LayoutGrid, Link2, MessageSquare, Send, Settings2, ShieldCheck, Sparkles, Video } from "lucide-react";
 
 export const workspaceNavigation = [
   { label: "Workspace", links: [
     { label: "Dashboard", url: "/dashboard", icon: LayoutGrid },
     { label: "Create post", url: "/dashboard/create-post", icon: Send },
+    { label: "Script Studio", url: "/dashboard/scripts", icon: Video },
     { label: "AI Content Studio", url: "/dashboard/caption-studio", icon: Sparkles },
+    { label: "WhatsApp", url: "/dashboard/whatsapp", icon: MessageSquare },
     { label: "Media library", url: "/dashboard/media", icon: Images },
   ] },
   { label: "Publishing", links: [

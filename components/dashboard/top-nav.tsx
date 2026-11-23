@@ -15,6 +15,8 @@ import {
   Sparkles,
   BarChart3,
   Settings,
+  Video,
+  MessageSquare,
 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 
@@ -51,6 +53,8 @@ const NAV_TABS = [
       pathname.startsWith("/dashboard/history"),
   },
   { name: "Approvals", href: "/dashboard/approvals", icon: ShieldCheck, matches: (path: string) => path.startsWith("/dashboard/approvals") },
+  { name: "Script Studio", href: "/dashboard/scripts", icon: Video, matches: (path: string) => path.startsWith("/dashboard/scripts") },
+  { name: "WhatsApp", href: "/dashboard/whatsapp", icon: MessageSquare, matches: (path: string) => path.startsWith("/dashboard/whatsapp") },
   { name: "Caption Studio", href: "/dashboard/caption-studio", icon: Sparkles, matches: (path: string) => path.startsWith("/dashboard/caption-studio") },
   { name: "Analytics", href: "/dashboard/analytics", icon: BarChart3, matches: (path: string) => path.startsWith("/dashboard/analytics") },
   { name: "Settings", href: "/dashboard/profile", icon: Settings, matches: (path: string) => path.startsWith("/dashboard/profile") },
