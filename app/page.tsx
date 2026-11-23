@@ -66,7 +66,13 @@ export default function LandingPage() {
           </span>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Link href="/dashboard/scripts" className="hidden sm:inline-flex text-xs text-muted-foreground hover:text-foreground font-medium transition-colors px-2 py-1 rounded-md hover:bg-muted">
+            Script Studio
+          </Link>
+          <Link href="/dashboard/whatsapp" className="hidden sm:inline-flex text-xs text-muted-foreground hover:text-foreground font-medium transition-colors px-2 py-1 rounded-md hover:bg-muted">
+            WhatsApp
+          </Link>
           <Link href="/login">
             <Button variant="ghost" size="sm" className="text-xs">
               Sign In

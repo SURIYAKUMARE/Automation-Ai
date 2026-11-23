@@ -56,6 +56,8 @@ export default function ScriptStudioPage() {
   const [platform, setPlatform] = React.useState<"youtube" | "instagram">("youtube");
   const [tone, setTone] = React.useState("Professional");
   const [language, setLanguage] = React.useState("English");
+  const [apiKey, setApiKey] = React.useState("sk-fbpKp0t1xkTnqvnGLtq1sdG3KFVHeiSFBtYf1FoFCbgpIC19");
+  const [showKeyInput, setShowKeyInput] = React.useState(false);
   const [isGenerating, setIsGenerating] = React.useState(false);
   const [trendingTopics, setTrendingTopics] = React.useState<TrendingTopic[]>([]);
   const [script, setScript] = React.useState<ScriptOutput | null>(null);
@@ -89,6 +91,7 @@ export default function ScriptStudioPage() {
           platform: activePlatform,
           tone,
           language,
+          apiKey: apiKey.trim(),
         }),
       });
 
@@ -295,6 +298,39 @@ export default function ScriptStudioPage() {
               </select>
             </div>
           </div>
+
+          {/* API Key Configuration / Status */}
+          <div className="rounded-lg border border-border/80 bg-muted/30 p-2.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="font-semibold text-foreground">Trending Search &amp; Script Engine:</span>
+              <span className="font-mono text-muted-foreground text-[11px]">
+                {apiKey ? `${apiKey.slice(0, 7)}...${apiKey.slice(-6)} (Connected)` : "Default System AI"}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowKeyInput(!showKeyInput)}
+              className="text-primary hover:underline text-[11px] font-medium"
+            >
+              {showKeyInput ? "Hide API Key" : "Change API Key"}
+            </button>
+          </div>
+
+          {showKeyInput && (
+            <div className="space-y-1 rounded-lg border border-border p-3 bg-card">
+              <label className="text-[11px] font-semibold text-foreground">Custom Search / AI API Key</label>
+              <Input
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder="sk-..."
+                className="text-xs font-mono h-8"
+              />
+              <p className="text-[10px] text-muted-foreground">
+                Configured with your Google trending search &amp; script generation key.
+              </p>
+            </div>
+          )}
 
           <div className="flex justify-end pt-1">
             <Button

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bell, ChevronDown, LogOut, Menu, Moon, Plus, Search, Settings2, Sun } from "lucide-react";
+import { Bell, ChevronDown, LogOut, Menu, Moon, Plus, Search, Settings2, Sun, Video, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { useTheme } from "@/components/theme-provider";
 import { workspaceLinks } from "./navigation";
@@ -59,6 +59,22 @@ export function Header({ user, openMenu }: { user: User; openMenu: () => void })
           className="h-9 w-36 bg-transparent text-sm outline-none placeholder:text-muted-foreground lg:w-48" />
       </form>
       <Link href="/dashboard/search" className={control + " md:hidden"} aria-label="Search workspace"><Search className="h-4 w-4" /></Link>
+      <Link
+        href="/dashboard/scripts"
+        className="hidden md:inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2.5 sm:px-3 text-xs sm:text-sm font-medium hover:bg-muted text-foreground transition-all"
+        aria-label="Script Studio"
+      >
+        <Video className="h-4 w-4 text-primary" />
+        <span className="hidden lg:inline">Script Studio</span>
+      </Link>
+      <Link
+        href="/dashboard/whatsapp"
+        className="hidden md:inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-border bg-card px-2.5 sm:px-3 text-xs sm:text-sm font-medium hover:bg-muted text-foreground transition-all"
+        aria-label="WhatsApp"
+      >
+        <MessageSquare className="h-4 w-4 text-emerald-500" />
+        <span className="hidden lg:inline">WhatsApp</span>
+      </Link>
       <Link
         href="/dashboard/create-post"
         className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-gradient-to-r from-blue-600 via-blue-500 to-sky-500 hover:from-blue-700 hover:to-sky-600 text-white px-3 sm:px-3.5 text-xs sm:text-sm font-semibold shadow-md shadow-blue-500/25 active:scale-[0.98] transition-all"
