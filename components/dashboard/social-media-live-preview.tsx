@@ -33,6 +33,34 @@ interface SocialMediaLivePreviewProps {
   authorAvatar?: string | null;
 }
 
+function renderFormattedText(text: string) {
+  const parts = text.split(/(@[a-zA-Z0-9_.-]+|#[a-zA-Z0-9_]+)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("@")) {
+      return (
+        <span
+          key={index}
+          className="text-blue-600 dark:text-sky-400 font-semibold hover:underline cursor-pointer"
+          title={`Mentioned: ${part}`}
+        >
+          {part}
+        </span>
+      );
+    }
+    if (part.startsWith("#")) {
+      return (
+        <span
+          key={index}
+          className="text-blue-500 dark:text-blue-400 font-medium hover:underline cursor-pointer"
+        >
+          {part}
+        </span>
+      );
+    }
+    return <span key={index}>{part}</span>;
+  });
+}
+
 export function SocialMediaLivePreview({
   platform,
   caption,
@@ -103,7 +131,7 @@ export function SocialMediaLivePreview({
 
           {/* Body Text */}
           <div className="space-y-1.5 whitespace-pre-wrap text-foreground text-xs leading-relaxed">
-            <p>{displayText}</p>
+            <p>{renderFormattedText(displayText)}</p>
             {allHashtags && (
               <p className="text-blue-600 dark:text-blue-400 font-medium">
                 {allHashtags}
@@ -218,7 +246,7 @@ export function SocialMediaLivePreview({
             <p className="font-semibold text-foreground text-[11px]">184 likes</p>
             <p className="text-foreground leading-normal">
               <span className="font-semibold mr-1.5">{authorHandle}</span>
-              <span>{displayText}</span>
+              <span>{renderFormattedText(displayText)}</span>
             </p>
             {allHashtags && (
               <p className="text-blue-600 dark:text-blue-400 font-medium text-[11px]">
@@ -264,7 +292,7 @@ export function SocialMediaLivePreview({
 
           {/* Post Text */}
           <div className="space-y-1.5 text-foreground leading-relaxed">
-            <p>{displayText}</p>
+            <p>{renderFormattedText(displayText)}</p>
             {allHashtags && (
               <p className="text-blue-600 dark:text-blue-400 font-medium">
                 {allHashtags}
@@ -373,7 +401,7 @@ export function SocialMediaLivePreview({
           {/* Description Box */}
           <div className="rounded bg-muted/40 p-2.5 text-[11px] text-foreground space-y-1">
             <p className="whitespace-pre-wrap line-clamp-3 text-muted-foreground">
-              {displayText}
+              {renderFormattedText(displayText)}
             </p>
             {allHashtags && (
               <p className="text-blue-600 dark:text-blue-400 font-medium font-mono text-[10px]">

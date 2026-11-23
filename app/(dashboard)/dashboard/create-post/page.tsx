@@ -11,6 +11,8 @@ import {
   Check,
   Save,
   Video,
+  AtSign,
+  UserPlus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -128,7 +130,18 @@ export default function CreatePostPage() {
   const [targetPhotoFormat, setTargetPhotoFormat] = React.useState<"jpeg" | "png">("jpeg");
   const [uploadPublishing, setUploadPublishing] = React.useState(false);
   const [autoUploadFailed, setAutoUploadFailed] = React.useState(false);
+  const [mentionInput, setMentionInput] = React.useState("");
+  const [showMentionBar, setShowMentionBar] = React.useState(false);
   const uploadRequest = React.useRef<XMLHttpRequest | null>(null);
+
+  const handleAddMention = (handle: string) => {
+    const cleanHandle = handle.startsWith("@") ? handle.trim() : `@${handle.trim()}`;
+    if (!cleanHandle || cleanHandle === "@") return;
+    const currentCaption = currentContent.caption || "";
+    const space = currentCaption.length > 0 && !currentCaption.endsWith(" ") && !currentCaption.endsWith("\n") ? " " : "";
+    updateCurrentCaption(currentCaption + space + cleanHandle + " ");
+    setMentionInput("");
+  };
 
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1029,26 +1042,104 @@ export default function CreatePostPage() {
                   <Button size="sm" type="button" variant="outline" onClick={() => updateCurrentCaption(caption)}>Use this caption</Button>
                 </details>
               ))}
-              <label className="text-xs font-medium text-foreground flex items-center justify-between">
-                <span>
-                  {activeTab === "youtube" ? "Video Description for" : "Caption for"}{" "}
-                  <span className="capitalize font-semibold">{activeTab}</span>
-                </span>
-                {currentContent.hashtags && !currentContent.caption.includes(currentContent.hashtags.split(" ")[0] || "#") && (
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                  <span>
+                    {activeTab === "youtube" ? "Video Description for" : "Caption for"}{" "}
+                    <span className="capitalize font-semibold">{activeTab}</span>
+                  </span>
+                </label>
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => {
-                      const tags = currentContent.hashtags.trim();
-                      if (tags) {
-                        updateCurrentCaption((currentContent.caption.trim() + "\n\n" + tags).trim());
-                      }
-                    }}
-                    className="text-[11px] text-primary hover:underline font-mono"
+                    onClick={() => setShowMentionBar(!showMentionBar)}
+                    className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:underline"
                   >
-                    + Append hashtags to caption
+                    <AtSign className="h-3 w-3" />
+                    <span>Tag / Mention</span>
                   </button>
-                )}
-              </label>
+                  {currentContent.hashtags && !currentContent.caption.includes(currentContent.hashtags.split(" ")[0] || "#") && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const tags = currentContent.hashtags.trim();
+                        if (tags) {
+                          updateCurrentCaption((currentContent.caption.trim() + "\n\n" + tags).trim());
+                        }
+                      }}
+                      className="text-[11px] text-primary hover:underline font-mono"
+                    >
+                      + Append hashtags
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Mention Input & Quick Tags Bar */}
+              {showMentionBar && (
+                <div className="rounded-lg border border-blue-500/30 bg-blue-500/5 p-2.5 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <AtSign className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
+                      <Input
+                        placeholder="Type handle or username (e.g. meta, openwa, creator)..."
+                        value={mentionInput}
+                        onChange={(e) => setMentionInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddMention(mentionInput);
+                          }
+                        }}
+                        className="pl-8 h-8 text-xs bg-background"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="default"
+                      onClick={() => handleAddMention(mentionInput)}
+                      disabled={!mentionInput.trim()}
+                      className="h-8 text-xs px-3"
+                    >
+                      Add @Tag
+                    </Button>
+                  </div>
+
+                  {/* Quick Mention Suggestions */}
+                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
+                      Quick tags:
+                    </span>
+                    {accounts
+                      .filter((acc) => acc.account_handle || acc.account_name)
+                      .map((acc) => {
+                        const tag = acc.account_handle || acc.account_name.replace(/\s+/g, "");
+                        return (
+                          <button
+                            key={acc.id}
+                            type="button"
+                            onClick={() => handleAddMention(tag)}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-background border border-border text-[11px] text-foreground hover:border-blue-500 hover:text-blue-500 transition-colors"
+                          >
+                            <UserPlus className="h-2.5 w-2.5 text-blue-500" />
+                            <span>@{tag}</span>
+                          </button>
+                        );
+                      })}
+                    {["youtube", "instagram", "meta", "google", "openai", "openwa"].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => handleAddMention(preset)}
+                        className="px-2 py-0.5 rounded-full bg-muted/60 text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                      >
+                        @{preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <Textarea
                 rows={6}
                 placeholder={
