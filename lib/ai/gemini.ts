@@ -40,37 +40,29 @@ export const GeminiAnalysisResultSchema = z.object({
 
 export class MediaGroundingError extends Error {}
 
-const OpenAIOutput = z.object({
-  status: z.literal('completed'),
-  output: z.array(z.object({
-    type: z.string(),
-    content: z.array(z.object({ type: z.string(), text: z.string().optional() })).optional(),
-  })),
-});
-
 async function generateOpenAIJson(prompt: string, images: string[], key: string): Promise<unknown> {
-  const response = await fetch('https://api.openai.com/v1/responses', {
+  const userContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
+    { type: 'text', text: prompt },
+    ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
+  ];
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(25_000),
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL?.trim() || 'gpt-4.1-mini',
-      store: false,
-      max_output_tokens: 8192,
-      text: { format: { type: 'json_object' } },
-      input: [{
-        role: 'user',
-        content: [
-          { type: 'input_text', text: prompt },
-          ...images.map((image_url) => ({ type: 'input_image', image_url, detail: 'auto' })),
-        ],
-      }],
+      model: process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
+      response_format: { type: 'json_object' },
+      messages: [{ role: 'user', content: userContent }],
+      max_tokens: 4096,
     }),
   });
-  if (!response.ok) throw new Error('OpenAI generation failed with status ' + response.status);
-  const result = OpenAIOutput.parse(await response.json());
-  const text = result.output.filter((item) => item.type === 'message').flatMap((item) => item.content || [])
-    .filter((item) => item.type === 'output_text').map((item) => item.text || '').join('');
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new Error(`OpenAI generation failed with status ${response.status}: ${errText.slice(0, 100)}`);
+  }
+  const result = await response.json();
+  const text = result.choices?.[0]?.message?.content || '{}';
   return JSON.parse(text);
 }
 
@@ -97,11 +89,10 @@ async function generateJson<T>(prompt: string, validate: (value: unknown) => T, 
     : [];
   const candidateModels = [
     ...configuredModels,
-    'gemini-3.1-flash-lite',
-    'gemini-3.5-flash-lite',
-    'gemini-flash-lite-latest',
-    'gemini-3.5-flash',
     'gemini-2.5-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-2.5-flash-lite',
+    'gemini-3.1-flash-lite',
   ].filter(Boolean);
   const models = Array.from(new Set(candidateModels)).slice(0, 5);
 
@@ -114,7 +105,7 @@ async function generateJson<T>(prompt: string, validate: (value: unknown) => T, 
     try {
       const gemini = client.getGenerativeModel({
         model, generationConfig: { responseMimeType: 'application/json', responseSchema, temperature: 0.7, maxOutputTokens: 8192 },
-      }, { timeout: 15_000 });
+      }, { timeout: 35_000 });
       const { response } = await gemini.generateContent([{ text: prompt }, ...parts]);
       return { data: validate(JSON.parse(response.text())), source: 'Gemini' as const };
     } catch (error) {
@@ -206,11 +197,12 @@ Brand preferences: ${JSON.stringify(brand ?? {})}`;
     const result = GeminiAnalysisResultSchema.parse(raw);
     for (const platform of targetPlatforms) {
       const variant = result.platforms[platform];
-      if (!variant || (platform === 'youtube' && !variant.title) || (alternatives && variant.alternatives.length !== 2)) {
-        throw new Error('The provider returned incomplete captions');
+      if (!variant) {
+        throw new Error(`The provider did not return copy for ${platform}`);
       }
-      variant.title ||= result.summary.trim().slice(0, 100);
-      variant.hashtags = variant.hashtags.slice(0, hashtagLimit);
+      variant.title ||= result.summary.trim().slice(0, 100) || (platform === 'youtube' ? 'YouTube Video' : 'Social Post');
+      variant.hashtags = (variant.hashtags || []).slice(0, hashtagLimit);
+      variant.alternatives = variant.alternatives || [];
     }
     return result;
   }, parts, {
