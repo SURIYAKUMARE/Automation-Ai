@@ -171,34 +171,15 @@ export default function CreatePostPage() {
   }, []);
 
   // Toggle platform
-  const togglePlatform = async (id: SocialPlatform) => {
+  const togglePlatform = (id: SocialPlatform) => {
     destinationChosen.current = true;
-    const willBeSelected = !selectedPlatforms.includes(id);
     setSelectedPlatforms((prev) => {
-      const next = willBeSelected ? [...prev, id] : prev.filter((p) => p !== id);
+      const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
       if (next.length > 0 && !next.includes(activeTab)) {
         setActiveTab(next[0]);
       }
       return next;
     });
-
-    // Auto-convert photo to 1080p video clip if YouTube is toggled on
-    if (id === "youtube" && willBeSelected && selectedFile && !isVideo && !isConvertingVideo) {
-      setIsConvertingVideo(true);
-      const notice = toast.loading("YouTube enabled: automatically converting photo to 1080p video clip...");
-      try {
-        const videoFile = await convertImageToVideo(selectedFile);
-        setSelectedFile(videoFile);
-        setIsVideo(true);
-        const objectUrl = URL.createObjectURL(videoFile);
-        setMediaPreview(objectUrl);
-        toast.success("Photo converted to 1080p video for YouTube!", { id: notice });
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "Video conversion failed", { id: notice });
-      } finally {
-        setIsConvertingVideo(false);
-      }
-    }
   };
 
   // Handle File Selection
@@ -289,25 +270,12 @@ export default function CreatePostPage() {
     const isVid = rawFile.type.startsWith("video/");
     const platforms = selectedPlatforms.length ? selectedPlatforms : [activeTab];
 
-    // If YouTube is in destination platforms, automatically convert photo to 1080p video clip
-    if (!isVid && platforms.includes("youtube")) {
-      setIsConvertingVideo(true);
-      const notice = toast.loading("YouTube selected: automatically converting photo to 1080p video clip...");
-      try {
-        file = await convertImageToVideo(rawFile);
-        toast.success("Photo converted to 1080p video for YouTube!", { id: notice });
-      } catch (err) {
-        toast.error("Video conversion failed; using photo: " + (err instanceof Error ? err.message : "Error"), { id: notice });
-      } finally {
-        setIsConvertingVideo(false);
-      }
-    } else if (!isVid) {
+    if (!isVid) {
       // Auto-format photo for Instagram, Facebook, and LinkedIn (valid JPEG + 4:5 to 1.91:1 aspect ratio)
       try {
         const formatted = await formatImageForInstagram(rawFile);
         if (formatted !== rawFile) {
           file = formatted;
-          toast.success("Photo formatted for Instagram & Facebook (JPEG, 4:5 to 1.91:1)!");
         }
       } catch {
         // Fall back to original file
@@ -315,8 +283,7 @@ export default function CreatePostPage() {
     }
 
     setSelectedFile(file);
-    const finalIsVid = file.type.startsWith("video/");
-    setIsVideo(finalIsVid);
+    setIsVideo(isVid);
 
     const objectUrl = URL.createObjectURL(file);
     setMediaPreview(objectUrl);
@@ -466,23 +433,8 @@ export default function CreatePostPage() {
         toast.error("Choose a future date and time.");
         return;
       }
-      if (selectedPlatforms.includes("youtube") && !isVideo && selectedFile) {
-        setIsConvertingVideo(true);
-        const notice = toast.loading("Converting photo to 1080p video clip for YouTube...");
-        try {
-          uploadFile = await convertImageToVideo(selectedFile);
-          setSelectedFile(uploadFile);
-          setIsVideo(true);
-          toast.success("Ready for YouTube!", { id: notice });
-        } catch (err) {
-          toast.error("Could not convert image for YouTube", { id: notice });
-          setIsConvertingVideo(false);
-          return;
-        } finally {
-          setIsConvertingVideo(false);
-        }
-      } else if (selectedPlatforms.includes("youtube") && (!isVideo || !ytVideoTitle)) {
-        toast.error("YouTube requires a video and a title.");
+      if (selectedPlatforms.includes("youtube") && !isVideo && !ytVideoTitle) {
+        toast.error("YouTube requires a title.");
         return;
       }
     }
@@ -490,6 +442,99 @@ export default function CreatePostPage() {
     requestId.current ??= draftId || crypto.randomUUID();
     setIsPublishing(true);
     try {
+      const photoPlatforms = selectedPlatforms.filter((p) => p !== "youtube");
+      const hasYouTube = selectedPlatforms.includes("youtube");
+
+      // CASE 1: Both photo platforms and YouTube selected with a photo attached
+      // Publish photo directly to Instagram/Facebook/LinkedIn, and convert video for YouTube ONLY
+      if (!isDraft && hasYouTube && photoPlatforms.length > 0 && selectedFile && !isVideo) {
+        // 1. Upload original photo for Instagram, Facebook, and LinkedIn
+        const photoAssetId = await storeFile(selectedFile);
+
+        // 2. Convert to video FOR YOUTUBE ONLY
+        setIsConvertingVideo(true);
+        const notice = toast.loading("Converting 1080p video clip for YouTube only...");
+        let ytAssetId: string;
+        try {
+          const ytVideo = await convertImageToVideo(selectedFile);
+          ytAssetId = await storeFile(ytVideo);
+          toast.success("Ready for YouTube!", { id: notice });
+        } catch (err) {
+          toast.error("Could not convert video for YouTube", { id: notice });
+          return;
+        } finally {
+          setIsConvertingVideo(false);
+        }
+
+        const sendCampaign = async (platforms: SocialPlatform[], mediaId: string) => {
+          const res = await fetch("/api/posts/create", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              requestId: crypto.randomUUID(),
+              mediaAssetId: mediaId,
+              draft: false,
+              replaceDraft: false,
+              title: (platforms.includes("youtube") ? ytVideoTitle : platformContents[platforms[0]]?.title?.trim()) ||
+                topicPrompt.trim() || "Untitled post",
+              rawPrompt: topicPrompt,
+              publishingMode: review ? "manual_approval" : "automatic",
+              queueNext,
+              accountIds: accounts.filter((account) => platforms.includes(account.platform) && accountIds.includes(account.id)).map((account) => account.id),
+              scheduledFor: customSchedule ? new Date(scheduledDateTime).toISOString() : undefined,
+              recurrences: customSchedule && !review ? Array.from({ length: weeklyOccurrences - 1 }, (_, index) => {
+                const date = new Date(scheduledDateTime);
+                date.setDate(date.getDate() + 7 * (index + 1));
+                return date.toISOString();
+              }) : [],
+              targetPlatforms: platforms,
+              variants: platforms.map((platform) => {
+                const content = platformContents[platform];
+                return {
+                  platform,
+                  title: platform === "youtube" ? ytVideoTitle : content.title,
+                  caption: content.caption,
+                  hashtags: content.hashtags.split(/\s+/).filter(Boolean),
+                  keywords: content.keywords?.map((keyword) => keyword.trim()).filter(Boolean),
+                  language,
+                  tone,
+                  youtubePrivacy: platform === "youtube" ? content.youtubePrivacy ?? "private" : undefined,
+                  altText: platform === "instagram" ? content.alt_text : undefined,
+                };
+              }),
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "Could not publish to " + platforms.join(", "));
+          return data;
+        };
+
+        // Send photo post to Instagram, Facebook, and LinkedIn
+        await sendCampaign(photoPlatforms, photoAssetId);
+        // Send video post to YouTube
+        await sendCampaign(["youtube"], ytAssetId);
+
+        toast.success("Published! Photo sent to " + photoPlatforms.join(", ") + "; Video sent to YouTube!");
+        router.push(review ? "/dashboard/approvals" : queueNext ? "/dashboard/queue" : customSchedule ? "/dashboard/calendar" : "/dashboard/history");
+        return;
+      }
+
+      // CASE 2: Single post (YouTube only, photo platforms only, already a video, or draft)
+      let uploadFile = selectedFile;
+      if (!isDraft && hasYouTube && !isVideo && selectedFile) {
+        setIsConvertingVideo(true);
+        const notice = toast.loading("Converting photo to 1080p video clip for YouTube only...");
+        try {
+          uploadFile = await convertImageToVideo(selectedFile);
+          toast.success("Ready for YouTube!", { id: notice });
+        } catch (err) {
+          toast.error("Could not convert image for YouTube", { id: notice });
+          return;
+        } finally {
+          setIsConvertingVideo(false);
+        }
+      }
+
       const mediaAssetId = uploadFile ? await storeFile(uploadFile) : savedAssetId;
 
       const res = await fetch("/api/posts/create", {
@@ -671,24 +716,14 @@ export default function CreatePostPage() {
               </div>
             )}
             {mediaPreview && !isVideo && selectedPlatforms.includes("youtube") && (
-              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2 text-xs">
-                <div className="flex items-center gap-1.5 font-semibold text-amber-500">
-                  <Video className="h-4 w-4" />
-                  <span>YouTube Video Auto-Conversion</span>
+              <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 space-y-1 text-xs">
+                <div className="flex items-center gap-1.5 font-semibold text-blue-500">
+                  <Sparkles className="h-4 w-4" />
+                  <span>Photo (Instagram, Facebook & LinkedIn) · Video for YouTube Only</span>
                 </div>
                 <p className="text-muted-foreground">
-                  YouTube requires video media. Click below to convert now, or Postgram will automatically convert it to a 1080p MP4 clip when you publish.
+                  Your uploaded photo publishes directly as a photo on Instagram, Facebook, and LinkedIn. Postgram converts it to a 1080p video clip for YouTube only upon publishing.
                 </p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={isConvertingVideo || isGenerating || isPublishing}
-                  onClick={handleConvertToVideo}
-                  className="text-xs h-8 border-amber-500/40 hover:bg-amber-500/20 text-foreground"
-                >
-                  {isConvertingVideo ? "Converting to Video..." : "Convert Image to Video for YouTube"}
-                </Button>
               </div>
             )}
           </div>
