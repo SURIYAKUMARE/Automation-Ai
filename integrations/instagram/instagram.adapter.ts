@@ -138,6 +138,7 @@ export class InstagramAdapter implements PlatformAdapter {
       if (mediaType === 'video') {
         containerParams.append('media_type', 'REELS');
         containerParams.append('video_url', mediaUrl);
+        containerParams.append('share_to_feed', 'true');
       } else {
         containerParams.append('image_url', mediaUrl);
         if (request.altText?.trim()) containerParams.append('alt_text', request.altText.trim());
@@ -186,13 +187,13 @@ export class InstagramAdapter implements PlatformAdapter {
         attempts++;
 
         const statusRes = await fetch(
-          `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${creationId}?fields=status_code`,
+          `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${creationId}?fields=status_code&access_token=${encodeURIComponent(accessToken)}`,
           { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(10000) },
         ).catch(() => null);
 
         if (statusRes?.ok) {
           const statusData = await statusRes.json();
-          if (statusData.status_code === 'FINISHED') {
+          if (statusData.status_code === 'FINISHED' || statusData.status_code === 'PUBLISHED') {
             isReady = true;
           } else if (['ERROR', 'EXPIRED'].includes(statusData.status_code)) {
             return {

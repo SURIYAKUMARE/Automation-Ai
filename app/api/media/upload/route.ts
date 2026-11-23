@@ -16,7 +16,16 @@ export async function POST(req: NextRequest) {
     if (!file || typeof file === 'string') {
       return NextResponse.json({ error: 'Choose a JPEG, PNG, WebP, MP4, MOV or WebM file' }, { status: 400 });
     }
-    const fileType = (file.type || '').split(';')[0].trim().toLowerCase();
+    let fileType = (file.type || '').split(';')[0].trim().toLowerCase();
+    if (!fileType || fileType === 'application/octet-stream') {
+      const ext = (file.name || '').split('.').pop()?.toLowerCase();
+      if (ext === 'mp4') fileType = 'video/mp4';
+      else if (ext === 'mov') fileType = 'video/quicktime';
+      else if (ext === 'webm') fileType = 'video/webm';
+      else if (ext === 'jpg' || ext === 'jpeg') fileType = 'image/jpeg';
+      else if (ext === 'png') fileType = 'image/png';
+      else if (ext === 'webp') fileType = 'image/webp';
+    }
     if (!Object.hasOwn(mediaExtensions, fileType)) {
       return NextResponse.json({ error: 'Choose a JPEG, PNG, WebP, MP4, MOV or WebM file' }, { status: 400 });
     }

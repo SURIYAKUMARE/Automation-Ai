@@ -107,12 +107,16 @@ async function generateJson<T>(prompt: string, validate: (value: unknown) => T, 
         model, generationConfig: { responseMimeType: 'application/json', responseSchema, temperature: 0.7, maxOutputTokens: 8192 },
       }, { timeout: 35_000 });
       const { response } = await gemini.generateContent([{ text: prompt }, ...parts]);
-      return { data: validate(JSON.parse(response.text())), source: 'Gemini' as const };
+      let text = response.text().trim();
+      if (text.startsWith('```')) {
+        text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+      }
+      return { data: validate(JSON.parse(text)), source: 'Gemini' as const };
     } catch (error) {
       if (error instanceof MediaGroundingError) throw error;
       const reason = error instanceof GoogleGenerativeAIFetchError ? 'HTTP ' + error.status :
         error instanceof z.ZodError ? error.issues.map((issue) => issue.path.join('.') + ':' + issue.code).join(', ') :
-        error instanceof SyntaxError ? 'invalid JSON' : 'incomplete response or timeout';
+        error instanceof SyntaxError ? 'invalid JSON' : (error instanceof Error ? error.message : 'incomplete response or timeout');
       lastErrorReason = reason;
       console.warn(`Gemini model ${model} could not return valid content (${reason})`);
     }
@@ -188,53 +192,119 @@ Brand preferences: ${JSON.stringify(brand ?? {})}`;
     },
     required: ['caption', 'hashtags', 'alternatives'],
   } as const;
-  const { data, source } = await generateJson(prompt, (raw) => {
-    const review = GeminiAnalysisResultSchema.shape.media_review.safeParse((raw as { media_review?: unknown } | null)?.media_review);
-    if (hasMedia && review.success && review.data?.readable === false) {
-      throw new MediaGroundingError('AI could not identify enough detail in this media. Try a clearer photo or video.');
-    }
-    const result = GeminiAnalysisResultSchema.parse(raw);
-    for (const platform of targetPlatforms) {
-      let variant = result.platforms[platform];
-      if (!variant) {
-        variant = {
-          caption: result.summary,
-          title: result.summary.slice(0, 100) || (platform === 'youtube' ? 'YouTube Video' : 'Social Post'),
-          hashtags: (result.topics || []).map((t) => t.startsWith('#') ? t : `#${t}`).slice(0, hashtagLimit),
-          keywords: result.topics || [],
-          call_to_action: '',
+  let data: z.infer<typeof GeminiAnalysisResultSchema>;
+  let source: string;
+  try {
+    const jsonRes = await generateJson(prompt, (raw) => {
+      const review = GeminiAnalysisResultSchema.shape.media_review.safeParse((raw as { media_review?: unknown } | null)?.media_review);
+      if (hasMedia && review.success && review.data?.readable === false) {
+        throw new MediaGroundingError('AI could not identify enough detail in this media. Try a clearer photo or video.');
+      }
+      const result = GeminiAnalysisResultSchema.parse(raw);
+      for (const platform of targetPlatforms) {
+        let variant = result.platforms[platform];
+        if (!variant) {
+          variant = {
+            caption: result.summary,
+            title: result.summary.slice(0, 100) || (platform === 'youtube' ? 'YouTube Video' : 'Social Post'),
+            hashtags: (result.topics || []).map((t) => t.startsWith('#') ? t : `#${t}`).slice(0, hashtagLimit),
+            keywords: result.topics || [],
+            call_to_action: '',
+            alternatives: [],
+            character_count: result.summary.length,
+          };
+          result.platforms[platform] = variant;
+        } else {
+          variant.title ||= result.summary.trim().slice(0, 100) || (platform === 'youtube' ? 'YouTube Video' : 'Social Post');
+          variant.hashtags = (variant.hashtags || []).slice(0, hashtagLimit);
+          variant.alternatives = variant.alternatives || [];
+        }
+      }
+      return result;
+    }, parts, {
+      type: SchemaType.OBJECT,
+      properties: {
+        summary: string, detected_objects: strings, extracted_text: string, topics: strings,
+        sentiment: string, dominant_colors: strings, audience: string,
+        ...(hasMedia ? {
+          media_review: {
+            type: SchemaType.OBJECT,
+            properties: { readable: { type: SchemaType.BOOLEAN }, observations: strings },
+            required: ['readable', 'observations'],
+          },
+        } : {}),
+        platforms: {
+          type: SchemaType.OBJECT, required: [...new Set(targetPlatforms)],
+          properties: Object.fromEntries(targetPlatforms.map((platform) => [platform, {
+            ...variant, required: platform === 'youtube' ? [...variant.required, 'title'] : [...variant.required],
+          }])),
+        },
+      },
+      required: hasMedia ? ['summary', 'media_review', 'platforms'] : ['summary', 'platforms'],
+    });
+    data = jsonRes.data;
+    source = jsonRes.source;
+  } catch (aiErr) {
+    if (aiErr instanceof MediaGroundingError) throw aiErr;
+    console.warn('AI provider generation unavailable, synthesizing fallback captions:', aiErr instanceof Error ? aiErr.message : aiErr);
+    const baseSubject = userPrompt?.trim() || (isMediaVideo ? 'New Video Update' : 'New Visual Update');
+    const defaultTitle = baseSubject.slice(0, 100);
+    const fallbackPlatforms: Record<string, any> = {};
+    for (const p of targetPlatforms) {
+      if (p === 'instagram') {
+        fallbackPlatforms[p] = {
+          title: defaultTitle,
+          caption: `${baseSubject} 🚀\n\nDouble tap if you agree! Drop your thoughts in the comments below. 👇`,
+          hashtags: ['#reels', '#trending', '#video', '#viral', '#explore'].slice(0, hashtagLimit),
+          keywords: ['trending', 'video'],
+          call_to_action: 'Drop your thoughts in the comments!',
           alternatives: [],
-          character_count: result.summary.length,
+          character_count: 85,
         };
-        result.platforms[platform] = variant;
-      } else {
-        variant.title ||= result.summary.trim().slice(0, 100) || (platform === 'youtube' ? 'YouTube Video' : 'Social Post');
-        variant.hashtags = (variant.hashtags || []).slice(0, hashtagLimit);
-        variant.alternatives = variant.alternatives || [];
+      } else if (p === 'facebook') {
+        fallbackPlatforms[p] = {
+          title: defaultTitle,
+          caption: `${baseSubject}\n\nWhat do you think about this? Let us know in the comments!`,
+          hashtags: ['#video', '#trending', '#community'].slice(0, hashtagLimit),
+          keywords: ['video'],
+          call_to_action: 'Let us know in the comments!',
+          alternatives: [],
+          character_count: 80,
+        };
+      } else if (p === 'linkedin') {
+        fallbackPlatforms[p] = {
+          title: defaultTitle,
+          caption: `Excited to share this update on ${baseSubject}.\n\nContinuous improvement and creative execution drive lasting results. What are your thoughts or experiences?`,
+          hashtags: ['#leadership', '#innovation', '#technology', '#growth'].slice(0, hashtagLimit),
+          keywords: ['leadership', 'innovation'],
+          call_to_action: 'Looking forward to hearing your insights.',
+          alternatives: [],
+          character_count: 120,
+        };
+      } else if (p === 'youtube') {
+        fallbackPlatforms[p] = {
+          title: defaultTitle,
+          caption: `${baseSubject}\n\nThanks for watching! Make sure to like, comment, and subscribe for more content.`,
+          hashtags: ['#shorts', '#youtube', '#video'].slice(0, hashtagLimit),
+          keywords: ['video', 'shorts'],
+          call_to_action: 'Subscribe for more content!',
+          alternatives: [],
+          character_count: 95,
+        };
       }
     }
-    return result;
-  }, parts, {
-    type: SchemaType.OBJECT,
-    properties: {
-      summary: string, detected_objects: strings, extracted_text: string, topics: strings,
-      sentiment: string, dominant_colors: strings, audience: string,
-      ...(hasMedia ? {
-        media_review: {
-          type: SchemaType.OBJECT,
-          properties: { readable: { type: SchemaType.BOOLEAN }, observations: strings },
-          required: ['readable', 'observations'],
-        },
-      } : {}),
-      platforms: {
-        type: SchemaType.OBJECT, required: [...new Set(targetPlatforms)],
-        properties: Object.fromEntries(targetPlatforms.map((platform) => [platform, {
-          ...variant, required: platform === 'youtube' ? [...variant.required, 'title'] : [...variant.required],
-        }])),
-      },
-    },
-    required: hasMedia ? ['summary', 'media_review', 'platforms'] : ['summary', 'platforms'],
-  });
+    data = {
+      summary: baseSubject,
+      detected_objects: [],
+      extracted_text: '',
+      topics: [baseSubject],
+      sentiment: 'positive',
+      dominant_colors: [],
+      audience: 'General Audience',
+      platforms: fallbackPlatforms as any,
+    };
+    source = 'Smart Fallback';
+  }
   return { ...data, source };
 }
 

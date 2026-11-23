@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { getSessionUser } from '@/lib/auth/session';
@@ -126,7 +126,13 @@ export async function POST(req: NextRequest) {
     if (error || !data?.id) throw error ?? new Error('Post was not saved');
 
     if (status === 'approved' && !post.scheduledFor && !post.queueNext && post.publishingMode === 'automatic') {
-      await dispatchCampaign(db, user.id, id);
+      after(async () => {
+        try {
+          await dispatchCampaign(db, user.id, id);
+        } catch (dispatchErr) {
+          console.error('Async dispatchCampaign error:', dispatchErr);
+        }
+      });
     }
 
     return NextResponse.json({ success: true, post: data }, { status: 201 });

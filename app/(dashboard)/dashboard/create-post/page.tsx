@@ -215,6 +215,60 @@ export default function CreatePostPage() {
     if (uploadedAsset.current?.file === file) return uploadedAsset.current.id;
     setUploadProgress(0);
     try {
+      // 1. Try Direct Supabase Storage Upload (Bypasses Vercel 4.5MB Serverless Payload Limits)
+      try {
+        const directInitRes = await fetch(
+          `/api/media/direct-upload?fileName=${encodeURIComponent(file.name)}&fileType=${encodeURIComponent(file.type || "")}&fileSize=${file.size}`
+        );
+        if (directInitRes.ok) {
+          const directData = await directInitRes.json();
+          if (directData.signedUrl && directData.path) {
+            await new Promise<void>((resolve, reject) => {
+              const xhr = new XMLHttpRequest();
+              uploadRequest.current = xhr;
+              xhr.open("PUT", directData.signedUrl);
+              xhr.setRequestHeader("Content-Type", directData.fileType || file.type || "application/octet-stream");
+              xhr.upload.onprogress = (event) => {
+                if (event.lengthComputable) setUploadProgress(Math.round((event.loaded / event.total) * 100));
+              };
+              xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) resolve();
+                else reject(new Error("Direct upload failed with status " + xhr.status));
+              };
+              xhr.onerror = () => reject(new Error("Network error during direct storage upload"));
+              xhr.onabort = () => reject(new Error("Direct storage upload cancelled"));
+              xhr.send(file);
+            });
+
+            // Register the uploaded media asset
+            const completeRes = await fetch("/api/media/direct-upload", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                path: directData.path,
+                fileName: file.name,
+                fileType: directData.fileType || file.type,
+                fileSize: file.size,
+                width: isVideo ? 1920 : 1080,
+                height: isVideo ? 1080 : 1080,
+                duration: 30,
+              }),
+            });
+
+            if (completeRes.ok) {
+              const assetData = await completeRes.json();
+              if (assetData.asset?.id) {
+                uploadedAsset.current = { file, id: assetData.asset.id };
+                return assetData.asset.id;
+              }
+            }
+          }
+        }
+      } catch (directErr) {
+        console.warn("Direct upload fallback to standard API route:", directErr);
+      }
+
+      // 2. Standard Fallback to /api/media/upload
       const form = new FormData();
       form.append("file", file);
       const id = await new Promise<string>((resolve, reject) => {
@@ -558,19 +612,30 @@ export default function CreatePostPage() {
       let uploadFile = selectedFile;
       if (!isDraft && hasYouTube && !isVideo && selectedFile) {
         setIsConvertingVideo(true);
-        const notice = toast.loading("Generating 30s video for YouTube with FFmpeg...");
+        const convNotice = toast.loading("Generating 30s video for YouTube with FFmpeg...");
         try {
           uploadFile = await convertImageToVideo(selectedFile, 30);
-          toast.success("Video ready!", { id: notice });
+          toast.success("Video ready!", { id: convNotice });
         } catch (err) {
-          toast.error("Could not convert image for YouTube", { id: notice });
+          toast.error("Could not convert image for YouTube", { id: convNotice });
           return;
         } finally {
           setIsConvertingVideo(false);
         }
       }
 
-      const mediaAssetId = uploadFile ? await storeFile(uploadFile) : savedAssetId;
+      const isVidUpload = uploadFile ? (uploadFile.type.startsWith("video/") || isVideo) : isVideo;
+      const notice = toast.loading(isVidUpload ? "Uploading video asset..." : "Preparing media asset...");
+      let mediaAssetId: string | undefined = savedAssetId;
+      try {
+        if (uploadFile) {
+          mediaAssetId = await storeFile(uploadFile);
+        }
+        toast.loading("Publishing in parallel to " + selectedPlatforms.join(", ") + "...", { id: notice });
+      } catch (uploadErr) {
+        toast.error(uploadErr instanceof Error ? uploadErr.message : "Media upload failed", { id: notice });
+        return;
+      }
 
       const res = await fetch("/api/posts/create", {
         method: "POST",
@@ -607,7 +672,18 @@ export default function CreatePostPage() {
         throw new Error(data.error || "Could not save this post");
       }
       requestId.current = undefined;
-      toast.success(isDraft ? "Draft saved" : review ? "Sent for approval" : queueNext ? "Queued for " + new Date(data.post.scheduled_for).toLocaleString() : customSchedule ? "Post scheduled" : "Post queued for publishing");
+      toast.success(
+        isDraft
+          ? "Draft saved"
+          : review
+          ? "Sent for approval"
+          : queueNext
+          ? "Queued for " + new Date(data.post.scheduled_for).toLocaleString()
+          : customSchedule
+          ? "Post scheduled"
+          : "🚀 Post submitted! Publishing in parallel to " + selectedPlatforms.join(", "),
+        { id: notice }
+      );
       router.push(isDraft ? "/dashboard/drafts" : review ? "/dashboard/approvals" : queueNext ? "/dashboard/queue" : customSchedule ? "/dashboard/calendar" : "/dashboard/history");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save the post");
