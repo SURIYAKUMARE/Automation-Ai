@@ -151,8 +151,9 @@ export class LinkedInAdapter implements PlatformAdapter {
       });
       if (!finalized.ok) return failure('LINKEDIN_VIDEO_FINALIZE_' + finalized.status, 'LinkedIn could not finalize video upload.');
 
+      const videoDelays = [1200, 2500, 4000, 6000, 8000];
       for (let attempt = 0; attempt < 5; attempt++) {
-        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 8000));
+        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, videoDelays[attempt] || 5000));
         const response = await fetch(base + '/' + encodeURIComponent(data.video), { headers, signal });
         if (!response.ok) return failure('LINKEDIN_VIDEO_STATUS_' + response.status, 'Could not check LinkedIn video processing.');
         const { status } = await response.json();

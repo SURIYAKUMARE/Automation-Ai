@@ -103,13 +103,17 @@ export async function generateVideoFromImageWithFFmpeg(
       '-f', 'lavfi',
       '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
       '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-tune', 'stillimage',
+      '-threads', '0',
       '-t', String(durationSeconds),
       '-pix_fmt', 'yuv420p',
       '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black',
       '-c:a', 'aac',
+      '-b:a', '128k',
       '-shortest',
       outputPath,
-    ], { timeout: 60_000, windowsHide: true });
+    ], { timeout: 30_000, windowsHide: true });
 
     // Validate with ffprobe
     const probeStdout = await run(ffprobe, [

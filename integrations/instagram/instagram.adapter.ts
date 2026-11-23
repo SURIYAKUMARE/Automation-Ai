@@ -172,14 +172,18 @@ export class InstagramAdapter implements PlatformAdapter {
         return { success: false, errorCode: 'IG_CONTAINER_NOT_READY', errorMessage: 'Instagram did not return a media container.' };
       }
 
-      // Step 2: Poll container status if video or wait for ready
+      // Step 2: Poll container status if video or wait for ready (progressive backoff for ultra-fast publish)
       let isReady = false;
       let attempts = 0;
-      const maxAttempts = mediaType === 'video' ? 12 : 4;
+      const maxAttempts = mediaType === 'video' ? 12 : 5;
+      const delays = mediaType === 'video'
+        ? [1200, 2000, 3000, 4500, 6000, 8000, 8000, 8000, 8000, 8000, 8000, 8000]
+        : [400, 800, 1500, 2000, 3000];
 
       while (!isReady && attempts < maxAttempts) {
+        const waitMs = delays[attempts] || (mediaType === 'video' ? 8000 : 2000);
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
         attempts++;
-        await new Promise((resolve) => setTimeout(resolve, mediaType === 'video' ? 8000 : 2000));
 
         const statusRes = await fetch(
           `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${creationId}?fields=status_code`,

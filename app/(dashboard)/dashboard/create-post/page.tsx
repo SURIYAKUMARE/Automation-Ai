@@ -475,21 +475,26 @@ export default function CreatePostPage() {
       const hasYouTube = selectedPlatforms.includes("youtube");
 
       // CASE 1: Both photo platforms and YouTube selected with a photo attached
-      // Publish photo directly to Instagram/Facebook/LinkedIn, and convert video for YouTube ONLY
+      // Ultra-Fast Parallel Publishing: Upload photo and generate/upload YouTube video simultaneously, then dispatch together
       if (!isDraft && hasYouTube && photoPlatforms.length > 0 && selectedFile && !isVideo) {
-        // 1. Upload original photo for Instagram, Facebook, and LinkedIn
-        const photoAssetId = await storeFile(selectedFile);
-
-        // 2. Convert to video FOR YOUTUBE ONLY (30-second 1080p video with FFmpeg & FFprobe)
         setIsConvertingVideo(true);
-        const notice = toast.loading("Generating 30-second 1080p video for YouTube with FFmpeg & FFprobe...");
+        const notice = toast.loading("⚡ Fast parallel publishing: preparing photo & YouTube video...");
+
+        let photoAssetId: string;
         let ytAssetId: string;
+
         try {
-          const ytVideo = await convertImageToVideo(selectedFile, 30);
-          ytAssetId = await storeFile(ytVideo);
-          toast.success("30-second video ready for YouTube!", { id: notice });
+          const [photoId, ytId] = await Promise.all([
+            storeFile(selectedFile),
+            (async () => {
+              const ytVideo = await convertImageToVideo(selectedFile, 30);
+              return await storeFile(ytVideo);
+            })(),
+          ]);
+          photoAssetId = photoId;
+          ytAssetId = ytId;
         } catch (err) {
-          toast.error("Could not convert video for YouTube", { id: notice });
+          toast.error("Could not prepare media for publishing", { id: notice });
           return;
         } finally {
           setIsConvertingVideo(false);
@@ -538,12 +543,13 @@ export default function CreatePostPage() {
           return data;
         };
 
-        // Send photo post to Instagram, Facebook, and LinkedIn
-        await sendCampaign(photoPlatforms, photoAssetId);
-        // Send video post to YouTube
-        await sendCampaign(["youtube"], ytAssetId);
+        // Dispatch simultaneously across all platforms in parallel
+        await Promise.all([
+          sendCampaign(photoPlatforms, photoAssetId),
+          sendCampaign(["youtube"], ytAssetId),
+        ]);
 
-        toast.success("Published! Photo sent to " + photoPlatforms.join(", ") + "; Video sent to YouTube!");
+        toast.success("🚀 Published in parallel! Delivered to " + selectedPlatforms.join(", "), { id: notice });
         router.push(review ? "/dashboard/approvals" : queueNext ? "/dashboard/queue" : customSchedule ? "/dashboard/calendar" : "/dashboard/history");
         return;
       }
@@ -552,10 +558,10 @@ export default function CreatePostPage() {
       let uploadFile = selectedFile;
       if (!isDraft && hasYouTube && !isVideo && selectedFile) {
         setIsConvertingVideo(true);
-        const notice = toast.loading("Generating 30-second 1080p video for YouTube with FFmpeg & FFprobe...");
+        const notice = toast.loading("Generating 30s video for YouTube with FFmpeg...");
         try {
           uploadFile = await convertImageToVideo(selectedFile, 30);
-          toast.success("30-second video ready for YouTube!", { id: notice });
+          toast.success("Video ready!", { id: notice });
         } catch (err) {
           toast.error("Could not convert image for YouTube", { id: notice });
           return;
@@ -1264,7 +1270,7 @@ export default function CreatePostPage() {
               ) : (
                 <>
                   <Send className="h-3.5 w-3.5" />
-                  {isPublishing ? "Queuing…" : selectedPlatforms.length > 1 && !review ? "Publish Everywhere" : "Publish Now"}
+                  {isPublishing ? "Publishing in Parallel…" : selectedPlatforms.length > 1 && !review ? "⚡ Fast Publish Everywhere" : "⚡ Fast Publish Now"}
                 </>
               )}
             </Button>

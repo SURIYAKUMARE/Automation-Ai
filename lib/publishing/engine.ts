@@ -112,71 +112,85 @@ export async function executePostPublishing(db: Database, job: ClaimedJob) {
   const results = await Promise.all(post.targets.filter((target: { id: string; status: string; external_post_id?: string }) =>
     !target.external_post_id && targetStatuses.includes(target.status) && (!job.target_id || target.id === job.target_id))
     .map(async (target: { id: string; platform: SocialPlatform; account: Account | null }) => {
-      const claimed = await db.from('post_targets').update({ status: 'publishing', updated_at: new Date().toISOString() })
-        .eq('id', target.id).eq('post_id', post.id).in('status', eligible).select('id').maybeSingle();
-      if (claimed.error) throw claimed.error;
-      if (!claimed.data) return false;
+      try {
+        const claimed = await db.from('post_targets').update({ status: 'publishing', updated_at: new Date().toISOString() })
+          .eq('id', target.id).eq('post_id', post.id).in('status', eligible).select('id').maybeSingle();
+        if (claimed.error) throw claimed.error;
+        if (!claimed.data) return false;
 
-      const platform = target.platform;
-      const account = target.account;
-      const variant = post.variants.filter((item: { platform: string }) => item.platform === platform)
-        .sort((a: { version: number }, b: { version: number }) => b.version - a.version)[0];
-      let result: PublishResult = { success: false, errorMessage: 'An approved platform caption is required.' };
-      let ambiguous = false;
-      let stagingFailure = false;
-      if (variant && variant.caption && (post.publishing_mode === 'automatic' || variant.is_approved)) {
-        if (!account || account.user_id !== job.user_id || account.status !== 'active' || account.platform !== platform) {
-          result = { success: false, errorCode: 'RECONNECT', errorMessage: 'Reconnect the destination account before retrying.' };
-        } else if (post.media_asset_id && !mediaUrl || platform === 'youtube' && media?.media_type !== 'video' && !media?.mime_type?.startsWith('video/') ||
-                   platform === 'instagram' && !mediaUrl) {
-          result = { success: false, errorMessage: 'The required uploaded media is missing or unavailable.' };
-        } else {
-          const token = await getAccountAccessToken(db, account).catch(() => null);
-          if (!token) {
-            result = { success: false, errorCode: 'RECONNECT', errorMessage: 'The connection expired. Reconnect the account and retry.' };
+        const platform = target.platform;
+        const account = target.account;
+        const variant = post.variants.filter((item: { platform: string }) => item.platform === platform)
+          .sort((a: { version: number }, b: { version: number }) => b.version - a.version)[0];
+        let result: PublishResult = { success: false, errorMessage: 'An approved platform caption is required.' };
+        let ambiguous = false;
+        let stagingFailure = false;
+        if (variant && variant.caption && (post.publishing_mode === 'automatic' || variant.is_approved)) {
+          if (!account || account.user_id !== job.user_id || account.status !== 'active' || account.platform !== platform) {
+            result = { success: false, errorCode: 'RECONNECT', errorMessage: 'Reconnect the destination account before retrying.' };
+          } else if (post.media_asset_id && !mediaUrl || platform === 'youtube' && media?.media_type !== 'video' && !media?.mime_type?.startsWith('video/') ||
+                     platform === 'instagram' && !mediaUrl) {
+            result = { success: false, errorMessage: 'The required uploaded media is missing or unavailable.' };
           } else {
-            const tags = (variant.hashtags as string[] | null) ?? [];
-            const existingTags = new Set((variant.caption.match(/#[\p{L}\p{M}\p{N}_]+/gu) || []).map((t: string) => t.toLowerCase()));
-            const newTags = tags.map((tag) => (tag.startsWith('#') ? tag : '#' + tag))
-              .filter((tag) => !existingTags.has(tag.toLowerCase()));
-            const text = [variant.caption, newTags.join(' ')].filter(Boolean).join('\n\n');
-            try {
-              result = await getPlatformAdapter(platform).publish({
-                text, title: variant.title || post.title,
-                youtubePrivacy: variant.youtube_privacy ?? undefined,
-                altText: variant.alt_text ?? undefined,
-                tags: platform === 'youtube' && variant.keywords?.length ? variant.keywords : tags, mediaUrl,
-                mediaType: media?.media_type === 'video' ? 'video' : mediaUrl ? 'image' : undefined,
-                accessToken: token, accountId: account.external_account_id, metadata: account.metadata,
-              });
-              stagingFailure = Boolean(result.errorCode?.match(/^(?:IG_CONTAINER_FAILED_5\d\d|IG_CONTAINER_NOT_READY|YOUTUBE_INIT_FAILED_5\d\d|MEDIA_DOWNLOAD_FAILED|LINKEDIN_VIDEO_NOT_READY|LINKEDIN_VIDEO_(?:INIT|PART|FINALIZE|STATUS)_5\d\d)$/));
-              ambiguous = (!stagingFailure && Boolean(result.errorCode?.match(/(?:EXCEPTION|NETWORK_ERROR|_5\d\d)$/))) ||
-                Boolean(result.success && !result.externalPostId);
-            } catch {
-              ambiguous = true;
+            const token = await getAccountAccessToken(db, account).catch(() => null);
+            if (!token) {
+              result = { success: false, errorCode: 'RECONNECT', errorMessage: 'The connection expired. Reconnect the account and retry.' };
+            } else {
+              const tags = (variant.hashtags as string[] | null) ?? [];
+              const existingTags = new Set((variant.caption.match(/#[\p{L}\p{M}\p{N}_]+/gu) || []).map((t: string) => t.toLowerCase()));
+              const newTags = tags.map((tag) => (tag.startsWith('#') ? tag : '#' + tag))
+                .filter((tag) => !existingTags.has(tag.toLowerCase()));
+              const text = [variant.caption, newTags.join(' ')].filter(Boolean).join('\n\n');
+              try {
+                result = await getPlatformAdapter(platform).publish({
+                  text, title: variant.title || post.title,
+                  youtubePrivacy: variant.youtube_privacy ?? undefined,
+                  altText: variant.alt_text ?? undefined,
+                  tags: platform === 'youtube' && variant.keywords?.length ? variant.keywords : tags, mediaUrl,
+                  mediaType: media?.media_type === 'video' ? 'video' : mediaUrl ? 'image' : undefined,
+                  accessToken: token, accountId: account.external_account_id, metadata: account.metadata,
+                });
+                stagingFailure = Boolean(result.errorCode?.match(/^(?:IG_CONTAINER_FAILED_5\d\d|IG_CONTAINER_NOT_READY|YOUTUBE_INIT_FAILED_5\d\d|MEDIA_DOWNLOAD_FAILED|LINKEDIN_VIDEO_NOT_READY|LINKEDIN_VIDEO_(?:INIT|PART|FINALIZE|STATUS)_5\d\d)$/));
+                ambiguous = (!stagingFailure && Boolean(result.errorCode?.match(/(?:EXCEPTION|NETWORK_ERROR|_5\d\d)$/))) ||
+                  Boolean(result.success && !result.externalPostId);
+              } catch {
+                ambiguous = true;
+              }
             }
           }
         }
+        const limited = Boolean(result.errorCode?.endsWith('_429'));
+        const retryable = limited || stagingFailure;
+        const reconnect = result.errorCode === 'RECONNECT' || result.errorCode?.endsWith('_401');
+        const status = ambiguous || result.processing ? 'processing' : result.success ? 'published' : reconnect ? 'reauthorization_required' : 'failed';
+        const message = ambiguous ? 'Provider outcome is unknown. Check the destination before posting again.' :
+          result.processing ? 'YouTube accepted the upload and is still processing it.' :
+          limited ? 'Provider rate limit reached.' : stagingFailure ? 'Temporary failure while preparing the media.' :
+          reconnect ? 'Reconnect the destination and retry.' :
+          result.success ? null : (result.actionRequired || (result.errorCode
+            ? 'Provider rejected this post (' + result.errorCode + '). Check permissions and media requirements.'
+            : result.errorMessage || 'Provider rejected this post.'));
+        const recorded = await db.rpc('record_publishing_result', {
+          job: job.id, target_id: target.id, result: {
+            status, error_code: result.errorCode, error_message: message, retryable,
+            external_post_id: result.externalPostId, external_post_url: result.externalPostUrl,
+          },
+        });
+        if (recorded.error) throw recorded.error;
+        return retryable;
+      } catch (err) {
+        console.error(`Error during platform publish for ${target.platform}:`, err);
+        try {
+          await db.rpc('record_publishing_result', {
+            job: job.id, target_id: target.id, result: {
+              status: 'failed', error_code: 'PUBLISH_EXCEPTION',
+              error_message: err instanceof Error ? err.message : 'Platform publishing failed',
+              retryable: false,
+            },
+          });
+        } catch {}
+        return false;
       }
-      const limited = Boolean(result.errorCode?.endsWith('_429'));
-      const retryable = limited || stagingFailure;
-      const reconnect = result.errorCode === 'RECONNECT' || result.errorCode?.endsWith('_401');
-      const status = ambiguous || result.processing ? 'processing' : result.success ? 'published' : reconnect ? 'reauthorization_required' : 'failed';
-      const message = ambiguous ? 'Provider outcome is unknown. Check the destination before posting again.' :
-        result.processing ? 'YouTube accepted the upload and is still processing it.' :
-        limited ? 'Provider rate limit reached.' : stagingFailure ? 'Temporary failure while preparing the media.' :
-        reconnect ? 'Reconnect the destination and retry.' :
-        result.success ? null : (result.actionRequired || (result.errorCode
-          ? 'Provider rejected this post (' + result.errorCode + '). Check permissions and media requirements.'
-          : result.errorMessage || 'Provider rejected this post.'));
-      const recorded = await db.rpc('record_publishing_result', {
-        job: job.id, target_id: target.id, result: {
-          status, error_code: result.errorCode, error_message: message, retryable,
-          external_post_id: result.externalPostId, external_post_url: result.externalPostUrl,
-        },
-      });
-      if (recorded.error) throw recorded.error;
-      return retryable;
     }));
 
   const retry = results.some(Boolean) && job.retry_count < job.max_retries;
