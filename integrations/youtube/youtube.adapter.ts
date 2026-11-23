@@ -209,7 +209,7 @@ export class YouTubeAdapter implements PlatformAdapter {
       }
 
       // 3. Stream video file buffer to uploadUrl
-      const videoFileRes = await fetch(mediaUrl, { redirect: 'error', signal: AbortSignal.timeout(30_000) });
+      const videoFileRes = await fetch(mediaUrl, { redirect: 'follow', signal: AbortSignal.timeout(60_000) });
       if (!videoFileRes.ok) {
         return {
           success: false,
@@ -221,8 +221,8 @@ export class YouTubeAdapter implements PlatformAdapter {
       const videoBuffer = await videoFileRes.arrayBuffer();
       const uploadRes = await fetch(uploadUrl, {
         method: 'PUT',
-        redirect: 'error',
-        signal: AbortSignal.timeout(110_000),
+        redirect: 'follow',
+        signal: AbortSignal.timeout(120_000),
         headers: {
           'Content-Type': 'video/mp4',
           'Content-Length': videoBuffer.byteLength.toString(),

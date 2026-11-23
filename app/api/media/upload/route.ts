@@ -13,14 +13,18 @@ export async function POST(req: NextRequest) {
   }
   try {
     const file = (await req.formData()).get('file');
-    if (!file || typeof file === 'string' || !Object.hasOwn(mediaExtensions, file.type)) {
+    if (!file || typeof file === 'string') {
       return NextResponse.json({ error: 'Choose a JPEG, PNG, WebP, MP4, MOV or WebM file' }, { status: 400 });
     }
-    if (!file.size || file.size > mediaSizeLimit(file.type)) {
+    const fileType = (file.type || '').split(';')[0].trim().toLowerCase();
+    if (!Object.hasOwn(mediaExtensions, fileType)) {
+      return NextResponse.json({ error: 'Choose a JPEG, PNG, WebP, MP4, MOV or WebM file' }, { status: 400 });
+    }
+    if (!file.size || file.size > mediaSizeLimit(fileType)) {
       return NextResponse.json({ error: 'Upload is empty or exceeds the media size limit' }, { status: 413 });
     }
     const bytes = Buffer.from(await file.arrayBuffer());
-    if (!matchesMediaSignature(bytes, file.type)) {
+    if (!matchesMediaSignature(bytes, fileType)) {
       return NextResponse.json({ error: 'File contents do not match its declared type' }, { status: 415 });
     }
     const db = createAdminClient();
@@ -38,21 +42,25 @@ export async function POST(req: NextRequest) {
     if (lookup.error) throw lookup.error;
     if (lookup.data) return respond(lookup.data, 200);
 
-    const media = await inspectUploadedMedia(bytes, file.type);
-    const path = user.id + '/' + randomUUID() + '.' + mediaExtensions[file.type];
+    const media = await inspectUploadedMedia(bytes, fileType);
+    const path = user.id + '/' + randomUUID() + '.' + mediaExtensions[fileType];
     const thumbnailPath = path + '.thumb.jpg';
     const store = db.storage.from('media-assets');
     const { error: uploadError } = await store.upload(path, bytes, { contentType: file.type });
     if (uploadError) return NextResponse.json({ error: 'Could not store the uploaded file' }, { status: 502 });
-    const thumbnail = await store.upload(thumbnailPath, media.thumbnail, { contentType: 'image/jpeg' });
+    let hasThumbnail = false;
+    if (media.thumbnail && Buffer.isBuffer(media.thumbnail) && media.thumbnail.length > 0) {
+      const thumbUpload = await store.upload(thumbnailPath, media.thumbnail, { contentType: 'image/jpeg' });
+      hasThumbnail = !thumbUpload.error;
+    }
     const { data: asset, error } = await db.from('media_assets').insert({
       user_id: user.id, file_name: file.name.slice(0, 255), file_path: path, file_size: file.size,
-      mime_type: file.type, media_type: file.type.startsWith('video/') ? 'video' : 'image',
+      mime_type: fileType, media_type: fileType.startsWith('video/') ? 'video' : 'image',
       checksum_sha256: checksum, width: media.width, height: media.height,
-      duration_seconds: media.duration, video_codec: media.codec, thumbnail_path: thumbnail.error ? null : thumbnailPath,
+      duration_seconds: media.duration, video_codec: media.codec, thumbnail_path: hasThumbnail ? thumbnailPath : null,
     }).select().single();
     if (error) {
-      await store.remove(thumbnail.error ? [path] : [path, thumbnailPath]);
+      await store.remove(hasThumbnail ? [path, thumbnailPath] : [path]);
       if (error.code === '23505') {
         const reused = await existing();
         if (reused.data) return respond(reused.data, 200);

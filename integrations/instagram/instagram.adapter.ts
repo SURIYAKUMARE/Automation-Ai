@@ -175,15 +175,15 @@ export class InstagramAdapter implements PlatformAdapter {
       // Step 2: Poll container status if video or wait for ready
       let isReady = false;
       let attempts = 0;
-      const maxAttempts = mediaType === 'video' ? 5 : 3;
+      const maxAttempts = mediaType === 'video' ? 12 : 4;
 
       while (!isReady && attempts < maxAttempts) {
         attempts++;
-        await new Promise((resolve) => setTimeout(resolve, mediaType === 'video' ? 15_000 : 2000));
+        await new Promise((resolve) => setTimeout(resolve, mediaType === 'video' ? 8000 : 2000));
 
         const statusRes = await fetch(
           `https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${creationId}?fields=status_code`,
-          { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(8000) },
+          { headers: { Authorization: 'Bearer ' + accessToken }, signal: AbortSignal.timeout(10000) },
         ).catch(() => null);
 
         if (statusRes?.ok) {

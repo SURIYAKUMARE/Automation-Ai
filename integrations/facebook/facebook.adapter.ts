@@ -173,11 +173,31 @@ export class FacebookAdapter implements PlatformAdapter {
         bodyParams.append('message', text);
       }
 
-      const res = await fetch(endpoint, {
+      let res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: bodyParams.toString(),
       });
+
+      // If video upload with file_url was rejected, retry streaming the video buffer directly
+      if (!res.ok && mediaType === 'video' && mediaUrl) {
+        try {
+          const videoRes = await fetch(mediaUrl, { redirect: 'follow', signal: AbortSignal.timeout(60_000) });
+          if (videoRes.ok) {
+            const videoBuf = await videoRes.arrayBuffer();
+            const formData = new FormData();
+            formData.append('access_token', accessToken);
+            formData.append('description', text);
+            formData.append('source', new Blob([videoBuf], { type: 'video/mp4' }), 'video.mp4');
+            res = await fetch(endpoint, {
+              method: 'POST',
+              body: formData,
+            });
+          }
+        } catch {
+          // Keep original response
+        }
+      }
 
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));

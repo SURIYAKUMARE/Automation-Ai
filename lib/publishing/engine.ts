@@ -127,7 +127,7 @@ export async function executePostPublishing(db: Database, job: ClaimedJob) {
       if (variant && variant.caption && (post.publishing_mode === 'automatic' || variant.is_approved)) {
         if (!account || account.user_id !== job.user_id || account.status !== 'active' || account.platform !== platform) {
           result = { success: false, errorCode: 'RECONNECT', errorMessage: 'Reconnect the destination account before retrying.' };
-        } else if (post.media_asset_id && !mediaUrl || platform === 'youtube' && media?.media_type !== 'video' ||
+        } else if (post.media_asset_id && !mediaUrl || platform === 'youtube' && media?.media_type !== 'video' && !media?.mime_type?.startsWith('video/') ||
                    platform === 'instagram' && !mediaUrl) {
           result = { success: false, errorMessage: 'The required uploaded media is missing or unavailable.' };
         } else {

@@ -195,7 +195,7 @@ export class LinkedInAdapter implements PlatformAdapter {
             if (mimeMatch) mimeType = mimeMatch[1];
             mediaBuffer = Buffer.from(b64, 'base64');
           } else {
-            const fileRes = await fetch(mediaUrl, { redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+            const fileRes = await fetch(mediaUrl, { redirect: 'follow', signal: AbortSignal.timeout(60_000) });
             if (fileRes.ok) {
               const cType = fileRes.headers.get('content-type');
               if (cType) mimeType = cType.split(';')[0].trim();
@@ -347,6 +347,10 @@ export class LinkedInAdapter implements PlatformAdapter {
 
               if (putRes.ok || putRes.status === 201) {
                 uploadedAssetUrn = assetUrn;
+                if (isVideo) {
+                  // Give LinkedIn's transcoding pipeline a moment to register video availability
+                  await new Promise((resolve) => setTimeout(resolve, 4000));
+                }
               }
             }
           }

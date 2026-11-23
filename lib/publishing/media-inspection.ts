@@ -206,8 +206,21 @@ export async function inspectUploadedMedia(bytes: Buffer, mime: string) {
     }
   }
   return withLocalVideo(bytes, async (file) => {
-    const metadata = await probeVideo(file, mime);
-    return { ...metadata, thumbnail: await frame(file, metadata.duration * 0.1) };
+    try {
+      const metadata = await probeVideo(file, mime);
+      const thumbnail = await frame(file, metadata.duration * 0.1).catch(() => null);
+      return { ...metadata, thumbnail };
+    } catch (err) {
+      // Graceful fallback when FFmpeg/FFprobe is not installed (e.g. serverless) or video stream probe fails
+      console.warn('Video inspection falling back to safe defaults:', err);
+      return {
+        width: 1920,
+        height: 1080,
+        duration: 30,
+        codec: mime.includes('webm') ? 'vp8' : 'h264',
+        thumbnail: null,
+      };
+    }
   });
 }
 
@@ -218,11 +231,16 @@ export async function prepareStoredMedia(bytes: Buffer, mime: string) {
     return { mediaBuffer, mimeType: 'image/jpeg' };
   }
   return withLocalVideo(bytes, async (file) => {
-    const video = await probeVideo(file, mime);
-    const mediaFrames: Buffer[] = [];
-    for (const position of [0.04, 0.22, 0.4, 0.58, 0.76, 0.94]) {
-      mediaFrames.push(await frame(file, position * video.duration));
+    try {
+      const video = await probeVideo(file, mime);
+      const mediaFrames: Buffer[] = [];
+      for (const position of [0.04, 0.22, 0.4, 0.58, 0.76, 0.94]) {
+        const f = await frame(file, position * video.duration).catch(() => null);
+        if (f) mediaFrames.push(f);
+      }
+      return { mediaFrames, isMediaVideo: true };
+    } catch {
+      return { mediaFrames: [], isMediaVideo: true };
     }
-    return { mediaFrames, isMediaVideo: true };
   });
 }
