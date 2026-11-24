@@ -16,7 +16,7 @@ const badgeVariants = cva(
         outline: "text-foreground",
         // Stitch status variants
         stitch:
-          "bg-gradient-to-r from-blue-500/15 via-indigo-500/15 to-violet-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30 font-medium",
+          "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 font-medium",
         success:
           "bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-medium",
         warning:

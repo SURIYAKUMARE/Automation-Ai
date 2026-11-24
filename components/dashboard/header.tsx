@@ -24,7 +24,6 @@ import { CommandPalette } from "./command-palette";
 
 type User = { name: string; email: string };
 type Notification = { id: string; title: string; message: string; is_read: boolean; link?: string | null };
-const control = "inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-xl border border-border/80 bg-card/80 px-2.5 text-xs font-medium hover:bg-muted/80 text-foreground transition-all shadow-xs";
 
 export function Header({ user, openMenu }: { user: User; openMenu: () => void }) {
   const pathname = usePathname();
@@ -72,158 +71,169 @@ export function Header({ user, openMenu }: { user: User; openMenu: () => void })
 
   return (
     <>
-      <header className="sticky top-0 z-20 border-b border-border/70 bg-card/85 backdrop-blur-md">
-        <div className="flex h-16 min-w-0 items-center gap-2.5 px-3 sm:px-6">
-          <button type="button" aria-label="Open navigation" className={control + " lg:hidden"} onClick={openMenu}>
-            <Menu className="h-4 w-4" />
-          </button>
-          
-          <div className="min-w-0 flex-1 flex items-center gap-2">
-            <span className="truncate text-sm sm:text-base font-bold tracking-tight text-foreground">
-              {pageTitle}
-            </span>
+      <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur-sm">
+        <div className="flex h-14 min-w-0 items-center justify-between gap-3 px-4 sm:px-6">
+          {/* Left: Mobile hamburger & Breadcrumb */}
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              aria-label="Open navigation"
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:text-foreground lg:hidden"
+              onClick={openMenu}
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+            <div className="flex items-center gap-1.5 text-xs">
+              <span className="text-muted-foreground hidden sm:inline">Workspace</span>
+              <span className="text-muted-foreground/50 hidden sm:inline">/</span>
+              <span className="font-semibold text-foreground truncate">{pageTitle}</span>
+            </div>
           </div>
 
-          {/* Global Search / Command Palette Trigger */}
-          <button
-            type="button"
-            onClick={() => setCommandPaletteOpen(true)}
-            className="hidden md:flex min-w-0 items-center gap-2.5 rounded-xl border border-border/70 bg-background/60 hover:bg-muted/60 px-3 py-1.5 text-xs text-muted-foreground transition-all shadow-xs"
-            aria-label="Open command palette"
-          >
-            <Search className="h-3.5 w-3.5 shrink-0" />
-            <span className="w-28 lg:w-44 text-left truncate">Search or jump to...</span>
-            <kbd className="rounded border border-border/80 bg-muted/70 px-1.5 py-0.5 text-[10px] font-mono text-muted-foreground">
-              ⌘K
-            </kbd>
-          </button>
+          {/* Right: Search, Quick links, Notifications & User */}
+          <div className="flex items-center gap-2 sm:gap-2.5">
+            {/* Command Palette Trigger */}
+            <button
+              type="button"
+              onClick={() => setCommandPaletteOpen(true)}
+              className="hidden md:flex items-center gap-2 rounded-md border border-border bg-muted/40 hover:bg-muted/80 px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              aria-label="Search workspace"
+            >
+              <Search className="h-3.5 w-3.5 shrink-0" />
+              <span className="w-24 lg:w-36 text-left truncate">Search...</span>
+              <kbd className="rounded border border-border/80 bg-background px-1.5 py-0.2 text-[10px] font-mono text-muted-foreground">
+                ⌘K
+              </kbd>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setCommandPaletteOpen(true)}
-            className={control + " md:hidden"}
-            aria-label="Search workspace"
-          >
-            <Search className="h-4 w-4" />
-          </button>
+            <button
+              type="button"
+              onClick={() => setCommandPaletteOpen(true)}
+              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:text-foreground md:hidden"
+              aria-label="Search"
+            >
+              <Search className="h-4 w-4" />
+            </button>
 
-          <Link
-            href="/dashboard/scripts"
-            className="hidden md:inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-border/80 bg-card/80 px-2.5 sm:px-3 text-xs font-medium hover:bg-muted/80 text-foreground transition-all shadow-xs"
-            aria-label="Script Studio"
-          >
-            <Video className="h-3.5 w-3.5 text-indigo-500" />
-            <span className="hidden lg:inline">Scripts</span>
-          </Link>
+            {/* Quick Links */}
+            <Link
+              href="/dashboard/scripts"
+              className="hidden lg:inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card hover:bg-muted/60 px-2.5 text-xs font-medium text-foreground transition-colors"
+            >
+              <Video className="h-3.5 w-3.5 text-muted-foreground" />
+              <span>Scripts</span>
+            </Link>
 
-          <Link
-            href="/dashboard/whatsapp"
-            className="hidden md:inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-border/80 bg-card/80 px-2.5 sm:px-3 text-xs font-medium hover:bg-muted/80 text-foreground transition-all shadow-xs"
-            aria-label="WhatsApp"
-          >
-            <MessageSquare className="h-3.5 w-3.5 text-emerald-500" />
-            <span className="hidden lg:inline">WhatsApp</span>
-          </Link>
+            <Link
+              href="/dashboard/whatsapp"
+              className="hidden lg:inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-card hover:bg-muted/60 px-2.5 text-xs font-medium text-foreground transition-colors"
+            >
+              <MessageSquare className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+              <span>WhatsApp</span>
+            </Link>
 
-          {/* Create Post Button with Indigo/Violet Theme */}
-          <Link
-            href="/dashboard/create-post"
-            className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-500 via-indigo-600 to-violet-600 hover:from-indigo-600 hover:to-violet-700 text-white px-3 sm:px-3.5 text-xs font-semibold shadow-md shadow-indigo-500/25 active:scale-[0.98] transition-all"
-            aria-label="Create post"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            <span>Create Post</span>
-          </Link>
-
-          {/* Notifications Dropdown */}
-          <details className="static sm:relative">
-            <summary className={control + " relative cursor-pointer list-none"} aria-label={unread ? unread + " unread notifications" : "Notifications"}>
-              <Bell className="h-4 w-4" />
-              {unread > 0 && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />}
-            </summary>
-            <div className="absolute left-2 right-2 top-full mt-2 rounded-2xl border border-border/80 bg-card p-3 shadow-xl sm:left-auto sm:right-0 sm:w-80 backdrop-blur-xl">
-              <div className="flex items-center justify-between gap-2 pb-2 border-b border-border/60">
-                <h2 className="text-xs font-semibold text-foreground">Notifications</h2>
+            {/* Notifications Popover */}
+            <details className="relative">
+              <summary
+                className="inline-flex size-8 cursor-pointer list-none items-center justify-center rounded-md border border-border bg-card text-muted-foreground hover:text-foreground relative transition-colors"
+                aria-label={unread ? `${unread} unread notifications` : "Notifications"}
+              >
+                <Bell className="h-3.5 w-3.5" />
                 {unread > 0 && (
-                  <button type="button" className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-medium" onClick={() => void markRead()}>
-                    Mark all read
-                  </button>
+                  <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-indigo-600" />
                 )}
+              </summary>
+              <div className="absolute right-0 top-full mt-2 w-80 rounded-xl border border-border bg-card p-3 shadow-lg z-50">
+                <div className="flex items-center justify-between pb-2 border-b border-border">
+                  <h3 className="text-xs font-semibold text-foreground">Notifications</h3>
+                  {unread > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => void markRead()}
+                      className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline"
+                    >
+                      Mark all as read
+                    </button>
+                  )}
+                </div>
+                <div className="mt-2 max-h-72 overflow-y-auto divide-y divide-border/60">
+                  {notificationError && <p className="py-3 text-xs text-muted-foreground text-center">Notifications unavailable.</p>}
+                  {!notificationError && !notifications && <p className="py-3 text-xs text-muted-foreground text-center">Loading...</p>}
+                  {notifications?.length === 0 && !notificationError && <p className="py-3 text-xs text-muted-foreground text-center">No notifications yet.</p>}
+                  {notifications?.map((notice) => (
+                    <div key={notice.id} className="py-2.5 first:pt-1">
+                      {notice.link?.startsWith("/dashboard") && !notice.link.startsWith("//") ? (
+                        <Link
+                          href={notice.link}
+                          className="text-xs font-medium text-foreground hover:text-indigo-600 dark:hover:text-indigo-400 block"
+                          onClick={(e) => {
+                            const panel = e.currentTarget.closest("details");
+                            if (panel) panel.open = false;
+                          }}
+                        >
+                          {notice.title}
+                        </Link>
+                      ) : (
+                        <p className="text-xs font-medium text-foreground">{notice.title}</p>
+                      )}
+                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{notice.message}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <div className="mt-2 max-h-80 divide-y divide-border/40 overflow-y-auto">
-                {notificationError && <p className="py-3 text-xs text-muted-foreground text-center">Notifications are unavailable.</p>}
-                {!notificationError && !notifications && <p className="py-3 text-xs text-muted-foreground text-center">Loading notifications…</p>}
-                {notifications?.length === 0 && !notificationError && <p className="py-3 text-xs text-muted-foreground text-center">No notifications yet.</p>}
-                {notifications?.map((notice) => (
-                  <div key={notice.id} className="py-2.5 first:pt-1">
-                    {notice.link?.startsWith("/dashboard") && !notice.link.startsWith("//") ? (
-                      <Link
-                        href={notice.link}
-                        className="text-xs font-semibold text-foreground hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline block"
-                        onClick={(event) => {
-                          const panel = event.currentTarget.closest("details");
-                          if (panel) panel.open = false;
-                        }}
-                      >
-                        {notice.title}
-                      </Link>
-                    ) : (
-                      <p className="text-xs font-semibold text-foreground">{notice.title}</p>
-                    )}
-                    <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{notice.message}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </details>
+            </details>
 
-          {/* Profile Dropdown */}
-          <details className="relative">
-            <summary className={control + " cursor-pointer list-none pl-1.5 gap-1.5"} aria-label="Profile menu">
-              <span className="grid h-6 w-6 place-items-center rounded-full bg-gradient-to-tr from-indigo-500 to-violet-500 text-[11px] font-bold text-white shadow-xs">
-                {(user.name || user.email || "S").slice(0, 1).toUpperCase()}
-              </span>
-              <ChevronDown className="hidden h-3 w-3 sm:block text-muted-foreground" />
-            </summary>
-            <div className="absolute right-0 top-full mt-2 w-56 rounded-2xl border border-border/80 bg-card p-1.5 shadow-xl backdrop-blur-xl">
-              <div className="mb-1 border-b border-border/60 p-2.5">
-                <p className="truncate text-xs font-semibold text-foreground">{user.name}</p>
-                <p className="truncate text-[11px] text-muted-foreground">{user.email}</p>
+            {/* Profile Dropdown */}
+            <details className="relative">
+              <summary
+                className="inline-flex h-8 cursor-pointer list-none items-center gap-1.5 rounded-md border border-border bg-card px-2 text-xs font-medium text-foreground hover:bg-muted/60 transition-colors"
+                aria-label="Profile menu"
+              >
+                <span className="grid size-5 place-items-center rounded bg-indigo-600 text-[10px] font-semibold text-white">
+                  {(user.name || user.email || "S").slice(0, 1).toUpperCase()}
+                </span>
+                <ChevronDown className="h-3 w-3 text-muted-foreground hidden sm:block" />
+              </summary>
+              <div className="absolute right-0 top-full mt-2 w-52 rounded-xl border border-border bg-card p-1.5 shadow-lg z-50">
+                <div className="p-2 border-b border-border mb-1">
+                  <p className="text-xs font-semibold text-foreground truncate">{user.name}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">{user.email}</p>
+                </div>
+                <Link
+                  href="/dashboard/profile"
+                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-foreground hover:bg-muted transition-colors"
+                  onClick={(e) => {
+                    const panel = e.currentTarget.closest("details");
+                    if (panel) panel.open = false;
+                  }}
+                >
+                  <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  Settings
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-foreground hover:bg-muted transition-colors text-left"
+                >
+                  {theme === "dark" ? <Sun className="h-3.5 w-3.5 text-amber-500" /> : <Moon className="h-3.5 w-3.5 text-indigo-500" />}
+                  <span>{theme === "dark" ? "Light Mode" : "Dark Mode"}</span>
+                </button>
+                <div className="my-1 border-t border-border" />
+                <button
+                  type="button"
+                  onClick={() => void signOut()}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Sign Out
+                </button>
               </div>
-              <Link
-                href="/dashboard/profile"
-                className="flex items-center gap-2 rounded-xl p-2 text-xs font-medium text-foreground hover:bg-muted/80 transition-colors"
-                onClick={(event) => {
-                  const panel = event.currentTarget.closest("details");
-                  if (panel) panel.open = false;
-                }}
-              >
-                <Settings2 className="h-3.5 w-3.5 text-muted-foreground" />
-                Settings &amp; Accounts
-              </Link>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-xl p-2 text-left text-xs font-medium text-foreground hover:bg-muted/80 transition-colors"
-                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              >
-                {theme === "dark" ? <Sun className="h-3.5 w-3.5 text-amber-500" /> : <Moon className="h-3.5 w-3.5 text-indigo-500" />}
-                {theme === "dark" ? "Switch to Light mode" : "Switch to Dark mode"}
-              </button>
-              <div className="my-1 border-t border-border/50" />
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 rounded-xl p-2 text-left text-xs font-medium text-destructive hover:bg-destructive/10 transition-colors"
-                onClick={() => void signOut()}
-              >
-                <LogOut className="h-3.5 w-3.5" />
-                Sign out
-              </button>
-            </div>
-          </details>
+            </details>
+          </div>
         </div>
       </header>
 
-      {/* Interactive Command Palette */}
+      {/* Global Command Palette */}
       <CommandPalette isOpen={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} />
     </>
   );

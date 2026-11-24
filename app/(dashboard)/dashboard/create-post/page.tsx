@@ -16,12 +16,10 @@ import {
   Eye,
   Smile,
   Clock,
-  Layers,
   ChevronRight,
   ChevronLeft,
-  RefreshCw,
-  Sliders,
-  CheckCircle2,
+  RotateCw,
+  Share2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,10 +42,10 @@ interface PlatformOption {
 }
 
 const PLATFORMS: PlatformOption[] = [
-  { id: "instagram", name: "Instagram", tag: "Photo or Reel", maxChars: 2200 },
-  { id: "facebook", name: "Facebook", tag: "Text, photo, video", maxChars: 63206 },
-  { id: "linkedin", name: "LinkedIn", tag: "Text, photo, video", maxChars: 3000 },
-  { id: "youtube", name: "YouTube", tag: "Video only", maxChars: 5000 },
+  { id: "instagram", name: "Instagram", tag: "Photo, Carousel, Reel", maxChars: 2200 },
+  { id: "facebook", name: "Facebook", tag: "Text, Photo, Video", maxChars: 63206 },
+  { id: "linkedin", name: "LinkedIn", tag: "Text, Photo, Document", maxChars: 3000 },
+  { id: "youtube", name: "YouTube", tag: "Video & Shorts", maxChars: 5000 },
 ];
 
 const QUICK_EMOJIS = ["🔥", "🚀", "✨", "💡", "👏", "👇", "📈", "🎯", "🙌", "❤️", "🤝", "⚡"];
@@ -68,7 +66,7 @@ type Destination = { id: string; platform: SocialPlatform; account_name: string;
 export default function CreatePostPage() {
   const router = useRouter();
 
-  // Mobile step switcher: 1 = Channels & Media, 2 = AI & Copy, 3 = Preview & Publish
+  // Mobile step switcher: 1 = Channels & Media, 2 = Content, 3 = Preview & Publish
   const [mobileStep, setMobileStep] = React.useState<1 | 2 | 3>(1);
 
   // Media
@@ -233,7 +231,7 @@ export default function CreatePostPage() {
     if (uploadedAsset.current?.file === file) return uploadedAsset.current.id;
     setUploadProgress(0);
     try {
-      // 1. Try Direct Supabase Storage Upload
+      // 1. Direct Supabase Storage Upload
       try {
         const directInitRes = await fetch("/api/media/direct-upload", {
           method: "PUT",
@@ -318,21 +316,21 @@ export default function CreatePostPage() {
   async function publishUpload(file: File) {
     setIsPublishing(true);
     setAutoUploadFailed(false);
-    const notice = toast.loading("Uploading for automatic publishing...");
+    const notice = toast.loading("Uploading and validating file...");
     try {
       const mediaAssetId = await storeFile(file);
-      toast.loading("Analyzing upload & queueing destinations...", { id: notice });
+      toast.loading("Queuing post for publication...", { id: notice });
       const response = await fetch("/api/automation/uploads", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mediaAssetId }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error);
-      toast.success(data.duplicate ? "This upload already has a publishing record" : "Post queued for your authorized channels!", { id: notice });
+      toast.success(data.duplicate ? "This upload already exists in publishing history" : "Post queued for connected channels", { id: notice });
       router.push("/dashboard/history");
     } catch (error) {
       setAutoUploadFailed(true);
-      toast.error(error instanceof Error ? error.message : "Automatic upload publishing failed", { id: notice });
+      toast.error(error instanceof Error ? error.message : "Automatic publishing failed", { id: notice });
       const platforms = selectedPlatforms.length ? selectedPlatforms : [activeTab];
       void handleGenerateAI(file, platforms);
     } finally {
@@ -344,7 +342,7 @@ export default function CreatePostPage() {
     if (!rawFile || isGenerating || isPublishing) return;
 
     if (rawFile.size > (rawFile.type.startsWith("video/") ? 100 : 15) * 1024 * 1024) {
-      toast.error("File exceeds upload limit (15MB for images, 100MB for video)");
+      toast.error("File exceeds upload limit (15MB for images, 100MB for videos)");
       return;
     }
 
@@ -413,11 +411,11 @@ export default function CreatePostPage() {
   const handleConvertToVideo = async () => {
     if (!selectedFile) return;
     setIsConvertingVideo(true);
-    const notice = toast.loading("Generating 30s 1080p video with FFmpeg & FFprobe...");
+    const notice = toast.loading("Converting photo to 30s 1080p MP4 for YouTube...");
     try {
       const videoFile = await convertImageToVideo(selectedFile, 30);
       chooseFile(videoFile);
-      toast.success("30-second 1080p MP4 generated for YouTube!", { id: notice });
+      toast.success("1080p MP4 generated for YouTube!", { id: notice });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Video conversion failed", { id: notice });
     } finally {
@@ -428,26 +426,26 @@ export default function CreatePostPage() {
   const handleAutoFormatPhoto = async (format: "jpeg" | "png") => {
     if (!selectedFile || isVideo) return;
     setTargetPhotoFormat(format);
-    const notice = toast.loading(`Auto-sizing photo into 1080p ${format.toUpperCase()}...`);
+    const notice = toast.loading(`Formatting photo to standard 1080p ${format.toUpperCase()}...`);
     try {
       const formatted = await autoFormatImage(selectedFile, { format, targetRatio: "auto" });
       setSelectedFile(formatted);
       const objectUrl = URL.createObjectURL(formatted);
       setMediaPreview(objectUrl);
-      toast.success(`Photo auto-sized to 1080p ${format.toUpperCase()}!`, { id: notice });
+      toast.success(`Photo formatted to 1080p ${format.toUpperCase()}`, { id: notice });
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Auto-sizing failed", { id: notice });
+      toast.error(err instanceof Error ? err.message : "Formatting failed", { id: notice });
     }
   };
 
   const handleGenerateAI = async (attachedFile?: File, platforms = selectedPlatforms) => {
     const targetPlatforms = platforms.length ? platforms : (selectedPlatforms.length ? selectedPlatforms : [activeTab]);
     if (!targetPlatforms.length || (!attachedFile && !selectedFile && !savedAssetId && !topicPrompt.trim())) {
-      toast.error("Select a destination channel and provide media or topic text.");
+      toast.error("Select at least one channel and add a topic or media.");
       return;
     }
     setIsGenerating(true);
-    const notice = toast.loading("Generating multi-platform copy with SocialSync AI...");
+    const notice = toast.loading("Generating captions and titles...");
     try {
       let file: Blob | null = attachedFile ?? selectedFile;
       if (!file && savedAssetId) {
@@ -497,7 +495,7 @@ export default function CreatePostPage() {
         }
         return updated;
       });
-      toast.success("AI captions ready for review!", { id: notice });
+      toast.success("Captions ready for review", { id: notice });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not generate captions", { id: notice });
     } finally {
@@ -535,11 +533,11 @@ export default function CreatePostPage() {
     }
 
     setIsPublishing(true);
-    const notice = toast.loading(isDraft ? "Saving draft..." : customSchedule ? "Scheduling post..." : "Publishing to destinations...");
+    const notice = toast.loading(isDraft ? "Saving draft..." : customSchedule ? "Scheduling post..." : "Publishing to channels...");
     try {
       let mediaAssetId = savedAssetId;
       if (!mediaAssetId && uploadFile && !uploadFile.type.startsWith("video/") && selectedPlatforms.includes("youtube")) {
-        const convNotice = toast.loading("Converting photo into 30s 1080p MP4 for YouTube...", { id: notice });
+        const convNotice = toast.loading("Converting photo to 1080p MP4 for YouTube...", { id: notice });
         try {
           uploadFile = await convertImageToVideo(uploadFile, 30);
           setSelectedFile(uploadFile);
@@ -569,7 +567,7 @@ export default function CreatePostPage() {
         .filter((account) => selectedPlatforms.includes(account.platform) && accountIds.includes(account.id))
         .map((account) => ({ social_account_id: account.id, platform: account.platform }));
 
-      const postTitle = ytVideoTitle || platformContents[activeTab].caption.slice(0, 50) || "SocialSync Post";
+      const postTitle = ytVideoTitle || platformContents[activeTab].caption.slice(0, 50) || "Social Post";
 
       const url = draftId ? `/api/posts/${encodeURIComponent(draftId)}` : "/api/posts/create";
       const method = draftId ? "PATCH" : "POST";
@@ -593,7 +591,7 @@ export default function CreatePostPage() {
       if (!res.ok) throw new Error(data.error || "Failed to save post");
 
       toast.success(
-        isDraft ? "Draft saved successfully!" : customSchedule ? "Post scheduled successfully!" : "Post published across all channels!",
+        isDraft ? "Draft saved" : customSchedule ? "Post scheduled" : "Post published across all channels",
         { id: notice }
       );
       router.push("/dashboard/history");
@@ -610,44 +608,41 @@ export default function CreatePostPage() {
   const previewAccount = accounts.find((account) => account.platform === activeTab && accountIds.includes(account.id));
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       {/* Upload Progress Bar if active */}
       {uploadProgress !== null && (
-        <div className="p-3 rounded-xl border border-indigo-500/30 bg-indigo-500/10 space-y-1.5 animate-in fade-in">
-          <div className="flex items-center justify-between text-xs text-indigo-600 dark:text-indigo-400 font-medium">
-            <span>Uploading media asset ({uploadProgress}%)...</span>
+        <div className="p-3 rounded-lg border border-indigo-200 dark:border-indigo-900 bg-indigo-50/50 dark:bg-indigo-950/20 space-y-1.5 animate-in fade-in">
+          <div className="flex items-center justify-between text-xs text-indigo-700 dark:text-indigo-300 font-medium">
+            <span>Uploading media ({uploadProgress}%)...</span>
             <button type="button" onClick={() => uploadRequest.current?.abort()} className="underline hover:text-foreground">
               Cancel
             </button>
           </div>
-          <div className="h-1.5 w-full bg-indigo-500/20 rounded-full overflow-hidden">
-            <div className="h-full bg-indigo-600 dark:bg-indigo-400 transition-all duration-150" style={{ width: `${uploadProgress}%` }} />
+          <div className="h-1.5 w-full bg-indigo-100 dark:bg-indigo-900/50 rounded-full overflow-hidden">
+            <div className="h-full bg-indigo-600 transition-all duration-150" style={{ width: `${uploadProgress}%` }} />
           </div>
         </div>
       )}
 
       {/* Header with Title and Mobile Step Wizard */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-border/60">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4 border-b border-border">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            <span>Post Composer</span>
-            <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-              3-Column Studio
-            </span>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+            Create Post
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Attach media, generate tailored AI captions, and preview live across every platform.
+            Select channels, upload media, craft captions, and publish or schedule.
           </p>
         </div>
 
-        {/* Mobile Step Indicator Tabs (visible only on small screens) */}
-        <div className="flex xl:hidden items-center p-1 rounded-xl bg-muted/60 border border-border/60 text-xs w-full sm:w-auto">
+        {/* Mobile Step Navigator */}
+        <div className="flex xl:hidden items-center p-1 rounded-lg bg-muted border border-border text-xs w-full sm:w-auto">
           <button
             type="button"
             onClick={() => setMobileStep(1)}
             className={cn(
-              "flex-1 sm:flex-initial px-3 py-1.5 rounded-lg font-medium transition-all text-center",
-              mobileStep === 1 ? "bg-card text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+              "flex-1 sm:flex-initial px-3 py-1.5 rounded-md font-medium transition-all text-center",
+              mobileStep === 1 ? "bg-card text-foreground font-semibold shadow-xs" : "text-muted-foreground hover:text-foreground"
             )}
           >
             1. Channels &amp; Media
@@ -656,18 +651,18 @@ export default function CreatePostPage() {
             type="button"
             onClick={() => setMobileStep(2)}
             className={cn(
-              "flex-1 sm:flex-initial px-3 py-1.5 rounded-lg font-medium transition-all text-center",
-              mobileStep === 2 ? "bg-card text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+              "flex-1 sm:flex-initial px-3 py-1.5 rounded-md font-medium transition-all text-center",
+              mobileStep === 2 ? "bg-card text-foreground font-semibold shadow-xs" : "text-muted-foreground hover:text-foreground"
             )}
           >
-            2. AI &amp; Captions
+            2. Content &amp; AI
           </button>
           <button
             type="button"
             onClick={() => setMobileStep(3)}
             className={cn(
-              "flex-1 sm:flex-initial px-3 py-1.5 rounded-lg font-medium transition-all text-center",
-              mobileStep === 3 ? "bg-card text-foreground shadow-xs font-semibold" : "text-muted-foreground hover:text-foreground"
+              "flex-1 sm:flex-initial px-3 py-1.5 rounded-md font-medium transition-all text-center",
+              mobileStep === 3 ? "bg-card text-foreground font-semibold shadow-xs" : "text-muted-foreground hover:text-foreground"
             )}
           >
             3. Preview &amp; Publish
@@ -675,25 +670,25 @@ export default function CreatePostPage() {
         </div>
       </div>
 
-      {/* 3-Column Desktop Layout */}
+      {/* 3-Column Desktop Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start">
         
         {/* ======================================================== */}
-        {/* COLUMN 1 (Left): Platforms & Accounts (3 cols / 25%)    */}
+        {/* COLUMN 1: Channels & Scheduling (3 cols / 25%)           */}
         {/* ======================================================== */}
         <div className={cn("xl:col-span-3 space-y-4", mobileStep !== 1 && "hidden xl:block")}>
-          {/* Platform Selector Box */}
-          <div className="rounded-2xl border border-border/70 bg-card p-4 space-y-3.5 shadow-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-border/50">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                1. Destinations
+          {/* Channels Selection */}
+          <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-border">
+              <h2 className="text-xs font-semibold text-foreground">
+                Channels
               </h2>
-              <span className="text-[11px] font-mono text-muted-foreground">
-                {selectedPlatforms.length} selected
+              <span className="text-[11px] text-muted-foreground">
+                {selectedPlatforms.length} of {PLATFORMS.length}
               </span>
             </div>
 
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               {PLATFORMS.map((platform) => {
                 const isSelected = selectedPlatforms.includes(platform.id);
                 const isConnected = connectedPlatforms.includes(platform.id);
@@ -703,23 +698,23 @@ export default function CreatePostPage() {
                     type="button"
                     onClick={() => togglePlatform(platform.id)}
                     className={cn(
-                      "w-full p-2.5 rounded-xl border text-left transition-all flex items-center justify-between group",
+                      "w-full p-2.5 rounded-lg border text-left transition-colors flex items-center justify-between group",
                       isSelected
-                        ? "border-indigo-500/50 bg-indigo-500/5 dark:bg-indigo-950/20 text-foreground font-medium shadow-xs"
-                        : "border-border/70 text-muted-foreground hover:border-border hover:bg-muted/40"
+                        ? "border-indigo-600/60 bg-indigo-50/50 dark:bg-indigo-950/20 text-foreground"
+                        : "border-border hover:bg-muted/40 text-muted-foreground"
                     )}
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="h-8 w-8 rounded-lg bg-background p-1.5 border border-border/60 shrink-0 flex items-center justify-center">
-                        <PlatformIcon platform={platform.id} className="h-4 w-4" />
+                      <div className="size-7 rounded-md bg-background border border-border/80 shrink-0 flex items-center justify-center p-1">
+                        <PlatformIcon platform={platform.id} className="size-4" />
                       </div>
                       <div className="min-w-0">
-                        <div className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                        <div className="text-xs font-medium text-foreground flex items-center gap-1.5">
                           <span>{platform.name}</span>
                           {isConnected ? (
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 shrink-0" title="Connected" />
+                            <span className="size-1.5 rounded-full bg-emerald-500 shrink-0" title="Connected" />
                           ) : (
-                            <span className="text-[10px] text-amber-500 font-normal font-mono">(Offline)</span>
+                            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-mono">(Offline)</span>
                           )}
                         </div>
                         <p className="text-[10px] text-muted-foreground truncate">{platform.tag}</p>
@@ -727,25 +722,25 @@ export default function CreatePostPage() {
                     </div>
                     <div
                       className={cn(
-                        "h-4 w-4 rounded-md flex items-center justify-center border transition-colors shrink-0",
+                        "size-4 rounded flex items-center justify-center border transition-colors shrink-0",
                         isSelected
-                          ? "bg-indigo-600 text-white border-transparent"
-                          : "border-border/80 bg-background"
+                          ? "bg-indigo-600 text-white border-indigo-600"
+                          : "border-border bg-background"
                       )}
                     >
-                      {isSelected && <Check className="h-2.5 w-2.5 stroke-[3]" />}
+                      {isSelected && <Check className="size-2.5 stroke-[3]" />}
                     </div>
                   </button>
                 );
               })}
             </div>
 
-            {/* Offline Destination Warning */}
+            {/* Offline Destination Alert */}
             {selectedPlatforms.some((p) => !connectedPlatforms.includes(p)) && (
-              <div className="p-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-[11px] text-amber-600 dark:text-amber-400 space-y-1">
-                <p>One or more selected channels require authentication.</p>
-                <Link href="/dashboard/accounts" className="font-semibold underline block hover:text-amber-500">
-                  Connect channels in Settings →
+              <div className="p-2.5 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/20 text-[11px] text-amber-800 dark:text-amber-300 space-y-1">
+                <p>A selected channel is not connected yet.</p>
+                <Link href="/dashboard/accounts" className="font-semibold underline block hover:text-foreground">
+                  Connect channel in Accounts →
                 </Link>
               </div>
             )}
@@ -753,17 +748,17 @@ export default function CreatePostPage() {
 
           {/* Account Multi-Selection */}
           {accounts.filter((a) => selectedPlatforms.includes(a.platform)).length > 0 && (
-            <div className="rounded-2xl border border-border/70 bg-card p-4 space-y-3 shadow-xs">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground pb-2 border-b border-border/50">
-                Active Profiles
+            <div className="rounded-xl border border-border bg-card p-4 space-y-2.5">
+              <h2 className="text-xs font-semibold text-foreground pb-2 border-b border-border">
+                Connected Profiles
               </h2>
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {accounts
                   .filter((a) => selectedPlatforms.includes(a.platform))
                   .map((account) => (
                     <label
                       key={account.id}
-                      className="flex items-center gap-2.5 text-xs text-foreground cursor-pointer hover:bg-muted/40 p-1.5 rounded-lg transition-colors"
+                      className="flex items-center gap-2 text-xs text-foreground cursor-pointer hover:bg-muted/40 p-1.5 rounded-md transition-colors"
                     >
                       <input
                         type="checkbox"
@@ -774,7 +769,7 @@ export default function CreatePostPage() {
                         }}
                         className="rounded border-border text-indigo-600 focus:ring-indigo-500"
                       />
-                      <PlatformIcon platform={account.platform} className="h-3.5 w-3.5 shrink-0" />
+                      <PlatformIcon platform={account.platform} className="size-3.5 shrink-0" />
                       <span className="truncate font-medium">{account.account_name}</span>
                     </label>
                   ))}
@@ -782,32 +777,30 @@ export default function CreatePostPage() {
             </div>
           )}
 
-          {/* Schedule Settings Card */}
-          <div className="rounded-2xl border border-border/70 bg-card p-4 space-y-3.5 shadow-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-border/50">
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-indigo-500" />
-                <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Schedule Release
-                </h2>
-              </div>
+          {/* Scheduling Options */}
+          <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-border">
+              <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Clock className="size-3.5 text-muted-foreground" />
+                <span>Schedule Release</span>
+              </span>
               <input
                 type="checkbox"
                 checked={isScheduled}
                 onChange={(e) => setIsScheduled(e.target.checked)}
-                className="h-4 w-4 rounded border-border text-indigo-600 cursor-pointer"
+                className="size-4 rounded border-border text-indigo-600 cursor-pointer"
               />
             </div>
 
             {isScheduled && (
-              <div className="space-y-3 pt-1 animate-in fade-in">
+              <div className="space-y-3 pt-1">
                 <div className="space-y-1">
                   <label className="text-[11px] font-medium text-foreground">Date &amp; Time (Local)</label>
                   <Input
                     type="datetime-local"
                     value={scheduledDateTime}
                     onChange={(e) => setScheduledDateTime(e.target.value)}
-                    className="text-xs font-mono rounded-xl h-9"
+                    className="text-xs font-mono rounded-lg h-8"
                   />
                 </div>
 
@@ -827,7 +820,7 @@ export default function CreatePostPage() {
                     <select
                       value={weeklyOccurrences}
                       onChange={(e) => setWeeklyOccurrences(Number(e.target.value))}
-                      className="rounded-lg border border-border bg-background p-1 text-xs text-foreground"
+                      className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground"
                     >
                       {[1, 2, 3, 4, 8].map((n) => (
                         <option key={n} value={n}>
@@ -841,29 +834,29 @@ export default function CreatePostPage() {
             )}
           </div>
 
-          {/* Mobile Step Next button */}
+          {/* Mobile Continue Button */}
           <div className="xl:hidden pt-2">
             <Button
               type="button"
               variant="stitch"
               onClick={() => setMobileStep(2)}
-              className="w-full h-10 text-xs font-semibold gap-1.5"
+              className="w-full h-10 text-xs font-medium gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
             >
-              <span>Continue to AI &amp; Captions</span>
-              <ChevronRight className="h-4 w-4" />
+              <span>Continue to Content</span>
+              <ChevronRight className="size-4" />
             </Button>
           </div>
         </div>
 
         {/* ======================================================== */}
-        {/* COLUMN 2 (Center): Media & Content Studio (5 cols / 45%) */}
+        {/* COLUMN 2: Media, Content & AI Assistant (5 cols / 45%)   */}
         {/* ======================================================== */}
         <div className={cn("xl:col-span-5 space-y-4", mobileStep !== 2 && "hidden xl:block")}>
-          {/* Media Upload & Optimization Card */}
-          <div className="rounded-2xl border border-border/70 bg-card p-4 space-y-3 shadow-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-border/50">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                2. Visual Media
+          {/* Media Upload & Preview */}
+          <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-border">
+              <h2 className="text-xs font-semibold text-foreground">
+                Media Asset
               </h2>
               <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer">
                 <input
@@ -877,7 +870,7 @@ export default function CreatePostPage() {
             </div>
 
             {mediaPreview ? (
-              <div className="relative rounded-xl border border-border/80 overflow-hidden bg-muted/20">
+              <div className="relative rounded-lg border border-border overflow-hidden bg-muted/20">
                 {isVideo ? (
                   <video
                     src={mediaPreview}
@@ -886,18 +879,18 @@ export default function CreatePostPage() {
                       const sec = e.currentTarget.duration;
                       if (Number.isFinite(sec)) setDuration(Math.round(sec));
                     }}
-                    className="w-full max-h-56 object-contain bg-black/40"
+                    className="w-full max-h-52 object-contain bg-black/60"
                   />
                 ) : (
-                  <img src={mediaPreview} alt="Attached preview" className="w-full max-h-56 object-contain mx-auto" />
+                  <img src={mediaPreview} alt="Attached asset" className="w-full max-h-52 object-contain mx-auto" />
                 )}
-                <div className="p-2.5 bg-card/90 border-t border-border flex items-center justify-between text-xs">
+                <div className="p-2.5 bg-card border-t border-border flex items-center justify-between text-xs">
                   <span className="font-mono text-[11px] text-muted-foreground truncate max-w-[200px]">
-                    {selectedFile?.name || "Stored Asset"} {duration !== undefined && `(${duration}s)`}
+                    {selectedFile?.name || "Uploaded Asset"} {duration !== undefined && `(${duration}s)`}
                   </span>
                   <div className="flex items-center gap-3">
                     <label className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer flex items-center gap-1 font-medium text-[11px]">
-                      <UploadCloud className="h-3.5 w-3.5" /> Replace
+                      <UploadCloud className="size-3.5" /> Replace
                       <input
                         type="file"
                         accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
@@ -911,9 +904,9 @@ export default function CreatePostPage() {
                     <button
                       type="button"
                       onClick={removeFile}
-                      className="text-rose-500 hover:underline flex items-center gap-1 font-medium text-[11px]"
+                      className="text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 font-medium text-[11px]"
                     >
-                      <X className="h-3.5 w-3.5" /> Remove
+                      <X className="size-3.5" /> Remove
                     </button>
                   </div>
                 </div>
@@ -925,13 +918,13 @@ export default function CreatePostPage() {
                   e.preventDefault();
                   if (e.dataTransfer.files[0]) chooseFile(e.dataTransfer.files[0]);
                 }}
-                className="border-2 border-dashed border-border/80 hover:border-indigo-500/50 rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer transition-colors text-center space-y-2 bg-muted/10 hover:bg-indigo-500/5 group"
+                className="border-2 border-dashed border-border hover:border-muted-foreground/50 rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer transition-colors text-center space-y-2 bg-muted/20 hover:bg-muted/40"
               >
-                <div className="h-10 w-10 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:scale-105 transition-transform">
-                  <UploadCloud className="h-5 w-5" />
+                <div className="size-9 rounded-lg bg-card border border-border flex items-center justify-center text-muted-foreground">
+                  <UploadCloud className="size-4" />
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-foreground">Click or drop image / video</p>
+                  <p className="text-xs font-semibold text-foreground">Click or drag image or video here</p>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
                     Images up to 15MB • MP4/WebM videos up to 100MB
                   </p>
@@ -948,21 +941,20 @@ export default function CreatePostPage() {
               </label>
             )}
 
-            {/* Media Format Optimizations */}
+            {/* Media Auto-Formatting Controls */}
             {mediaPreview && !isVideo && (
-              <div className="p-3 rounded-xl border border-border/70 bg-muted/20 space-y-2 text-xs">
+              <div className="p-3 rounded-lg border border-border bg-muted/30 space-y-2 text-xs">
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold text-foreground flex items-center gap-1.5 text-[11px]">
-                    <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
-                    Auto-Size (1080p Standard)
+                  <span className="font-medium text-foreground text-[11px]">
+                    Photo Format (1080p Standard)
                   </span>
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => void handleAutoFormatPhoto("jpeg")}
                       className={cn(
-                        "px-2 py-0.5 rounded text-[10px] font-semibold border transition-all",
-                        targetPhotoFormat === "jpeg" ? "bg-indigo-600 text-white border-indigo-600" : "border-border text-muted-foreground"
+                        "px-2 py-0.5 rounded text-[10px] font-medium border transition-colors",
+                        targetPhotoFormat === "jpeg" ? "bg-indigo-600 text-white border-indigo-600" : "border-border bg-card text-muted-foreground"
                       )}
                     >
                       JPEG
@@ -971,8 +963,8 @@ export default function CreatePostPage() {
                       type="button"
                       onClick={() => void handleAutoFormatPhoto("png")}
                       className={cn(
-                        "px-2 py-0.5 rounded text-[10px] font-semibold border transition-all",
-                        targetPhotoFormat === "png" ? "bg-indigo-600 text-white border-indigo-600" : "border-border text-muted-foreground"
+                        "px-2 py-0.5 rounded text-[10px] font-medium border transition-colors",
+                        targetPhotoFormat === "png" ? "bg-indigo-600 text-white border-indigo-600" : "border-border bg-card text-muted-foreground"
                       )}
                     >
                       PNG
@@ -981,7 +973,7 @@ export default function CreatePostPage() {
                 </div>
 
                 {selectedPlatforms.includes("youtube") && (
-                  <div className="pt-2 border-t border-border/50 flex items-center justify-between gap-2">
+                  <div className="pt-2 border-t border-border flex items-center justify-between gap-2">
                     <span className="text-[11px] text-muted-foreground">YouTube requires video:</span>
                     <Button
                       type="button"
@@ -989,10 +981,10 @@ export default function CreatePostPage() {
                       variant="outline"
                       disabled={isConvertingVideo}
                       onClick={() => void handleConvertToVideo()}
-                      className="text-[10px] h-7 px-2.5 gap-1 border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10"
+                      className="text-[10px] h-7 px-2.5 gap-1 border-border"
                     >
-                      <Video className="h-3 w-3" />
-                      {isConvertingVideo ? "Encoding..." : "Generate 30s MP4 (FFmpeg)"}
+                      <Video className="size-3" />
+                      {isConvertingVideo ? "Converting..." : "Generate 30s MP4 (FFmpeg)"}
                     </Button>
                   </div>
                 )}
@@ -1000,15 +992,13 @@ export default function CreatePostPage() {
             )}
           </div>
 
-          {/* AI Generator Prompt Bar */}
-          <div className="rounded-2xl border border-border/70 bg-card p-4 space-y-3 shadow-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-border/50">
-              <div className="flex items-center gap-1.5">
-                <Sparkles className="h-4 w-4 text-indigo-500 animate-pulse" />
-                <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  AI Caption &amp; Title Studio
-                </h2>
-              </div>
+          {/* AI Generation Prompt Bar */}
+          <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-border">
+              <h2 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Sparkles className="size-3.5 text-indigo-600 dark:text-indigo-400" />
+                <span>AI Assistant</span>
+              </h2>
               <div className="flex items-center gap-1">
                 {(["English", "Tamil", "Tanglish"] as const).map((lang) => (
                   <button
@@ -1017,7 +1007,7 @@ export default function CreatePostPage() {
                     onClick={() => setLanguage(lang)}
                     className={cn(
                       "px-2 py-0.5 rounded text-[10px] font-medium transition-colors",
-                      language === lang ? "bg-foreground text-background font-bold" : "text-muted-foreground hover:text-foreground"
+                      language === lang ? "bg-foreground text-background font-semibold" : "text-muted-foreground hover:text-foreground"
                     )}
                   >
                     {lang}
@@ -1028,10 +1018,10 @@ export default function CreatePostPage() {
 
             <div className="space-y-2">
               <Input
-                placeholder="Topic or context (e.g., product release, tip, behind-the-scenes)..."
+                placeholder="Topic, angle, or core message (e.g. New feature launch, founder lesson)..."
                 value={topicPrompt}
                 onChange={(e) => setTopicPrompt(e.target.value)}
-                className="text-xs rounded-xl h-9"
+                className="text-xs rounded-lg h-9"
               />
 
               <div className="grid grid-cols-2 gap-2 text-xs">
@@ -1040,7 +1030,7 @@ export default function CreatePostPage() {
                   <select
                     value={tone}
                     onChange={(e) => setTone(e.target.value as SupportedTone)}
-                    className="w-full rounded-lg border border-border bg-background p-1.5 text-xs text-foreground"
+                    className="w-full rounded-md border border-border bg-background p-1.5 text-xs text-foreground"
                   >
                     {["Professional", "Friendly", "Viral-style", "Motivational", "Educational", "Marketing"].map((t) => (
                       <option key={t}>{t}</option>
@@ -1052,7 +1042,7 @@ export default function CreatePostPage() {
                   <select
                     value={captionLength}
                     onChange={(e) => setCaptionLength(e.target.value as any)}
-                    className="w-full rounded-lg border border-border bg-background p-1.5 text-xs text-foreground"
+                    className="w-full rounded-md border border-border bg-background p-1.5 text-xs text-foreground"
                   >
                     <option value="short">Short (1-2 sentences)</option>
                     <option value="standard">Standard (1 paragraph)</option>
@@ -1066,19 +1056,19 @@ export default function CreatePostPage() {
                 variant="stitch"
                 onClick={() => void handleGenerateAI()}
                 disabled={isGenerating}
-                className="w-full text-xs font-semibold gap-2 h-10 shadow-md shadow-indigo-500/20 rounded-xl"
+                className="w-full text-xs font-medium gap-1.5 h-9 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
               >
-                <Sparkles className="h-4 w-4" />
-                <span>{isGenerating ? "Generating with Gemini..." : "Generate Captions & Titles"}</span>
+                <Sparkles className="size-3.5" />
+                <span>{isGenerating ? "Generating..." : "Generate Captions & Titles"}</span>
               </Button>
             </div>
           </div>
 
-          {/* Platform Caption & Hashtags Editor */}
-          <div className="rounded-2xl border border-border/70 bg-card p-4 space-y-3.5 shadow-xs">
-            {/* Platform Selector Tabs */}
-            <div className="flex items-center justify-between border-b border-border/60 pb-2.5">
-              <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
+          {/* Caption & Hashtags Editor */}
+          <div className="rounded-xl border border-border bg-card p-4 space-y-3.5">
+            {/* Channel Tabs */}
+            <div className="flex items-center justify-between border-b border-border pb-2.5">
+              <div className="flex items-center gap-1 overflow-x-auto custom-scrollbar">
                 {selectedPlatforms.map((p) => {
                   const isActive = activeTab === p;
                   return (
@@ -1087,13 +1077,13 @@ export default function CreatePostPage() {
                       type="button"
                       onClick={() => setActiveTab(p)}
                       className={cn(
-                        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all",
+                        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium capitalize transition-colors shrink-0",
                         isActive
-                          ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-xs"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                          ? "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 font-semibold"
+                          : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
                       )}
                     >
-                      <PlatformIcon platform={p} className="h-3.5 w-3.5" />
+                      <PlatformIcon platform={p} className="size-3.5" />
                       <span>{p}</span>
                     </button>
                   );
@@ -1105,42 +1095,41 @@ export default function CreatePostPage() {
               </span>
             </div>
 
-            {/* Title Input (Required for YouTube) */}
+            {/* Title Input */}
             <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-foreground flex items-center justify-between">
-                <span>{activeTab === "youtube" ? "Video Title (Required)" : "Post Headline / Title (Optional)"}</span>
+              <label className="text-[11px] font-medium text-foreground">
+                {activeTab === "youtube" ? "Video Title (Required for YouTube)" : "Post Headline (Optional)"}
               </label>
               <Input
-                placeholder={activeTab === "youtube" ? "E.g., 5 Rules for Clean SaaS Code" : "Post Headline"}
+                placeholder={activeTab === "youtube" ? "E.g. How to Automate Social Media Publishing" : "Catchy headline"}
                 value={currentContent.title || ""}
                 onChange={(e) => updateCurrentTitle(e.target.value)}
                 maxLength={100}
-                className="text-xs rounded-xl h-9"
+                className="text-xs rounded-lg h-8"
               />
             </div>
 
             {/* Caption Textarea */}
             <div className="space-y-1">
               <div className="flex items-center justify-between">
-                <label className="text-[11px] font-semibold text-foreground">
-                  {activeTab === "youtube" ? "Video Description & Notes" : "Post Caption"}
+                <label className="text-[11px] font-medium text-foreground">
+                  {activeTab === "youtube" ? "Video Description" : "Caption"}
                 </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowMentionBar(!showMentionBar)}
-                    className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-0.5"
-                  >
-                    <AtSign className="h-3 w-3" /> Mention
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowMentionBar(!showMentionBar)}
+                  className="text-[11px] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+                >
+                  <AtSign className="size-3" />
+                  <span>Mention</span>
+                </button>
               </div>
 
-              {/* Quick Mention Bar */}
+              {/* Quick Mention Input */}
               {showMentionBar && (
-                <div className="flex items-center gap-2 p-2 rounded-xl border border-indigo-500/20 bg-indigo-500/5 animate-in fade-in">
+                <div className="flex items-center gap-2 p-2 rounded-lg border border-border bg-muted/30">
                   <Input
-                    placeholder="Enter handle without @ (e.g. vercel)..."
+                    placeholder="Enter handle (e.g. vercel)..."
                     value={mentionInput}
                     onChange={(e) => setMentionInput(e.target.value)}
                     onKeyDown={(e) => {
@@ -1149,37 +1138,37 @@ export default function CreatePostPage() {
                         handleAddMention(mentionInput);
                       }
                     }}
-                    className="h-7 text-xs rounded-lg"
+                    className="h-7 text-xs rounded-md"
                   />
                   <Button
                     type="button"
                     size="sm"
                     variant="outline"
                     onClick={() => handleAddMention(mentionInput)}
-                    className="h-7 text-[10px] px-2 rounded-lg"
+                    className="h-7 text-[10px] px-2.5 rounded-md"
                   >
-                    Insert
+                    Add
                   </Button>
                 </div>
               )}
 
               <Textarea
-                placeholder="Write your post caption or let SocialSync AI draft one..."
+                placeholder="Write your post caption..."
                 rows={5}
                 value={currentContent.caption}
                 onChange={(e) => updateCurrentCaption(e.target.value)}
-                className="text-xs rounded-xl resize-none font-sans leading-relaxed"
+                className="text-xs rounded-lg resize-none font-sans leading-relaxed"
               />
 
               {/* Quick Emoji Toolbar */}
               <div className="flex items-center gap-1 pt-1 overflow-x-auto custom-scrollbar">
-                <Smile className="h-3 w-3 text-muted-foreground shrink-0 mr-1" />
+                <Smile className="size-3 text-muted-foreground shrink-0 mr-1" />
                 {QUICK_EMOJIS.map((emoji) => (
                   <button
                     key={emoji}
                     type="button"
                     onClick={() => handleInsertEmoji(emoji)}
-                    className="h-6 w-6 rounded-md hover:bg-muted/80 flex items-center justify-center text-xs transition-colors shrink-0"
+                    className="size-6 rounded hover:bg-muted/80 flex items-center justify-center text-xs transition-colors shrink-0"
                     title={`Insert ${emoji}`}
                   >
                     {emoji}
@@ -1188,62 +1177,60 @@ export default function CreatePostPage() {
               </div>
             </div>
 
-            {/* Hashtag Field */}
+            {/* Hashtags Input */}
             <div className="space-y-1">
-              <label className="text-[11px] font-semibold text-foreground">
-                Hashtags (Space separated)
+              <label className="text-[11px] font-medium text-foreground">
+                Hashtags
               </label>
               <Input
-                placeholder="#growth #automation #saas"
+                placeholder="#marketing #buildinpublic #saas"
                 value={currentContent.hashtags || ""}
                 onChange={(e) => updateCurrentHashtags(e.target.value)}
-                className="text-xs rounded-xl h-8 font-mono"
+                className="text-xs rounded-lg h-8 font-mono"
               />
             </div>
           </div>
 
-          {/* Mobile Step Back/Next Navigation */}
+          {/* Mobile Navigation Buttons */}
           <div className="xl:hidden flex items-center gap-2 pt-2">
             <Button
               type="button"
               variant="outline"
               onClick={() => setMobileStep(1)}
-              className="flex-1 h-10 text-xs font-semibold gap-1.5"
+              className="flex-1 h-9 text-xs font-medium gap-1"
             >
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronLeft className="size-4" />
               <span>Back</span>
             </Button>
             <Button
               type="button"
               variant="stitch"
               onClick={() => setMobileStep(3)}
-              className="flex-1 h-10 text-xs font-semibold gap-1.5"
+              className="flex-1 h-9 text-xs font-medium gap-1 bg-indigo-600 hover:bg-indigo-700 text-white"
             >
-              <span>Continue to Preview</span>
-              <ChevronRight className="h-4 w-4" />
+              <span>Preview Post</span>
+              <ChevronRight className="size-4" />
             </Button>
           </div>
         </div>
 
         {/* ======================================================== */}
-        {/* COLUMN 3 (Right): Live Mockup & Actions (4 cols / 30%)   */}
+        {/* COLUMN 3: Live Post Mockup & Actions (4 cols / 30%)     */}
         {/* ======================================================== */}
         <div className={cn("xl:col-span-4 space-y-4 xl:sticky xl:top-20", mobileStep !== 3 && "hidden xl:block")}>
-          {/* Live Preview Card */}
-          <div className="rounded-2xl border border-border/70 bg-card p-4 space-y-3.5 shadow-xs">
-            <div className="flex items-center justify-between pb-2 border-b border-border/50">
-              <div className="flex items-center gap-1.5">
-                <Eye className="h-4 w-4 text-indigo-500" />
-                <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  3. Live Post Preview
-                </h2>
-              </div>
-              <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                Interactive Mockup
+          {/* Live Preview Box */}
+          <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-border">
+              <h2 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Eye className="size-3.5 text-muted-foreground" />
+                <span>Live Preview</span>
+              </h2>
+              <span className="text-[10px] text-muted-foreground uppercase font-mono">
+                {activeTab} Feed
               </span>
             </div>
 
-            {/* Platform Preview Selector Chips */}
+            {/* Channel Mockup Tab Chips */}
             <div className="flex items-center gap-1 overflow-x-auto pb-1 custom-scrollbar">
               {selectedPlatforms.map((p) => (
                 <button
@@ -1251,20 +1238,20 @@ export default function CreatePostPage() {
                   type="button"
                   onClick={() => setActiveTab(p)}
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-[11px] font-medium capitalize flex items-center gap-1.5 border transition-all shrink-0",
+                    "px-2.5 py-1 rounded-md text-[11px] font-medium capitalize flex items-center gap-1.5 border transition-colors shrink-0",
                     activeTab === p
-                      ? "border-indigo-500/50 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-semibold"
-                      : "border-border/60 text-muted-foreground hover:bg-muted/40"
+                      ? "border-indigo-600/60 bg-indigo-50/50 dark:bg-indigo-950/30 text-indigo-700 dark:text-indigo-300 font-semibold"
+                      : "border-border text-muted-foreground hover:bg-muted/40"
                   )}
                 >
-                  <PlatformIcon platform={p} className="h-3 w-3" />
+                  <PlatformIcon platform={p} className="size-3" />
                   <span>{p}</span>
                 </button>
               ))}
             </div>
 
             {/* Embedded Realistic Social Preview */}
-            <div className="max-h-[500px] overflow-y-auto custom-scrollbar pr-1">
+            <div className="max-h-[480px] overflow-y-auto custom-scrollbar pr-1">
               <SocialMediaLivePreview
                 platform={activeTab}
                 caption={currentContent.caption}
@@ -1272,29 +1259,29 @@ export default function CreatePostPage() {
                 title={currentContent.title}
                 mediaUrl={mediaPreview}
                 isVideo={isVideo}
-                authorName={previewAccount?.account_name || "SocialSync AI Workspace"}
+                authorName={previewAccount?.account_name || "SocialSync Creator"}
                 authorHandle={previewAccount?.account_handle || "socialsync_ai"}
                 authorAvatar={previewAccount?.avatar_url}
               />
             </div>
           </div>
 
-          {/* Publishing & Draft Actions Box */}
-          <div className="rounded-2xl border border-border/70 bg-card p-4 space-y-2.5 shadow-xs">
+          {/* Action Buttons */}
+          <div className="rounded-xl border border-border bg-card p-3.5 space-y-2">
             <Button
               type="button"
               variant="stitch"
               disabled={isPublishing || isGenerating}
               onClick={() => void handleSubmit(false)}
-              className="w-full h-11 text-xs font-semibold gap-2 rounded-xl shadow-md shadow-indigo-500/20"
+              className="w-full h-10 text-xs font-semibold gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
             >
-              <Send className="h-4 w-4" />
+              <Send className="size-3.5" />
               <span>
                 {isPublishing
-                  ? "Publishing across channels..."
+                  ? "Publishing..."
                   : isScheduled
-                  ? "Confirm & Schedule Post"
-                  : "Publish Now Everywhere"}
+                  ? "Schedule Post"
+                  : "Publish Now"}
               </span>
             </Button>
 
@@ -1303,23 +1290,23 @@ export default function CreatePostPage() {
               variant="outline"
               disabled={isPublishing || isGenerating}
               onClick={() => void handleSubmit(true)}
-              className="w-full h-9 text-xs font-medium gap-1.5 rounded-xl border-border/80 hover:bg-muted/60"
+              className="w-full h-8 text-xs font-medium gap-1.5 rounded-lg border-border"
             >
-              <Save className="h-3.5 w-3.5 text-muted-foreground" />
+              <Save className="size-3.5 text-muted-foreground" />
               <span>Save as Draft</span>
             </Button>
           </div>
 
-          {/* Mobile Step Back button */}
+          {/* Mobile Back Button */}
           <div className="xl:hidden pt-1">
             <Button
               type="button"
               variant="outline"
               onClick={() => setMobileStep(2)}
-              className="w-full h-10 text-xs font-semibold gap-1.5"
+              className="w-full h-9 text-xs font-medium gap-1"
             >
-              <ChevronLeft className="h-4 w-4" />
-              <span>Back to Captions</span>
+              <ChevronLeft className="size-4" />
+              <span>Back to Content</span>
             </Button>
           </div>
         </div>

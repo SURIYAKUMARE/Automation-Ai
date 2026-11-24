@@ -18,7 +18,7 @@ const buttonVariants = cva(
         ghost: "hover:bg-accent hover:text-accent-foreground",
         link: "text-primary underline-offset-4 hover:underline",
         stitch:
-          "bg-gradient-to-r from-indigo-600 via-indigo-500 to-violet-500 text-white shadow-md shadow-indigo-500/25 hover:from-indigo-700 hover:via-indigo-600 hover:to-violet-600 hover:shadow-indigo-500/35 active:scale-[0.98] transition-all font-medium",
+          "bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs active:scale-[0.99] transition-colors font-medium",
         google:
           "bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm transition-all",
       },

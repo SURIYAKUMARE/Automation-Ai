@@ -6,17 +6,11 @@ import {
   Sparkles,
   Upload,
   Copy,
-  Check,
   RefreshCw,
   Send,
   Eye,
-  FileText,
-  Sliders,
-  Languages,
-  CheckCircle2,
   Cpu,
   Layers,
-  Terminal,
   Globe,
   SlidersHorizontal,
   Bookmark,
@@ -27,7 +21,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { GeminiAnalysisResult, SupportedLanguage, SupportedTone, SocialPlatform } from "@/types";
@@ -37,10 +30,10 @@ import { PlatformIcon } from "@/components/platform-icon";
 import { cn } from "@/lib/utils";
 
 const EDITORIAL_PRESETS = [
-  { label: "SaaS Launch Announcement", icon: Cpu, prompt: "Autonomous Multi-Platform Social Media Automation Architecture and System Launch", tone: "Professional" as SupportedTone, lang: "English" as SupportedLanguage },
-  { label: "Product Feature Release", icon: Layers, prompt: "Major Product Milestone Release and Next-Gen Engineering Platform Overview", tone: "Promotional" as SupportedTone, lang: "English" as SupportedLanguage },
-  { label: "Workflow Efficiency Tip", icon: SlidersHorizontal, prompt: "Eliminating Multi-Channel Content Distribution Bottlenecks via Automated Orchestration", tone: "Creative" as SupportedTone, lang: "English" as SupportedLanguage },
-  { label: "Bilingual Tanglish Overview", icon: Globe, prompt: "Multi-platform content distribution-la irukkura manual work-ah simplify panna oru comprehensive system", tone: "Friendly" as SupportedTone, lang: "Tanglish" as SupportedLanguage },
+  { label: "Product Announcement", icon: Layers, prompt: "Excited to introduce our latest product update designed to help teams work faster and smarter.", tone: "Professional" as SupportedTone, lang: "English" as SupportedLanguage },
+  { label: "Engineering Behind-The-Scenes", icon: Cpu, prompt: "A peek behind the scenes into how we solved our biggest technical challenge this sprint.", tone: "Professional" as SupportedTone, lang: "English" as SupportedLanguage },
+  { label: "Actionable Growth Tip", icon: SlidersHorizontal, prompt: "3 simple, actionable tactics you can apply today to streamline your workflow and save 5 hours a week.", tone: "Creative" as SupportedTone, lang: "English" as SupportedLanguage },
+  { label: "Bilingual / Tanglish Community", icon: Globe, prompt: "Ungaloda daily workflow-ah simplify panna simple tips and insights.", tone: "Friendly" as SupportedTone, lang: "Tanglish" as SupportedLanguage },
 ];
 
 interface SavedSnippet {
@@ -96,7 +89,7 @@ export default function AICaptionStudioPage() {
 
   const handleGenerate = async (attachedPhoto?: File) => {
     setIsGenerating(true);
-    const notice = toast.loading("Generating multi-platform copy with SocialSync AI...");
+    const notice = toast.loading("Generating captions and titles...");
 
     try {
       const file = attachedPhoto ?? selectedFile;
@@ -118,10 +111,9 @@ export default function AICaptionStudioPage() {
       if (!res.ok) throw new Error(json.error || "Generation failed");
 
       setAnalysisResult(json.data);
-      const provider = json.source || "Gemini 3.5 Flash-Lite";
-      toast.success(`Captions and titles generated via ${provider}!`, { id: notice });
+      toast.success("Captions and titles generated successfully", { id: notice });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not generate captions and titles", { id: notice });
+      toast.error(error instanceof Error ? error.message : "Could not generate captions", { id: notice });
     } finally {
       setIsGenerating(false);
     }
@@ -131,7 +123,7 @@ export default function AICaptionStudioPage() {
     navigator.clipboard.writeText(text);
     setCopiedKey(key);
     setTimeout(() => setCopiedKey(null), 2000);
-    toast.success("Content copied to clipboard!");
+    toast.success("Copied to clipboard");
   };
 
   const saveToHistory = (platform: SocialPlatform, caption: string, hashtags: string[], title?: string) => {
@@ -151,7 +143,7 @@ export default function AICaptionStudioPage() {
     } catch {
       // ignore
     }
-    toast.success("Saved to Studio History!");
+    toast.success("Saved to history");
   };
 
   const deleteSavedSnippet = (id: string) => {
@@ -162,26 +154,19 @@ export default function AICaptionStudioPage() {
     } catch {
       // ignore
     }
-    toast.info("Item removed from history.");
+    toast.info("Item removed from history");
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 font-sans">
       {/* Studio Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border/60 pb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-border pb-4">
         <div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-mono tracking-widest uppercase text-indigo-500 font-bold bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded-md">
-              AI Content Studio
-            </span>
-            <span className="text-muted-foreground/40">•</span>
-            <span className="text-[11px] font-mono text-muted-foreground">Gemini 3.5 Flash-Lite</span>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground mt-1">
-            Omnichannel Copy &amp; Title Generator
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">
+            AI Content Studio
           </h1>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Generate viral short-form hooks, platform-tailored copy, hashtags, and YouTube titles in seconds.
+            Write, tailor, and adapt copy, hashtags, and titles for Instagram, LinkedIn, Facebook, and YouTube.
           </p>
         </div>
 
@@ -190,15 +175,15 @@ export default function AICaptionStudioPage() {
             variant="outline"
             size="sm"
             onClick={() => setShowHistory(!showHistory)}
-            className="gap-1.5 text-xs rounded-xl h-9"
+            className="gap-1.5 text-xs rounded-lg h-9 border-border"
           >
-            <History className="h-3.5 w-3.5 text-indigo-500" />
+            <History className="size-3.5 text-muted-foreground" />
             <span>Saved History ({savedHistory.length})</span>
           </Button>
 
           <Link href="/dashboard/create-post">
-            <Button variant="stitch" size="sm" className="gap-2 text-xs rounded-xl h-9 shadow-md shadow-indigo-500/20">
-              <Send className="h-3.5 w-3.5" />
+            <Button size="sm" className="gap-1.5 text-xs rounded-lg h-9 bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs">
+              <Send className="size-3.5" />
               <span>Open Composer</span>
             </Button>
           </Link>
@@ -209,10 +194,10 @@ export default function AICaptionStudioPage() {
       <TrendResearch />
 
       {/* Editorial Presets */}
-      <Card className="rounded-2xl border-border/70 bg-card p-3.5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-muted-foreground shrink-0">
-            Curated Presets:
+      <div className="rounded-xl border border-border bg-card p-3 shadow-xs">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
+          <span className="text-[11px] font-medium text-muted-foreground shrink-0">
+            Quick Prompts:
           </span>
           <div className="flex flex-wrap gap-1.5">
             {EDITORIAL_PRESETS.map((p, idx) => {
@@ -222,25 +207,25 @@ export default function AICaptionStudioPage() {
                   key={idx}
                   type="button"
                   onClick={() => handleSelectPreset(p)}
-                  className="inline-flex items-center gap-1.5 rounded-xl border border-border/80 bg-background/80 hover:bg-muted/80 px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors shadow-2xs"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border bg-background hover:bg-muted/70 px-2.5 py-1 text-xs text-foreground transition-colors"
                 >
-                  <Icon className="h-3 w-3 text-indigo-500" />
+                  <Icon className="size-3 text-muted-foreground" />
                   <span>{p.label}</span>
                 </button>
               );
             })}
           </div>
         </div>
-      </Card>
+      </div>
 
       {/* Saved History Drawer / Panel */}
       {showHistory && (
-        <Card className="rounded-2xl border-indigo-500/30 bg-indigo-50/20 dark:bg-indigo-950/20 p-4 shadow-sm animate-in fade-in space-y-3">
-          <div className="flex items-center justify-between pb-2 border-b border-indigo-500/20">
+        <Card className="rounded-xl border border-border bg-muted/20 p-4 shadow-xs animate-in fade-in space-y-3">
+          <div className="flex items-center justify-between pb-2 border-b border-border">
             <div className="flex items-center gap-2">
-              <History className="h-4 w-4 text-indigo-500" />
-              <h2 className="text-xs font-bold uppercase tracking-wider text-foreground">
-                Saved Snippet History
+              <History className="size-4 text-indigo-600" />
+              <h2 className="text-xs font-semibold text-foreground">
+                Saved Snippets
               </h2>
             </div>
             <button
@@ -253,40 +238,40 @@ export default function AICaptionStudioPage() {
 
           {savedHistory.length === 0 ? (
             <p className="text-xs text-muted-foreground text-center py-4">
-              No saved snippets yet. Click &ldquo;Save Snippet&rdquo; on any generated platform copy below.
+              No saved snippets yet. Click &ldquo;Save Snippet&rdquo; on any generated copy below.
             </p>
           ) : (
             <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 max-h-72 overflow-y-auto pr-1 custom-scrollbar">
               {savedHistory.map((item) => (
                 <div
                   key={item.id}
-                  className="p-3 rounded-xl border border-border/80 bg-card space-y-2 text-xs relative group"
+                  className="p-3 rounded-lg border border-border bg-card space-y-2 text-xs relative group"
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 capitalize font-semibold text-foreground">
-                      <PlatformIcon platform={item.platform} className="h-3.5 w-3.5" />
+                      <PlatformIcon platform={item.platform} className="size-3.5" />
                       <span>{item.platform}</span>
                     </div>
                     <span className="text-[10px] text-muted-foreground font-mono">{item.timestamp}</span>
                   </div>
                   {item.title && <p className="font-semibold text-foreground line-clamp-1">{item.title}</p>}
                   <p className="text-muted-foreground line-clamp-2 leading-relaxed">{item.caption}</p>
-                  <div className="flex items-center justify-between pt-1 border-t border-border/50 text-[11px]">
+                  <div className="flex items-center justify-between pt-1 border-t border-border text-[11px]">
                     <button
                       type="button"
                       onClick={() => copyToClipboard(`${item.title ? item.title + "\n\n" : ""}${item.caption}\n\n${item.hashtags}`, item.id)}
                       className="text-indigo-600 dark:text-indigo-400 font-medium hover:underline inline-flex items-center gap-1"
                     >
-                      <Copy className="h-3 w-3" />
-                      <span>{copiedKey === item.id ? "Copied!" : "Copy"}</span>
+                      <Copy className="size-3" />
+                      <span>{copiedKey === item.id ? "Copied" : "Copy"}</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => deleteSavedSnippet(item.id)}
-                      className="text-rose-500 hover:text-rose-600 p-1"
+                      className="text-muted-foreground hover:text-red-600 p-1 transition-colors"
                       title="Delete"
                     >
-                      <Trash2 className="h-3 w-3" />
+                      <Trash2 className="size-3" />
                     </button>
                   </div>
                 </div>
@@ -298,23 +283,23 @@ export default function AICaptionStudioPage() {
 
       {/* Main Studio Grid */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 items-start">
-        {/* Left Column (4 cols): Studio Controls */}
+        {/* Left Column: Studio Controls */}
         <div className="space-y-4 lg:col-span-4">
-          <Card className="rounded-2xl border-border/70 bg-card shadow-xs">
-            <CardHeader className="pb-3 border-b border-border/50">
-              <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Studio Controls &amp; Context
+          <Card className="rounded-xl border border-border bg-card shadow-xs">
+            <CardHeader className="pb-3 border-b border-border">
+              <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Prompt &amp; Settings
               </CardTitle>
               <CardDescription className="text-xs text-foreground font-medium pt-0.5">
-                Attach visuals or provide editorial direction for Gemini 3.5.
+                Attach media or give context for the AI engine.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-4">
               <label
                 htmlFor="studio-file-upload"
                 className={cn(
-                  "relative flex flex-col items-center justify-center rounded-xl border border-dashed p-4 text-center cursor-pointer transition-colors",
-                  previewUrl ? "border-indigo-500/60 bg-indigo-500/5" : "border-border/80 hover:bg-muted/40"
+                  "relative flex flex-col items-center justify-center rounded-lg border border-dashed p-4 text-center cursor-pointer transition-colors",
+                  previewUrl ? "border-indigo-600/60 bg-indigo-50/20 dark:bg-indigo-950/20" : "border-border hover:bg-muted/40"
                 )}
               >
                 <input
@@ -329,44 +314,44 @@ export default function AICaptionStudioPage() {
                 {previewUrl ? (
                   <div className="w-full space-y-2">
                     {selectedFile?.type.startsWith("video/") ? (
-                      <video src={previewUrl} controls playsInline aria-label="Video preview" className="max-h-40 w-full rounded-lg object-contain" />
+                      <video src={previewUrl} controls playsInline aria-label="Video preview" className="max-h-40 w-full rounded-md object-contain" />
                     ) : (
-                      <img src={previewUrl} alt="Studio Preview" className="max-h-40 w-full rounded-lg object-contain" />
+                      <img src={previewUrl} alt="Studio Preview" className="max-h-40 w-full rounded-md object-contain" />
                     )}
-                    <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-semibold block">
+                    <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium block">
                       Replace Asset
                     </span>
                   </div>
                 ) : (
                   <div className="space-y-1.5 py-3">
-                    <Upload className="mx-auto h-5 w-5 text-indigo-500" />
-                    <p className="text-xs font-semibold text-foreground">Attach Photo or Video</p>
-                    <p className="text-[10px] text-muted-foreground font-mono">JPG, PNG, WebP, MP4</p>
+                    <Upload className="mx-auto size-5 text-muted-foreground" />
+                    <p className="text-xs font-medium text-foreground">Attach Photo or Video</p>
+                    <p className="text-[10px] text-muted-foreground">JPG, PNG, WebP, MP4</p>
                   </div>
                 )}
               </label>
 
               <div className="space-y-1.5">
-                <label htmlFor="caption-context" className="text-xs font-semibold text-foreground">
+                <label htmlFor="caption-context" className="text-xs font-medium text-foreground">
                   Context / Topic Prompt
                 </label>
                 <Textarea
                   id="caption-context"
-                  placeholder="E.g., Announcing our new SaaS pricing tiers and automated YouTube publishing..."
+                  placeholder="E.g., Announcing our new pricing tiers and scheduling capabilities..."
                   value={userPrompt}
                   onChange={(e) => setUserPrompt(e.target.value)}
                   rows={3}
-                  className="text-xs rounded-xl resize-none leading-relaxed"
+                  className="text-xs rounded-lg resize-none leading-relaxed border-border"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="space-y-1">
-                  <label className="text-[10px] font-semibold text-muted-foreground">Language:</label>
+                  <label className="text-[11px] font-medium text-muted-foreground">Language</label>
                   <select
                     value={language}
                     onChange={(e) => setLanguage(e.target.value as SupportedLanguage)}
-                    className="w-full rounded-xl border border-input bg-background p-1.5 text-xs text-foreground focus:ring-1 focus:ring-indigo-500"
+                    className="w-full rounded-lg border border-input bg-background p-1.5 text-xs text-foreground focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="English">English</option>
                     <option value="Tamil">Tamil (தமிழ்)</option>
@@ -375,15 +360,15 @@ export default function AICaptionStudioPage() {
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[10px] font-semibold text-muted-foreground">Tone:</label>
+                  <label className="text-[11px] font-medium text-muted-foreground">Tone</label>
                   <select
                     value={tone}
                     onChange={(e) => setTone(e.target.value as SupportedTone)}
-                    className="w-full rounded-xl border border-input bg-background p-1.5 text-xs text-foreground focus:ring-1 focus:ring-indigo-500"
+                    className="w-full rounded-lg border border-input bg-background p-1.5 text-xs text-foreground focus:ring-1 focus:ring-indigo-500"
                   >
                     <option value="Professional">Professional</option>
                     <option value="Friendly">Friendly</option>
-                    <option value="Viral-style">Viral-style</option>
+                    <option value="Viral-style">Viral</option>
                     <option value="Creative">Creative</option>
                     <option value="Educational">Educational</option>
                     <option value="Promotional">Promotional</option>
@@ -392,44 +377,43 @@ export default function AICaptionStudioPage() {
               </div>
 
               <Button
-                variant="stitch"
                 onClick={() => void handleGenerate()}
                 disabled={isGenerating}
-                className="w-full gap-2 text-xs h-10 rounded-xl font-semibold shadow-md shadow-indigo-500/20"
+                className="w-full gap-1.5 text-xs h-9 rounded-lg font-semibold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
               >
-                <Sparkles className={cn("h-4 w-4", isGenerating && "animate-spin")} />
-                <span>{isGenerating ? "Synthesizing Copy..." : "Generate Social Captions"}</span>
+                <Sparkles className={cn("size-3.5", isGenerating && "animate-spin")} />
+                <span>{isGenerating ? "Generating..." : "Generate Captions"}</span>
               </Button>
             </CardContent>
           </Card>
 
           {/* Visual Analysis Metadata Card */}
           {analysisResult && (
-            <Card className="rounded-2xl border-border/70 bg-card p-4 space-y-3 text-xs shadow-xs animate-in fade-in">
-              <div className="flex items-center gap-2 pb-2 border-b border-border/50">
-                <Eye className="h-3.5 w-3.5 text-indigo-500" />
-                <h3 className="font-bold uppercase tracking-wider text-[10px] text-muted-foreground">
-                  Multimodal Visual Insights
+            <Card className="rounded-xl border border-border bg-card p-4 space-y-3 text-xs shadow-xs animate-in fade-in">
+              <div className="flex items-center gap-2 pb-2 border-b border-border">
+                <Eye className="size-3.5 text-muted-foreground" />
+                <h3 className="font-semibold uppercase tracking-wider text-[10px] text-muted-foreground">
+                  Visual Analysis Insights
                 </h3>
               </div>
               <div className="space-y-2">
                 <div>
-                  <span className="text-muted-foreground font-semibold text-[11px]">Visual Summary:</span>
+                  <span className="text-muted-foreground font-medium text-[11px]">Summary:</span>
                   <p className="text-foreground mt-0.5 leading-relaxed">{analysisResult.summary}</p>
                 </div>
                 {analysisResult.extracted_text && (
                   <div>
-                    <span className="text-muted-foreground font-semibold text-[11px]">OCR Extracted Text:</span>
-                    <p className="text-foreground font-mono bg-muted/40 p-2 rounded-lg mt-0.5 text-[10px] border border-border/60">
+                    <span className="text-muted-foreground font-medium text-[11px]">OCR Text:</span>
+                    <p className="text-foreground font-mono bg-muted/40 p-2 rounded-md mt-0.5 text-[10px] border border-border">
                       {analysisResult.extracted_text}
                     </p>
                   </div>
                 )}
                 <div>
-                  <span className="text-muted-foreground font-semibold text-[11px]">Detected Topics:</span>
+                  <span className="text-muted-foreground font-medium text-[11px]">Detected Topics:</span>
                   <div className="flex flex-wrap gap-1 mt-1">
                     {(analysisResult.topics || []).map((t, i) => (
-                      <Badge key={i} variant="outline" className="text-[10px] font-mono rounded-md">
+                      <Badge key={i} variant="outline" className="text-[10px] rounded-md border-border">
                         {t}
                       </Badge>
                     ))}
@@ -440,17 +424,17 @@ export default function AICaptionStudioPage() {
           )}
         </div>
 
-        {/* Right Column (8 cols): Platform Output Studio */}
+        {/* Right Column: Platform Output Studio */}
         <div className="space-y-4 lg:col-span-8">
-          <Card className="rounded-2xl border-border/70 bg-card shadow-xs">
-            <CardHeader className="pb-3 border-b border-border/50">
+          <Card className="rounded-xl border border-border bg-card shadow-xs">
+            <CardHeader className="pb-3 border-b border-border">
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    Generated Omnichannel Variations
+                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Generated Content
                   </CardTitle>
                   <CardDescription className="text-xs text-foreground font-medium pt-0.5">
-                    Tailored copy, hooks, and hashtags for Instagram, LinkedIn, Facebook, and YouTube.
+                    Platform-tailored copy, hooks, and hashtags.
                   </CardDescription>
                 </div>
 
@@ -460,16 +444,16 @@ export default function AICaptionStudioPage() {
                     variant="outline"
                     onClick={() => void handleGenerate()}
                     disabled={isGenerating}
-                    className="h-8 text-xs gap-1.5 rounded-xl border-border/80"
+                    className="h-8 text-xs gap-1.5 rounded-lg border-border"
                   >
-                    <RefreshCw className={cn("h-3 w-3", isGenerating && "animate-spin")} />
+                    <RefreshCw className={cn("size-3", isGenerating && "animate-spin")} />
                     <span>Regenerate</span>
                   </Button>
                 )}
               </div>
 
               {/* Platform Output Tab Buttons */}
-              <div className="flex items-center gap-1.5 pt-3 overflow-x-auto custom-scrollbar">
+              <div className="flex items-center gap-1 pt-3 overflow-x-auto custom-scrollbar">
                 {(["instagram", "facebook", "linkedin", "youtube"] as SocialPlatform[]).map((p) => {
                   const isActive = activePlatformTab === p;
                   return (
@@ -478,13 +462,13 @@ export default function AICaptionStudioPage() {
                       type="button"
                       onClick={() => setActivePlatformTab(p)}
                       className={cn(
-                        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold capitalize transition-all shrink-0",
+                        "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors shrink-0",
                         isActive
-                          ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-xs"
+                          ? "bg-indigo-600 text-white font-semibold shadow-xs"
                           : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
                       )}
                     >
-                      <PlatformIcon platform={p} className="h-3.5 w-3.5" />
+                      <PlatformIcon platform={p} className="size-3.5" />
                       <span>{p}</span>
                     </button>
                   );
@@ -512,18 +496,18 @@ export default function AICaptionStudioPage() {
                       {/* Title display */}
                       {variant.title && (
                         <div className="space-y-1">
-                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                            Suggested Title / Headline
+                          <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                            Suggested Title
                           </label>
-                          <div className="p-2.5 rounded-xl border border-border/80 bg-background font-semibold text-xs text-foreground flex items-center justify-between">
+                          <div className="p-2.5 rounded-lg border border-border bg-background font-medium text-xs text-foreground flex items-center justify-between">
                             <span>{variant.title}</span>
                             <button
                               type="button"
                               onClick={() => copyToClipboard(variant.title || "", "title")}
-                              className="text-muted-foreground hover:text-foreground p-1"
+                              className="text-muted-foreground hover:text-foreground p-1 transition-colors"
                               title="Copy title"
                             >
-                              <Copy className="h-3.5 w-3.5" />
+                              <Copy className="size-3.5" />
                             </button>
                           </div>
                         </div>
@@ -532,14 +516,14 @@ export default function AICaptionStudioPage() {
                       {/* Caption display */}
                       <div className="space-y-1">
                         <div className="flex items-center justify-between">
-                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                            Optimized Caption Body
+                          <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                            Caption Body
                           </label>
                           <span className="text-[11px] font-mono text-muted-foreground">
                             {variant.caption.length} characters
                           </span>
                         </div>
-                        <div className="p-3.5 rounded-xl border border-border/80 bg-background text-xs text-foreground whitespace-pre-wrap leading-relaxed font-sans">
+                        <div className="p-3.5 rounded-lg border border-border bg-background text-xs text-foreground whitespace-pre-wrap leading-relaxed font-sans">
                           {variant.caption}
                         </div>
                       </div>
@@ -547,14 +531,14 @@ export default function AICaptionStudioPage() {
                       {/* Hashtags display */}
                       {variant.hashtags && variant.hashtags.length > 0 && (
                         <div className="space-y-1">
-                          <label className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                          <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
                             Hashtags ({variant.hashtags.length})
                           </label>
-                          <div className="flex flex-wrap gap-1.5 p-2.5 rounded-xl border border-border/80 bg-background">
+                          <div className="flex flex-wrap gap-1.5 p-2.5 rounded-lg border border-border bg-background">
                             {variant.hashtags.map((h, i) => (
                               <span
                                 key={i}
-                                className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-md"
+                                className="text-[11px] font-mono text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2 py-0.5 rounded-md"
                               >
                                 {h.startsWith("#") ? h : `#${h}`}
                               </span>
@@ -565,39 +549,39 @@ export default function AICaptionStudioPage() {
 
                       {/* Call to action & rationale */}
                       {variant.rationale && (
-                        <div className="p-3 rounded-xl border border-indigo-500/20 bg-indigo-500/5 text-xs text-muted-foreground space-y-1">
-                          <span className="font-semibold text-foreground text-[11px]">Editorial Rationale:</span>
+                        <div className="p-3 rounded-lg border border-border bg-muted/30 text-xs text-muted-foreground space-y-1">
+                          <span className="font-medium text-foreground text-[11px]">Context &amp; Angle:</span>
                           <p className="leading-relaxed">{variant.rationale}</p>
                         </div>
                       )}
 
                       {/* Action buttons */}
-                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/60">
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border">
                         <div className="flex items-center gap-2">
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => copyToClipboard(fullCopy, "full")}
-                            className="text-xs h-9 gap-1.5 rounded-xl border-border/80"
+                            className="text-xs h-8 gap-1.5 rounded-lg border-border"
                           >
-                            <Copy className="h-3.5 w-3.5" />
-                            <span>{copiedKey === "full" ? "Copied All!" : "Copy Full Post"}</span>
+                            <Copy className="size-3.5" />
+                            <span>{copiedKey === "full" ? "Copied" : "Copy Post"}</span>
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={() => saveToHistory(activePlatformTab, variant.caption, variant.hashtags || [], variant.title)}
-                            className="text-xs h-9 gap-1.5 rounded-xl border-border/80"
+                            className="text-xs h-8 gap-1.5 rounded-lg border-border"
                           >
-                            <Bookmark className="h-3.5 w-3.5 text-indigo-500" />
-                            <span>Save Snippet</span>
+                            <Bookmark className="size-3.5 text-muted-foreground" />
+                            <span>Save</span>
                           </Button>
                         </div>
 
                         <Link href="/dashboard/create-post">
-                          <Button size="sm" variant="stitch" className="text-xs h-9 gap-1.5 rounded-xl shadow-md shadow-indigo-500/20">
+                          <Button size="sm" className="text-xs h-8 gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs">
                             <span>Use in Composer</span>
-                            <ExternalLink className="h-3.5 w-3.5" />
+                            <ExternalLink className="size-3.5" />
                           </Button>
                         </Link>
                       </div>
@@ -605,14 +589,14 @@ export default function AICaptionStudioPage() {
                   );
                 })()
               ) : (
-                <div className="py-20 text-center space-y-3">
-                  <div className="h-12 w-12 rounded-2xl bg-indigo-500/10 text-indigo-500 mx-auto flex items-center justify-center">
-                    <Sparkles className="h-6 w-6" />
+                <div className="py-16 text-center space-y-2.5">
+                  <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center mx-auto text-muted-foreground">
+                    <Sparkles className="size-5" />
                   </div>
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-foreground">AI Studio is ready</p>
-                    <p className="text-xs text-muted-foreground max-w-sm mx-auto">
-                      Click &ldquo;Generate Social Captions&rdquo; or pick a preset to synthesize cross-platform titles, captions, and tags.
+                  <div className="space-y-0.5">
+                    <p className="text-xs font-semibold text-foreground">Ready to generate</p>
+                    <p className="text-[11px] text-muted-foreground max-w-xs mx-auto">
+                      Click &ldquo;Generate Captions&rdquo; or pick a quick prompt to create copy for all channels.
                     </p>
                   </div>
                 </div>
