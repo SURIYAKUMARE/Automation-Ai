@@ -10,6 +10,7 @@ import { dispatchCampaign } from '@/lib/publishing/engine';
 const CreatePost = z.object({
   requestId: postIdSchema.nullable().optional(),
   mediaAssetId: postIdSchema.nullable().optional(),
+  mediaUrl: z.string().nullable().optional(),
   title: z.string().trim().max(200).optional(),
   rawPrompt: z.string().trim().max(4000).optional(),
   draft: z.boolean().default(false),
@@ -45,8 +46,13 @@ export async function POST(req: NextRequest) {
   const rawPayload = await req.json().catch(() => null);
   if (!rawPayload) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
 
-  // Normalize payload: accept both variants and postVariants, handle draft flag and nullable IDs
-  const rawVariants = rawPayload.variants || rawPayload.postVariants || [];
+  // Normalize payload: accept both variants and postVariants, handle draft flag, snake_case aliases, and nullable IDs
+  const rawVariants = (rawPayload.variants || rawPayload.postVariants || []).map((v: any) => ({
+    ...v,
+    youtubePrivacy: v.youtubePrivacy || v.youtube_privacy,
+    altText: v.altText || v.alt_text,
+    callToAction: v.callToAction || v.call_to_action,
+  }));
   const isDraft = rawPayload.draft === true || rawPayload.status === 'draft';
   const normalized = {
     ...rawPayload,
@@ -58,11 +64,12 @@ export async function POST(req: NextRequest) {
   };
 
   const parsed = CreatePost.safeParse(normalized);
-  if (!parsed.success || rawPayload?.mediaUrl || rawPayload?.mediaBase64) {
-    const firstErr = parsed.success ? null : parsed.error.issues[0];
-    const errMsg = firstErr ? `${firstErr.path.join('.') || 'Validation'}: ${firstErr.message}` : 'Select valid platforms and use an uploaded media asset';
-    console.error('CreatePost validation failed:', parsed.success ? 'forbidden media payload' : parsed.error.issues);
-    return NextResponse.json({ error: errMsg, details: parsed.success ? undefined : parsed.error.issues }, { status: 400 });
+  if (!parsed.success) {
+    const firstErr = parsed.error.issues[0];
+    const field = firstErr.path.length ? firstErr.path.join('.') : 'Form';
+    const errMsg = `${field}: ${firstErr.message}`;
+    console.error('CreatePost validation failed:', parsed.error.issues);
+    return NextResponse.json({ error: errMsg, details: parsed.error.issues }, { status: 400 });
   }
   const post = parsed.data;
   if (post.queueNext && (post.draft || post.recurrences.length || post.scheduledFor)) {

@@ -209,7 +209,13 @@ export class InstagramAdapter implements PlatformAdapter {
               errorCode: 'IG_CONTAINER_PROCESSING_ERROR',
               errorMessage: 'Instagram could not prepare this media container.',
             };
+          } else if (mediaType !== 'video') {
+            // For photos/images, Instagram does not have a background transcode queue.
+            // If the container was created successfully and no ERROR status returned, it is ready.
+            isReady = true;
           }
+        } else if (mediaType !== 'video' && attempts >= 1) {
+          isReady = true;
         }
       }
       if (!isReady) return {

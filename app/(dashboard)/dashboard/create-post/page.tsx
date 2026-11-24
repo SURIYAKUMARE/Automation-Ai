@@ -211,6 +211,10 @@ export default function CreatePostPage() {
   // Toggle platform selection
   const togglePlatform = (id: SocialPlatform) => {
     destinationChosen.current = true;
+    if (id === "youtube" && !isVideo && (selectedFile || savedAssetId)) {
+      toast.error("YouTube only accepts video files. Click 'Convert to Video' in Step 2 to generate a 1080p MP4 for YouTube!");
+      return;
+    }
     setSelectedPlatforms((prev) => {
       const willInclude = !prev.includes(id);
       const next = willInclude ? [...prev, id] : prev.filter((p) => p !== id);
@@ -376,6 +380,28 @@ export default function CreatePostPage() {
         if (formatted !== rawFile) file = formatted;
       } catch {
         // Fall back to original file
+      }
+
+      // If photo was chosen, YouTube is video-only. Automatically unselect YouTube for photo publishing
+      setSelectedPlatforms((prev) => {
+        if (prev.includes("youtube")) {
+          toast("Photo attached for Instagram, Facebook & LinkedIn. (YouTube is video-only; click 'Convert to Video' if you want to include YouTube).", {
+            icon: "📷",
+            duration: 4000,
+          });
+          const nonYt = prev.filter((p) => p !== "youtube");
+          return nonYt.length ? nonYt : (["instagram", "facebook", "linkedin"] as SocialPlatform[]).filter((p) => connectedPlatforms.includes(p));
+        }
+        return prev;
+      });
+    } else {
+      // If video was chosen, re-add YouTube if connected and not yet selected
+      if (connectedPlatforms.includes("youtube")) {
+        setSelectedPlatforms((prev) => (prev.includes("youtube") ? prev : [...prev, "youtube"]));
+        toast("Video attached: YouTube, Instagram Reels, Facebook & LinkedIn ready!", {
+          icon: "🎬",
+          duration: 3500,
+        });
       }
     }
 
@@ -696,7 +722,7 @@ export default function CreatePostPage() {
               mobileStep === 1 ? "bg-card text-foreground font-semibold shadow-xs" : "text-muted-foreground hover:text-foreground"
             )}
           >
-            1. Channels &amp; Media
+            1. Channels &amp; Schedule
           </button>
           <button
             type="button"
@@ -706,7 +732,7 @@ export default function CreatePostPage() {
               mobileStep === 2 ? "bg-card text-foreground font-semibold shadow-xs" : "text-muted-foreground hover:text-foreground"
             )}
           >
-            2. Content &amp; AI
+            2. Media &amp; Captions
           </button>
           <button
             type="button"
@@ -893,7 +919,7 @@ export default function CreatePostPage() {
               onClick={() => setMobileStep(2)}
               className="w-full h-10 text-xs font-medium gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white"
             >
-              <span>Continue to Content</span>
+              <span>Continue to Media &amp; Captions</span>
               <ChevronRight className="size-4" />
             </Button>
           </div>

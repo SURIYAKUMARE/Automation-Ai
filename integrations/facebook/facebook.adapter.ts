@@ -203,6 +203,27 @@ export class FacebookAdapter implements PlatformAdapter {
         }
       }
 
+      // If photo upload with url was rejected, retry streaming the image buffer directly
+      if (!res.ok && mediaType !== 'video' && mediaUrl) {
+        try {
+          const photoRes = await fetch(mediaUrl, { redirect: 'follow', signal: AbortSignal.timeout(30_000) });
+          if (photoRes.ok) {
+            const photoBuf = await photoRes.arrayBuffer();
+            const cType = photoRes.headers.get('content-type') || 'image/jpeg';
+            const formData = new FormData();
+            formData.append('access_token', accessToken);
+            formData.append('caption', text);
+            formData.append('source', new Blob([photoBuf], { type: cType }), 'photo.jpg');
+            res = await fetch(`https://graph.facebook.com/${process.env.META_GRAPH_VERSION || "v23.0"}/${accountId}/photos`, {
+              method: 'POST',
+              body: formData,
+            });
+          }
+        } catch {
+          // Keep original response
+        }
+      }
+
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         return {
