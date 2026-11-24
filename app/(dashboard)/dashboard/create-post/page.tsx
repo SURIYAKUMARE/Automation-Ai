@@ -121,7 +121,7 @@ export default function CreatePostPage() {
   const [topicPrompt, setTopicPrompt] = React.useState("");
   const [language, setLanguage] = React.useState<"English" | "Tamil" | "Tanglish">("English");
   const [tone, setTone] = React.useState<SupportedTone>("Professional");
-  const [captionLength, setCaptionLength] = React.useState<"short" | "standard" | "detailed">("standard");
+  const [captionLength, setCaptionLength] = React.useState<"short" | "standard" | "detailed">("detailed");
   const [hashtagLimit, setHashtagLimit] = React.useState(8);
   const [summary, setSummary] = React.useState("");
   const [review, setReview] = React.useState(false);
@@ -205,9 +205,17 @@ export default function CreatePostPage() {
   const togglePlatform = (id: SocialPlatform) => {
     destinationChosen.current = true;
     setSelectedPlatforms((prev) => {
-      const next = prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id];
+      const willInclude = !prev.includes(id);
+      const next = willInclude ? [...prev, id] : prev.filter((p) => p !== id);
       if (next.length > 0 && !next.includes(activeTab)) {
         setActiveTab(next[0]);
+      }
+      if (willInclude) {
+        // Auto-select accounts for this newly added platform
+        const platformAccs = accounts.filter((a) => a.platform === id).map((a) => a.id);
+        if (platformAccs.length > 0) {
+          setAccountIds((curr) => [...new Set([...curr, ...platformAccs])]);
+        }
       }
       return next;
     });
@@ -564,9 +572,20 @@ export default function CreatePostPage() {
         alt_text: platformContents[platform].alt_text,
       }));
 
-      const targets = accounts
-        .filter((account) => selectedPlatforms.includes(account.platform) && accountIds.includes(account.id))
-        .map((account) => ({ social_account_id: account.id, platform: account.platform }));
+      // Resolve publishing destinations for each selected platform
+      const targets = selectedPlatforms
+        .map((platform) => {
+          const matching = accounts.find((a) => a.platform === platform && accountIds.includes(a.id)) ||
+                           accounts.find((a) => a.platform === platform);
+          return matching ? { social_account_id: matching.id, platform } : null;
+        })
+        .filter(Boolean) as { social_account_id: string; platform: SocialPlatform }[];
+
+      if (!isDraft && targets.length === 0) {
+        toast.error("Please connect at least one active channel account before publishing.", { id: notice });
+        setIsPublishing(false);
+        return;
+      }
 
       const postTitle = ytVideoTitle || platformContents[activeTab].caption.slice(0, 50) || "Social Post";
 
@@ -1056,9 +1075,9 @@ export default function CreatePostPage() {
                     onChange={(e) => setCaptionLength(e.target.value as any)}
                     className="w-full rounded-md border border-border bg-background p-1.5 text-xs text-foreground"
                   >
-                    <option value="short">Short (1-2 sentences)</option>
-                    <option value="standard">Standard (1 paragraph)</option>
-                    <option value="detailed">Detailed (multi-paragraph)</option>
+                    <option value="detailed">Large / In-Depth Story (300-500 words)</option>
+                    <option value="standard">Standard / Multi-Paragraph (180-280 words)</option>
+                    <option value="short">Short & Punchy (70-120 words)</option>
                   </select>
                 </div>
               </div>

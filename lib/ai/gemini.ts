@@ -153,18 +153,52 @@ Visual Analysis Guidelines:
 - Treat the creator's context and topic prompt (${JSON.stringify(userPrompt)}) as the true intent, event, or subject of the post.
 - Synthesize the observed visual details with the creator's context to produce authentic, highly accurate, and engaging copy that speaks in the creator's true voice.
 - Never use generic placeholder phrases like "in this video" or "two individuals standing". Speak directly to the audience with vivid, accurate, contextual storytelling.` : '';
-  const prompt = `You are a world-class social media strategist and expert copywriter.
-Write platform-optimized, highly accurate copy for ${targetPlatforms.join(', ')} in ${language} with a ${tone} tone.
+  const lengthInstruction = captionLength === 'short'
+    ? `Length Strategy: Short & Punchy (70 - 120 words).
+- Quick opening hook, concise message, 1 CTA, and ${hashtagLimit} targeted hashtags.`
+    : captionLength === 'detailed'
+    ? `Length Strategy: LARGE & IN-DEPTH LONG-FORM CONTENT (300 - 550+ words).
+- Hook: Bold, scroll-stopping first sentence before any cut.
+- Narrative & Story: Multi-paragraph storytelling (at least 3 to 5 substantial paragraphs) diving deep into the context, background, and practical insights.
+- Key Takeaways: Clear bullet points or numbered insights with relevant emojis for effortless skimming.
+- Community CTA: Thoughtful open-ended question to ignite engagement in the comment section.
+- Rich Hashtag Suite: ${hashtagLimit} hyper-targeted, high-reach hashtags separated by clean spacing.`
+    : `Length Strategy: SUBSTANTIAL & DETAILED (180 - 300 words).
+- Engaging opening hook, 2-3 well-developed paragraphs, clear line breaks, actionable value, strong CTA, and ${hashtagLimit} hashtags. Avoid short or shallow summaries.`;
+
+  const prompt = `You are an elite social media ghostwriter, viral strategist, and SaaS growth copywriter.
+Write platform-optimized, highly authentic, and substantive copy for ${targetPlatforms.join(', ')} in ${language} with a ${tone} tone.
 ${visualInstructions}
 
 Creator Context & Topic: ${JSON.stringify(userPrompt || 'General social update')}
 Brand voice preferences: ${JSON.stringify(brand ?? {})}
 
-Platform Requirements:
-1. Instagram: Hook in the first 80 characters (before the "... more" button), punchy paragraphs with natural line breaks, engaging call-to-action (e.g., share thoughts, save, or double tap), and ${hashtagLimit} hyper-targeted hashtags.
-2. LinkedIn: Thoughtful hook, professional narrative or lesson, value-driven takeaways, clean spacing, and relevant professional tags.
-3. Facebook: Conversational, community-oriented question that invites comments and shares.
-4. YouTube: A clickable, high-CTR video title under 100 characters, a rich description summarizing key points, search keywords, thumbnail idea, and category.
+${lengthInstruction}
+
+Platform-Specific Execution Rules:
+1. Instagram:
+   - First 80 characters MUST be a magnetic hook before the "... more" fold.
+   - Generous, multi-paragraph caption with clean double line breaks (no walls of text).
+   - Value-dense body with bullet points or emojis where appropriate.
+   - Clear engagement ask (e.g. "Save this for your next project", "What do you think? Comment below 👇").
+   - Exactly ${hashtagLimit} relevant hashtags placed cleanly at the end.
+
+2. LinkedIn:
+   - Professional thought-leadership post. Strong first line, relatable industry narrative or behind-the-scenes lesson.
+   - 3 to 5 distinct value points or structured takeaways.
+   - Clean spacing with short paragraphs.
+   - High-signal conversational question to drive professional discussion.
+   - 3 to 5 focused industry hashtags.
+
+3. Facebook:
+   - Community-friendly, warm, conversational tone.
+   - Share the story and invite followers to comment and share their own experiences.
+   - Clear link/call-to-action prompt.
+
+4. YouTube:
+   - High-CTR, compelling video title strictly under 100 characters.
+   - Long, informative, SEO-optimized video description (200-400 words) summarizing key points, outline, and context.
+   - Search keywords and category recommendations.
 
 Return valid JSON with summary, detected_objects, extracted_text, topics, sentiment, dominant_colors, audience, and platforms.`;
   const parts: Part[] = mediaBuffer && mimeType ? [{ inlineData: { data: mediaBuffer.toString('base64'), mimeType } }] : [];

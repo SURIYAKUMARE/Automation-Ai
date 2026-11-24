@@ -9,6 +9,7 @@ const CaptionSchema = z.object({
   platform: z.enum(['linkedin', 'instagram', 'facebook', 'youtube']).default('linkedin'),
   language: z.enum(['English', 'Tamil', 'Tanglish']).default('English'),
   tone: z.enum(['Professional', 'Friendly', 'Creative', 'Educational', 'Minimal', 'Promotional']).default('Professional'),
+  captionLength: z.enum(['short', 'standard', 'detailed']).default('detailed'),
 });
 
 export async function POST(req: NextRequest) {
@@ -21,13 +22,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid input', details: parsed.error.format() }, { status: 400 });
     }
 
-    const { topic, platform, language, tone } = parsed.data;
+    const { topic, platform, language, tone, captionLength } = parsed.data;
 
     const result = await generateSocialContent({
       brand: access.brand,
       userPrompt: topic,
       language: language as SupportedLanguage,
       tone: tone as SupportedTone,
+      captionLength,
     });
 
     const platformVariant = result.platforms[platform] ?? result.platforms.linkedin!;

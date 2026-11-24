@@ -234,5 +234,21 @@ export async function executePostPublishing(db: Database, job: ClaimedJob) {
   const nextRun = retry ? new Date(Date.now() + 60_000 * 2 ** job.retry_count).toISOString() : null;
   const finished = await db.rpc('finish_publishing_job', { job: job.id, next_run: nextRun });
   if (finished.error) throw finished.error;
+
+  // If at least one platform successfully published, mark post as published so successful live posts are preserved
+  try {
+    const { data: targets } = await db.from('post_targets').select('status').eq('post_id', job.post_id);
+    const hasPublished = targets?.some((t) => t.status === 'published');
+    if (hasPublished && !nextRun) {
+      await db.from('posts').update({
+        status: 'published',
+        published_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      }).eq('id', job.post_id);
+    }
+  } catch (statusSyncErr) {
+    console.warn('Could not sync composite post status:', statusSyncErr);
+  }
+
   return { jobId: job.id, postId: job.post_id, retryAt: nextRun, status: finished.data };
 }
