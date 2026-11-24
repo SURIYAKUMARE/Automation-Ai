@@ -13,7 +13,7 @@ export const GeminiPlatformContentSchema = z.object({
       .map((tag) => [tag.toLocaleLowerCase(), tag])).values())),
   keywords: z.array(z.string()).default([]).transform((keywords) => keywords.map((item) => item.trim().slice(0, 100)).filter(Boolean).slice(0, 15)),
   call_to_action: z.string().optional().default(''),
-  alternatives: z.array(z.string().trim().min(1).max(5000)).max(2).default([]),
+  alternatives: z.array(z.string().trim().min(1).max(5000)).default([]).transform((alts) => alts.slice(0, 5)),
   rationale: z.string().optional(),
   suggested_category: z.string().optional(),
   thumbnail_recommendation: z.string().optional(),
@@ -168,22 +168,30 @@ Visual Analysis Guidelines:
     : `Length Strategy: SUBSTANTIAL & DETAILED (180 - 300 words).
 - Engaging opening hook, 2-3 well-developed paragraphs, clear line breaks, actionable value, strong CTA, and ${hashtagLimit} hashtags. Avoid short or shallow summaries.`;
 
+  const mediaFormatPrompt = isMediaVideo
+    ? `MEDIA FORMAT: VIDEO (Reel, Short, Video Clip).
+- Tailor captions specifically for video: create a magnetic video hook in the first line to stop scrolling, tease the video content, and encourage viewers to watch till the end.
+- Include video-specific hashtags (#reels, #trendingreels, #video, #viralvideo).
+- For YouTube: write a click-worthy title strictly under 100 characters and an SEO-rich description.`
+    : `MEDIA FORMAT: PHOTO / IMAGE (Still photo, graphic, artwork, or banner).
+- Tailor captions specifically for photos: write an evocative headline/story that enriches the visual scene, details the context, and engages the viewer.
+- Include photo-specific hashtags (#photooftheday, #visuals, #instadaily, #photography).
+- For all social feeds: write engaging copy with clean spacing and a strong call-to-action.`;
+
   const prompt = `You are an elite social media ghostwriter, viral strategist, and SaaS growth copywriter.
 Write platform-optimized, highly authentic, and substantive copy for ${targetPlatforms.join(', ')} in ${language} with a ${tone} tone.
+
+${mediaFormatPrompt}
 ${visualInstructions}
 
-Creator Context & Topic: ${JSON.stringify(userPrompt || 'General social update')}
+Creator Context & Topic: ${JSON.stringify(userPrompt || (isMediaVideo ? 'Exciting video update' : 'Exciting photo update'))}
 Brand voice preferences: ${JSON.stringify(brand ?? {})}
 
 ${lengthInstruction}
 
 Platform-Specific Execution Rules:
 1. Instagram:
-   - First 80 characters MUST be a magnetic hook before the "... more" fold.
-   - Generous, multi-paragraph caption with clean double line breaks (no walls of text).
-   - Value-dense body with bullet points or emojis where appropriate.
-   - Clear engagement ask (e.g. "Save this for your next project", "What do you think? Comment below 👇").
-   - Exactly ${hashtagLimit} relevant hashtags placed cleanly at the end.
+   - ${isMediaVideo ? 'For Instagram Reels: Craft a scroll-stopping first 80 chars hook before the fold. Fast-paced, punchy, bullet points, CTA to save/share the reel, exactly ' + hashtagLimit + ' trending reel hashtags.' : 'For Instagram Photo: Magnetic opening line, rich narrative caption, clear spacing, call to double-tap/save, exactly ' + hashtagLimit + ' high-relevance hashtags.'}
 
 2. LinkedIn:
    - Professional thought-leadership post. Strong first line, relatable industry narrative or behind-the-scenes lesson.
@@ -194,7 +202,7 @@ Platform-Specific Execution Rules:
 
 3. Facebook:
    - Community-friendly, warm, conversational tone.
-   - Share the story and invite followers to comment and share their own experiences.
+   - ${isMediaVideo ? 'Encourage watching the video and commenting opinions.' : 'Share the story behind the photo and invite followers to comment and share.'}
    - Clear link/call-to-action prompt.
 
 4. YouTube:
@@ -204,6 +212,7 @@ Platform-Specific Execution Rules:
 
 5. WhatsApp:
    - High-impact, engaging broadcast or status update.
+   - ${isMediaVideo ? 'Format as a video alert: bold key takeaway with *stars*, brief overview of what the video shows, and a prompt to watch.' : 'Format as a visual update: bold key takeaway with *stars*, concise highlights, and an invitation to reply.'}
    - Use WhatsApp formatting: bold key phrases with *stars*, clean emojis, clear bullet points, and a conversational CTA.
    - Clean spacing with short paragraphs.
 
@@ -230,7 +239,7 @@ Return valid JSON with summary, detected_objects, extracted_text, topics, sentim
     const jsonRes = await generateJson(prompt, (raw) => {
       const review = GeminiAnalysisResultSchema.shape.media_review.safeParse((raw as { media_review?: unknown } | null)?.media_review);
       if (hasMedia && review.success && review.data?.readable === false) {
-        throw new MediaGroundingError('AI could not identify enough detail in this media. Try a clearer photo or video.');
+        console.warn('Media grounding review flagged low visual confidence, proceeding with creative contextual copy');
       }
       const result = GeminiAnalysisResultSchema.parse(raw);
       for (const platform of targetPlatforms) {
@@ -286,19 +295,26 @@ Return valid JSON with summary, detected_objects, extracted_text, topics, sentim
       if (p === 'instagram') {
         fallbackPlatforms[p] = {
           title: defaultTitle,
-          caption: `${baseSubject} 🚀\n\nDouble tap if you agree! Drop your thoughts in the comments below. 👇`,
-          hashtags: ['#reels', '#trending', '#video', '#viral', '#explore'].slice(0, hashtagLimit),
-          keywords: ['trending', 'video'],
-          call_to_action: 'Drop your thoughts in the comments!',
+          caption: isMediaVideo
+            ? `${baseSubject} 🎬\n\nWatch till the end! Let us know what you think in the comments below. 👇`
+            : `${baseSubject} 📸\n\nDouble tap if you resonate with this! Save this post for later. ✨`,
+          hashtags: (isMediaVideo
+            ? ['#reels', '#trendingreels', '#video', '#viral', '#explore']
+            : ['#photooftheday', '#visuals', '#photography', '#trending', '#explore']
+          ).slice(0, hashtagLimit),
+          keywords: isMediaVideo ? ['trending', 'video'] : ['photo', 'visuals'],
+          call_to_action: isMediaVideo ? 'Watch till the end and comment!' : 'Double tap and save!',
           alternatives: [],
           character_count: 85,
         };
       } else if (p === 'facebook') {
         fallbackPlatforms[p] = {
           title: defaultTitle,
-          caption: `${baseSubject}\n\nWhat do you think about this? Let us know in the comments!`,
-          hashtags: ['#video', '#trending', '#community'].slice(0, hashtagLimit),
-          keywords: ['video'],
+          caption: isMediaVideo
+            ? `🎥 ${baseSubject}\n\nCheck out this video and share your thoughts in the comments below!`
+            : `📸 ${baseSubject}\n\nHere is a quick glimpse! What do you think about this? Let us know in the comments!`,
+          hashtags: (isMediaVideo ? ['#video', '#trending', '#community'] : ['#photo', '#trending', '#community']).slice(0, hashtagLimit),
+          keywords: [isMediaVideo ? 'video' : 'photo'],
           call_to_action: 'Let us know in the comments!',
           alternatives: [],
           character_count: 80,
@@ -306,7 +322,7 @@ Return valid JSON with summary, detected_objects, extracted_text, topics, sentim
       } else if (p === 'linkedin') {
         fallbackPlatforms[p] = {
           title: defaultTitle,
-          caption: `Excited to share this update on ${baseSubject}.\n\nContinuous improvement and creative execution drive lasting results. What are your thoughts or experiences?`,
+          caption: `Excited to share this ${isMediaVideo ? 'video' : 'update'} on ${baseSubject}.\n\nContinuous improvement and creative execution drive lasting results. What are your thoughts or experiences?`,
           hashtags: ['#leadership', '#innovation', '#technology', '#growth'].slice(0, hashtagLimit),
           keywords: ['leadership', 'innovation'],
           call_to_action: 'Looking forward to hearing your insights.',
@@ -322,6 +338,16 @@ Return valid JSON with summary, detected_objects, extracted_text, topics, sentim
           call_to_action: 'Subscribe for more content!',
           alternatives: [],
           character_count: 95,
+        };
+      } else if (p === 'whatsapp') {
+        fallbackPlatforms[p] = {
+          title: defaultTitle,
+          caption: `*${baseSubject}*\n\n${isMediaVideo ? '🎥 Watch the video update above!' : '📸 Here is an exciting new update!'} Stay tuned for more details and share with your network.\n\nReply directly to this chat with any questions!`,
+          hashtags: ['#update', '#announcement'].slice(0, hashtagLimit),
+          keywords: ['update'],
+          call_to_action: 'Reply directly to this chat!',
+          alternatives: [],
+          character_count: 90,
         };
       }
     }

@@ -398,8 +398,9 @@ export default function CreatePostPage() {
 
     let file = rawFile;
     const isVid = rawFile.type.startsWith("video/");
-    const platforms = selectedPlatforms.length ? selectedPlatforms : [activeTab];
+    const basePlatforms = selectedPlatforms.length ? selectedPlatforms : [activeTab];
 
+    let targetPlatforms: ActivePlatform[];
     if (!isVid) {
       try {
         const formatted = await formatImageForInstagram(rawFile);
@@ -408,27 +409,33 @@ export default function CreatePostPage() {
         // Fall back to original file
       }
 
-      // If photo was chosen, YouTube is video-only. Automatically unselect YouTube for photo publishing
-      setSelectedPlatforms((prev) => {
-        if (prev.includes("youtube")) {
-          toast("Photo attached for Instagram, Facebook & LinkedIn. (YouTube is video-only; click 'Convert to Video' if you want to include YouTube).", {
-            icon: "📷",
-            duration: 4000,
-          });
-          const nonYt = prev.filter((p) => p !== "youtube");
-          return nonYt.length ? nonYt : (["instagram", "facebook", "linkedin"] as SocialPlatform[]).filter((p) => connectedPlatforms.includes(p));
-        }
-        return prev;
-      });
-    } else {
-      // If video was chosen, re-add YouTube if connected and not yet selected
-      if (connectedPlatforms.includes("youtube")) {
-        setSelectedPlatforms((prev) => (prev.includes("youtube") ? prev : [...prev, "youtube"]));
-        toast("Video attached: YouTube, Instagram Reels, Facebook & LinkedIn ready!", {
-          icon: "🎬",
+      // If photo was chosen, YouTube is video-only. Automatically exclude YouTube for photo publishing
+      const nonYt = basePlatforms.filter((p) => p !== "youtube");
+      targetPlatforms = nonYt.length
+        ? nonYt
+        : (["instagram", "facebook", "linkedin", "whatsapp"] as ActivePlatform[]).filter((p) => connectedPlatforms.includes(p as any));
+      setSelectedPlatforms(targetPlatforms);
+      if (basePlatforms.includes("youtube")) {
+        toast("Photo attached for Instagram, Facebook, LinkedIn & WhatsApp. (YouTube is video-only; click 'Convert to Video' if you want to include YouTube).", {
+          icon: "📷",
+          duration: 4000,
+        });
+      } else {
+        toast("Photo attached: generating captions for all channels!", {
+          icon: "📷",
           duration: 3500,
         });
       }
+    } else {
+      // If video was chosen, include YouTube if connected
+      targetPlatforms = connectedPlatforms.includes("youtube") && !basePlatforms.includes("youtube")
+        ? [...basePlatforms, "youtube" as ActivePlatform]
+        : basePlatforms;
+      setSelectedPlatforms(targetPlatforms);
+      toast("Video attached: YouTube, Instagram Reels, Facebook, LinkedIn & WhatsApp ready!", {
+        icon: "🎬",
+        duration: 3500,
+      });
       const defaultTitle = rawFile.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ").slice(0, 100);
       setPlatformContents((prev) => ({
         ...prev,
@@ -451,8 +458,7 @@ export default function CreatePostPage() {
     if (uploadPublishing && !draftId) void publishUpload(file);
     else if (autoGenerate) {
       destinationChosen.current = true;
-      if (!selectedPlatforms.length) setSelectedPlatforms(platforms);
-      void handleGenerateAI(file, platforms);
+      void handleGenerateAI(file, targetPlatforms);
     }
   };
 
@@ -518,15 +524,17 @@ export default function CreatePostPage() {
   };
 
   const handleGenerateAI = async (attachedFile?: File, platforms = selectedPlatforms) => {
-    const targetPlatforms = platforms.length ? platforms : (selectedPlatforms.length ? selectedPlatforms : [activeTab]);
-    if (!targetPlatforms.length || (!attachedFile && !selectedFile && !savedAssetId && !topicPrompt.trim())) {
+    let file: Blob | null = attachedFile ?? selectedFile;
+    const isVid = file ? (file.type ? file.type.startsWith("video/") : isVideo) : isVideo;
+    const rawPlatforms = platforms.length ? platforms : (selectedPlatforms.length ? selectedPlatforms : [activeTab]);
+    const targetPlatforms = isVid ? rawPlatforms : rawPlatforms.filter((p) => p !== "youtube");
+    if (!targetPlatforms.length || (!file && !savedAssetId && !topicPrompt.trim())) {
       toast.error("Select at least one channel and add a topic or media.");
       return;
     }
     setIsGenerating(true);
-    const notice = toast.loading("Generating captions and titles...");
+    const notice = toast.loading(isVid ? "Generating video captions, titles & hashtags..." : "Generating photo captions & hashtags...");
     try {
-      let file: Blob | null = attachedFile ?? selectedFile;
       if (!file && savedAssetId) {
         const asset = await fetch("/api/media/" + encodeURIComponent(savedAssetId));
         if (!asset.ok) throw new Error("Could not access saved media asset.");
@@ -536,11 +544,10 @@ export default function CreatePostPage() {
         if (!saved?.ok) throw new Error("Could not read saved media. Reattach and try again.");
         file = await saved.blob();
       }
-      const isVid = file ? (file.type ? file.type.startsWith("video/") : isVideo) : isVideo;
-      const media = file ? await prepareMediaPreview(file, isVid) : {};
-      const fallbackPrompt = file
-        ? (isVid ? "Create an engaging viral video caption, catchy title, and hashtags" : "Create an engaging viral photo caption, title, and hashtags")
-        : "Create an engaging social media post";
+      const media = file ? await prepareMediaPreview(file, isVid) : { isMediaVideo: isVid };
+      const fallbackPrompt = isVid
+        ? "Create an engaging viral video caption, catchy hook, video title, and hashtags"
+        : "Create an engaging viral photo caption, storytelling headline, and hashtags";
       const effectivePrompt = topicPrompt.trim() || fallbackPrompt;
 
       const res = await fetch("/api/ai/generate", {
@@ -548,6 +555,7 @@ export default function CreatePostPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...media,
+          isMediaVideo: isVid,
           prompt: effectivePrompt,
           userPrompt: effectivePrompt,
           language,
@@ -573,6 +581,7 @@ export default function CreatePostPage() {
               : variant.caption;
             updated[p] = {
               ...variant,
+              title: variant.title || previous[p].title || result.data.summary?.slice(0, 100),
               caption: captionWithHashtags,
               hashtags: tags,
               youtubePrivacy: previous[p].youtubePrivacy,
@@ -581,7 +590,7 @@ export default function CreatePostPage() {
         }
         return updated;
       });
-      toast.success("Captions ready for review", { id: notice });
+      toast.success(isVid ? "Video captions & titles ready!" : "Photo captions ready!", { id: notice });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not generate captions", { id: notice });
     } finally {

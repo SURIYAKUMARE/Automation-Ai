@@ -47,10 +47,10 @@ export async function prepareMediaPreview(file: Blob, isVideo = file.type.starts
         const image = new Image();
         image.src = url;
         await image.decode();
-        return { mediaBase64: makeImagePreview(image, image.naturalWidth, image.naturalHeight, 2400, photoBudget), mimeType: 'image/jpeg' };
+        return { mediaBase64: makeImagePreview(image, image.naturalWidth, image.naturalHeight, 2400, photoBudget), mimeType: 'image/jpeg', isMediaVideo: false };
       } catch (imgErr) {
         console.warn('Could not extract browser canvas preview for photo, continuing with prompt context:', imgErr);
-        return { mimeType: 'image/jpeg' };
+        return { mimeType: 'image/jpeg', isMediaVideo: false };
       }
     }
 
