@@ -28,7 +28,7 @@ export interface WhatsAppTransmissionLog {
   error?: string;
 }
 
-const DEFAULT_API_URL = process.env.OPENWA_API_URL || "http://localhost:2785";
+const DEFAULT_API_URL = (process.env.OPENWA_API_URL || "http://localhost:2785").replace(/\/api\/?$/, "");
 const DEFAULT_DASHBOARD_URL = process.env.OPENWA_DASHBOARD_URL || "http://localhost:2886";
 const DEFAULT_API_KEY =
   process.env.OPENWA_API_KEY ||
