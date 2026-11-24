@@ -28,21 +28,28 @@ type Account = {
 };
 
 export async function getAccountAccessToken(db: Database, account: Account) {
-  if (!account.token_expires_at || Date.parse(account.token_expires_at) > Date.now() + 60_000) {
+  const isExpiringSoon = account.token_expires_at && Date.parse(account.token_expires_at) <= Date.now() + 60_000;
+  if (!isExpiringSoon && account.encrypted_access_token) {
     return decryptToken(account.encrypted_access_token);
   }
   const adapter = getPlatformAdapter(account.platform);
-  if (!adapter.refreshAccessToken || !account.encrypted_refresh_token) return null;
-  const refreshed = await adapter.refreshAccessToken(decryptToken(account.encrypted_refresh_token), account.metadata);
-  if (!refreshed.accessToken) return null;
-  const { data, error } = await db.from('social_accounts').update({
-    encrypted_access_token: encryptToken(refreshed.accessToken),
-    ...(refreshed.refreshToken ? { encrypted_refresh_token: encryptToken(refreshed.refreshToken) } : {}),
-    token_expires_at: refreshed.expiresInSeconds ? new Date(Date.now() + refreshed.expiresInSeconds * 1000).toISOString() : null,
-    updated_at: new Date().toISOString(),
-  }).eq('id', account.id).eq('status', 'active').eq('encrypted_access_token', account.encrypted_access_token).select('id');
-  if (error || !data.length) return null;
-  return refreshed.accessToken;
+  if (!adapter.refreshAccessToken || !account.encrypted_refresh_token) {
+    return decryptToken(account.encrypted_access_token);
+  }
+  try {
+    const refreshed = await adapter.refreshAccessToken(decryptToken(account.encrypted_refresh_token), account.metadata);
+    if (!refreshed.accessToken) return decryptToken(account.encrypted_access_token);
+    await db.from('social_accounts').update({
+      encrypted_access_token: encryptToken(refreshed.accessToken),
+      ...(refreshed.refreshToken ? { encrypted_refresh_token: encryptToken(refreshed.refreshToken) } : {}),
+      token_expires_at: refreshed.expiresInSeconds ? new Date(Date.now() + refreshed.expiresInSeconds * 1000).toISOString() : null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', account.id);
+    return refreshed.accessToken;
+  } catch (err) {
+    console.warn(`Proactive token refresh failed for ${account.platform}:`, err);
+    return decryptToken(account.encrypted_access_token);
+  }
 }
 
 const eligible = ['draft', 'ready', 'approved', 'scheduled', 'pending_approval', 'failed', 'reauthorization_required'];
@@ -150,6 +157,36 @@ export async function executePostPublishing(db: Database, job: ClaimedJob) {
                   mediaType: media?.media_type === 'video' ? 'video' : mediaUrl ? 'image' : undefined,
                   accessToken: token, accountId: account.external_account_id, metadata: account.metadata,
                 });
+                // If unauthorized (401) and account has a refresh token, refresh immediately and retry once
+                if ((result.errorCode === 'RECONNECT' || result.errorCode?.endsWith('_401') || result.errorCode?.includes('401')) && account.encrypted_refresh_token) {
+                  const adapter = getPlatformAdapter(platform);
+                  if (adapter.refreshAccessToken) {
+                    try {
+                      const refreshed = await adapter.refreshAccessToken(decryptToken(account.encrypted_refresh_token), account.metadata);
+                      if (refreshed.accessToken) {
+                        await db.from('social_accounts').update({
+                          encrypted_access_token: encryptToken(refreshed.accessToken),
+                          ...(refreshed.refreshToken ? { encrypted_refresh_token: encryptToken(refreshed.refreshToken) } : {}),
+                          token_expires_at: refreshed.expiresInSeconds ? new Date(Date.now() + refreshed.expiresInSeconds * 1000).toISOString() : null,
+                          updated_at: new Date().toISOString(),
+                        }).eq('id', account.id);
+
+                        // Retry publish with refreshed token
+                        result = await adapter.publish({
+                          text, title: variant.title || post.title,
+                          youtubePrivacy: variant.youtube_privacy ?? undefined,
+                          altText: variant.alt_text ?? undefined,
+                          tags: platform === 'youtube' && variant.keywords?.length ? variant.keywords : tags, mediaUrl,
+                          mediaType: media?.media_type === 'video' ? 'video' : mediaUrl ? 'image' : undefined,
+                          accessToken: refreshed.accessToken, accountId: account.external_account_id, metadata: account.metadata,
+                        });
+                      }
+                    } catch (refreshRetryErr) {
+                      console.warn(`Token refresh retry failed for ${platform}:`, refreshRetryErr);
+                    }
+                  }
+                }
+
                 stagingFailure = Boolean(result.errorCode?.match(/^(?:IG_CONTAINER_FAILED_5\d\d|IG_CONTAINER_NOT_READY|YOUTUBE_INIT_FAILED_5\d\d|MEDIA_DOWNLOAD_FAILED|LINKEDIN_VIDEO_NOT_READY|LINKEDIN_VIDEO_(?:INIT|PART|FINALIZE|STATUS)_5\d\d)$/));
                 ambiguous = (!stagingFailure && Boolean(result.errorCode?.match(/(?:EXCEPTION|NETWORK_ERROR|_5\d\d)$/))) ||
                   Boolean(result.success && !result.externalPostId);

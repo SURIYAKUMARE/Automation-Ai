@@ -300,25 +300,29 @@ export default function PostHistory({
                         </div>
                       </td>
                       <td className="py-3 px-3">
-                        <span
-                          className={cn(
-                            "rounded-full px-2.5 py-0.5 text-[10px] font-semibold capitalize border inline-flex items-center gap-1",
-                            isPublished && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
-                            isFailed && "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20",
-                            isDraft && "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
-                            !isPublished && !isFailed && !isDraft && "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20"
-                          )}
-                        >
-                          <span
-                            className={cn(
-                              "h-1.5 w-1.5 rounded-full shrink-0",
-                              isPublished ? "bg-emerald-500" : isFailed ? "bg-rose-500" : isDraft ? "bg-amber-500" : "bg-indigo-500"
-                            )}
-                          />
-                          {post.status === "failed" && post.targets.some((target) => target.status === "published")
-                            ? "Partial"
-                            : post.status.replaceAll("_", " ")}
-                        </span>
+                        {(() => {
+                          const isPartial = post.status === "failed" && post.targets.some((target) => target.status === "published");
+                          return (
+                            <span
+                              className={cn(
+                                "rounded-full px-2.5 py-0.5 text-[10px] font-semibold capitalize border inline-flex items-center gap-1",
+                                isPublished && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+                                isPartial && "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+                                isFailed && !isPartial && "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20",
+                                isDraft && "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20",
+                                !isPublished && !isFailed && !isDraft && "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20"
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  "h-1.5 w-1.5 rounded-full shrink-0",
+                                  isPublished ? "bg-emerald-500" : isPartial ? "bg-amber-500" : isFailed ? "bg-rose-500" : isDraft ? "bg-slate-500" : "bg-indigo-500"
+                                )}
+                              />
+                              {isPartial ? "Partial Success" : post.status.replaceAll("_", " ")}
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">

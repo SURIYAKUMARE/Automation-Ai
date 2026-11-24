@@ -463,7 +463,8 @@ export default function CreatePostPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...media,
-          prompt: attachedFile && !attachedFile.type.startsWith("video/") ? undefined : topicPrompt.trim() || undefined,
+          prompt: topicPrompt.trim() || undefined,
+          userPrompt: topicPrompt.trim() || undefined,
           language,
           tone,
           captionLength,
@@ -578,7 +579,9 @@ export default function CreatePostPage() {
         body: JSON.stringify({
           title: postTitle,
           status: isDraft ? "draft" : review ? "pending" : customSchedule ? "scheduled" : "queued",
+          publishingMode: review ? "manual_approval" : "automatic",
           targetPlatforms: selectedPlatforms,
+          accountIds,
           mediaAssetId: mediaAssetId || null,
           postVariants,
           postTargets: isDraft ? [] : targets,
@@ -589,6 +592,15 @@ export default function CreatePostPage() {
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to save post");
+
+      // For instant publishing, trigger the live publish dispatch immediately
+      if (!isDraft && !customSchedule && !review && data.post?.id) {
+        await fetch("/api/publish/now", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ postId: data.post.id }),
+        }).catch((err) => console.warn("Background publish dispatch:", err));
+      }
 
       toast.success(
         isDraft ? "Draft saved" : customSchedule ? "Post scheduled" : "Post published across all channels",
