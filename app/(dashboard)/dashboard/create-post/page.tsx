@@ -11,6 +11,7 @@ import {
   Check,
   Save,
   Video,
+  Image as ImageIcon,
   AtSign,
   UserPlus,
   Eye,
@@ -20,6 +21,10 @@ import {
   ChevronLeft,
   RotateCw,
   Share2,
+  CheckCircle2,
+  AlertCircle,
+  FileVideo,
+  FileImage,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,10 +47,10 @@ interface PlatformOption {
 }
 
 const PLATFORMS: PlatformOption[] = [
-  { id: "instagram", name: "Instagram", tag: "Photo, Carousel, Reel", maxChars: 2200 },
-  { id: "facebook", name: "Facebook", tag: "Text, Photo, Video", maxChars: 63206 },
-  { id: "linkedin", name: "LinkedIn", tag: "Text, Photo, Document", maxChars: 3000 },
-  { id: "youtube", name: "YouTube", tag: "Video & Shorts", maxChars: 5000 },
+  { id: "instagram", name: "Instagram", tag: "Photo or Video (Reel)", maxChars: 2200 },
+  { id: "facebook", name: "Facebook", tag: "Photo, Video, or Text", maxChars: 63206 },
+  { id: "linkedin", name: "LinkedIn", tag: "Photo, Video, or Text", maxChars: 3000 },
+  { id: "youtube", name: "YouTube", tag: "Video Only (MP4/MOV)", maxChars: 5000 },
 ];
 
 const QUICK_EMOJIS = ["🔥", "🚀", "✨", "💡", "👏", "👇", "📈", "🎯", "🙌", "❤️", "🤝", "⚡"];
@@ -144,6 +149,8 @@ export default function CreatePostPage() {
   const [mentionInput, setMentionInput] = React.useState("");
   const [showMentionBar, setShowMentionBar] = React.useState(false);
   const uploadRequest = React.useRef<XMLHttpRequest | null>(null);
+  const photoInputRef = React.useRef<HTMLInputElement | null>(null);
+  const videoInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const handleAddMention = (handle: string) => {
     const cleanHandle = handle.startsWith("@") ? handle.trim() : `@${handle.trim()}`;
@@ -527,16 +534,22 @@ export default function CreatePostPage() {
         toast.error(`Add a caption for ${missing}.`);
         return;
       }
-      if (selectedPlatforms.some((p) => !accounts.some((account) => account.platform === p && accountIds.includes(account.id)))) {
-        toast.error("Choose a connected account for each selected platform.");
+      if (selectedPlatforms.includes("instagram") && !uploadFile && !savedAssetId) {
+        toast.error("Instagram requires a photo or video to publish. Please attach media in Step 2.");
+        setMobileStep(2);
+        return;
+      }
+      if (selectedPlatforms.includes("youtube") && !uploadFile && !savedAssetId) {
+        toast.error("YouTube requires a video file. Please attach an MP4/MOV video in Step 2.");
+        setMobileStep(2);
+        return;
+      }
+      if (selectedPlatforms.includes("youtube") && !ytVideoTitle) {
+        toast.error("YouTube requires a video title.");
         return;
       }
       if (customSchedule && (!scheduledDateTime || new Date(scheduledDateTime).getTime() <= Date.now())) {
         toast.error("Choose a future schedule date and time.");
-        return;
-      }
-      if (selectedPlatforms.includes("youtube") && !isVideo && !ytVideoTitle) {
-        toast.error("YouTube requires a title.");
         return;
       }
     }
@@ -587,22 +600,31 @@ export default function CreatePostPage() {
         return;
       }
 
+      const unconnected = selectedPlatforms.filter((p) => !accounts.some((a) => a.platform === p && a.status === "active"));
+      if (!isDraft && unconnected.length > 0) {
+        const names = unconnected.map((p) => PLATFORMS.find((pl) => pl.id === p)?.name || p).join(", ");
+        toast.error(`Please connect an account for ${names} in Accounts first, or deselect ${names} to publish now.`, { id: notice });
+        setIsPublishing(false);
+        return;
+      }
+
       const postTitle = ytVideoTitle || platformContents[activeTab].caption.slice(0, 50) || "Social Post";
 
-      const url = draftId ? `/api/posts/${encodeURIComponent(draftId)}` : "/api/posts/create";
-      const method = draftId ? "PATCH" : "POST";
-
-      const res = await fetch(url, {
-        method,
+      const res = await fetch("/api/posts/create", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: postTitle,
           status: isDraft ? "draft" : review ? "pending" : customSchedule ? "scheduled" : "queued",
+          draft: isDraft,
+          replaceDraft: Boolean(draftId),
+          requestId: draftId || undefined,
           publishingMode: review ? "manual_approval" : "automatic",
           targetPlatforms: selectedPlatforms,
-          accountIds,
+          accountIds: targets.map((t) => t.social_account_id),
           mediaAssetId: mediaAssetId || null,
-          postVariants,
+          variants: postVariants,
+          postVariants: postVariants,
           postTargets: isDraft ? [] : targets,
           scheduledFor: customSchedule ? new Date(scheduledDateTime).toISOString() : null,
           weeklyOccurrences: customSchedule && !review ? weeklyOccurrences : 1,
@@ -884,11 +906,40 @@ export default function CreatePostPage() {
         {/* ======================================================== */}
         <div className={cn("xl:col-span-5 space-y-4", mobileStep !== 2 && "hidden xl:block")}>
           {/* Media Upload & Preview */}
-          <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+          <div className="rounded-xl border border-border bg-card p-4 space-y-3.5">
+            {/* Hidden Input Refs for Explicit Photo vs Video Triggers */}
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) chooseFile(f);
+                e.target.value = "";
+              }}
+              className="sr-only"
+            />
+            <input
+              ref={videoInputRef}
+              type="file"
+              accept="video/mp4,video/quicktime,video/webm"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) chooseFile(f);
+                e.target.value = "";
+              }}
+              className="sr-only"
+            />
+
             <div className="flex items-center justify-between pb-2 border-b border-border">
-              <h2 className="text-xs font-semibold text-foreground">
-                Media Asset
-              </h2>
+              <div className="space-y-0.5">
+                <h2 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  <span>Media Asset</span>
+                  <span className="text-[10px] font-normal text-muted-foreground">
+                    ({mediaPreview ? (isVideo ? "Video File" : "Photo File") : "Choose Photo or Video"})
+                  </span>
+                </h2>
+              </div>
               <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-pointer">
                 <input
                   type="checkbox"
@@ -900,6 +951,80 @@ export default function CreatePostPage() {
               </label>
             </div>
 
+            {/* Explicit Choice: Photo Card vs Video Card */}
+            <div className="grid grid-cols-2 gap-2.5">
+              <button
+                type="button"
+                onClick={() => photoInputRef.current?.click()}
+                className={cn(
+                  "p-3 rounded-lg border text-left transition-all flex flex-col justify-between group cursor-pointer relative",
+                  mediaPreview && !isVideo
+                    ? "border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/40 ring-1 ring-indigo-600/50"
+                    : "border-border hover:border-indigo-400/60 bg-background hover:bg-muted/30"
+                )}
+              >
+                <div className="flex items-center justify-between w-full mb-1">
+                  <div className="size-7 rounded-md bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                    <ImageIcon className="size-4" />
+                  </div>
+                  {mediaPreview && !isVideo ? (
+                    <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="size-3" /> Attached
+                    </span>
+                  ) : (
+                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground font-mono">Photo</span>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-foreground flex items-center gap-1">
+                    <span>Upload Photo</span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    JPEG, PNG, WebP
+                  </p>
+                  <p className="text-[9px] text-indigo-600 dark:text-indigo-400 font-medium mt-1">
+                    Instagram • Facebook • LinkedIn
+                  </p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => videoInputRef.current?.click()}
+                className={cn(
+                  "p-3 rounded-lg border text-left transition-all flex flex-col justify-between group cursor-pointer relative",
+                  mediaPreview && isVideo
+                    ? "border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/40 ring-1 ring-indigo-600/50"
+                    : "border-border hover:border-indigo-400/60 bg-background hover:bg-muted/30"
+                )}
+              >
+                <div className="flex items-center justify-between w-full mb-1">
+                  <div className="size-7 rounded-md bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center text-purple-600 dark:text-purple-400">
+                    <Video className="size-4" />
+                  </div>
+                  {mediaPreview && isVideo ? (
+                    <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 className="size-3" /> Attached
+                    </span>
+                  ) : (
+                    <span className="text-[9px] uppercase tracking-wider text-muted-foreground font-mono">Video</span>
+                  )}
+                </div>
+                <div>
+                  <div className="text-xs font-semibold text-foreground flex items-center gap-1">
+                    <span>Upload Video</span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    MP4, QuickTime, WebM
+                  </p>
+                  <p className="text-[9px] text-purple-600 dark:text-purple-400 font-medium mt-1">
+                    YouTube Only Video • Reels • All
+                  </p>
+                </div>
+              </button>
+            </div>
+
+            {/* Media Preview or Drag & Drop Zone */}
             {mediaPreview ? (
               <div className="relative rounded-lg border border-border overflow-hidden bg-muted/20">
                 {isVideo ? (
@@ -910,32 +1035,32 @@ export default function CreatePostPage() {
                       const sec = e.currentTarget.duration;
                       if (Number.isFinite(sec)) setDuration(Math.round(sec));
                     }}
-                    className="w-full max-h-52 object-contain bg-black/60"
+                    className="w-full max-h-56 object-contain bg-black/70"
                   />
                 ) : (
-                  <img src={mediaPreview} alt="Attached asset" className="w-full max-h-52 object-contain mx-auto" />
+                  <img src={mediaPreview} alt="Attached asset" className="w-full max-h-56 object-contain mx-auto" />
                 )}
                 <div className="p-2.5 bg-card border-t border-border flex items-center justify-between text-xs">
-                  <span className="font-mono text-[11px] text-muted-foreground truncate max-w-[200px]">
-                    {selectedFile?.name || "Uploaded Asset"} {duration !== undefined && `(${duration}s)`}
-                  </span>
-                  <div className="flex items-center gap-3">
-                    <label className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer flex items-center gap-1 font-medium text-[11px]">
+                  <div className="min-w-0 pr-2">
+                    <p className="font-mono text-[11px] text-foreground font-medium truncate max-w-[220px]">
+                      {selectedFile?.name || (isVideo ? "Video Asset" : "Photo Asset")}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {isVideo ? `Video • ${duration !== undefined ? `${duration}s • ` : ""}YouTube & Socials Ready` : "Photo • 1080p Standard Format"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => (isVideo ? videoInputRef.current?.click() : photoInputRef.current?.click())}
+                      className="text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 font-medium text-[11px] cursor-pointer"
+                    >
                       <UploadCloud className="size-3.5" /> Replace
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f) chooseFile(f);
-                        }}
-                        className="sr-only"
-                      />
-                    </label>
+                    </button>
                     <button
                       type="button"
                       onClick={removeFile}
-                      className="text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 font-medium text-[11px]"
+                      className="text-rose-600 dark:text-rose-400 hover:underline flex items-center gap-1 font-medium text-[11px] cursor-pointer"
                     >
                       <X className="size-3.5" /> Remove
                     </button>
@@ -949,15 +1074,15 @@ export default function CreatePostPage() {
                   e.preventDefault();
                   if (e.dataTransfer.files[0]) chooseFile(e.dataTransfer.files[0]);
                 }}
-                className="border-2 border-dashed border-border hover:border-muted-foreground/50 rounded-xl p-6 flex flex-col items-center justify-center cursor-pointer transition-colors text-center space-y-2 bg-muted/20 hover:bg-muted/40"
+                className="border-2 border-dashed border-border hover:border-indigo-500/50 rounded-xl p-5 flex flex-col items-center justify-center cursor-pointer transition-colors text-center space-y-1.5 bg-muted/20 hover:bg-muted/40"
               >
-                <div className="size-9 rounded-lg bg-card border border-border flex items-center justify-center text-muted-foreground">
-                  <UploadCloud className="size-4" />
+                <div className="size-8 rounded-lg bg-card border border-border flex items-center justify-center text-muted-foreground">
+                  <UploadCloud className="size-4 text-indigo-600 dark:text-indigo-400" />
                 </div>
                 <div>
-                  <p className="text-xs font-semibold text-foreground">Click or drag image or video here</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Images up to 15MB • MP4/WebM videos up to 100MB
+                  <p className="text-xs font-semibold text-foreground">Or drag &amp; drop any photo or video here</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Images up to 15MB • Videos up to 100MB (MP4/WebM)
                   </p>
                 </div>
                 <input
@@ -972,55 +1097,122 @@ export default function CreatePostPage() {
               </label>
             )}
 
-            {/* Media Auto-Formatting Controls */}
-            {mediaPreview && !isVideo && (
-              <div className="p-3 rounded-lg border border-border bg-muted/30 space-y-2 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-foreground text-[11px]">
-                    Photo Format (1080p Standard)
+            {/* Platform Media Readiness Status Panel */}
+            <div className="p-3 rounded-lg border border-border bg-muted/25 space-y-2">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="font-semibold text-foreground">Platform Media Compatibility:</span>
+                <span className="text-[10px] text-muted-foreground font-mono">
+                  {mediaPreview ? (isVideo ? "Video Mode (YouTube & All Channels)" : "Photo Mode (Social Channels)") : "No Media (Text-Only Mode)"}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px]">
+                {/* LinkedIn */}
+                <div className="p-1.5 rounded-md border border-border/80 bg-background flex items-center justify-between">
+                  <span className="font-medium text-foreground">LinkedIn</span>
+                  <span className="font-mono text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
+                    <CheckCircle2 className="size-3" /> {mediaPreview ? (isVideo ? "Video" : "Photo") : "Text"}
                   </span>
-                  <div className="flex items-center gap-1">
+                </div>
+
+                {/* Facebook */}
+                <div className="p-1.5 rounded-md border border-border/80 bg-background flex items-center justify-between">
+                  <span className="font-medium text-foreground">Facebook</span>
+                  <span className="font-mono text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
+                    <CheckCircle2 className="size-3" /> {mediaPreview ? (isVideo ? "Video" : "Photo") : "Text"}
+                  </span>
+                </div>
+
+                {/* Instagram */}
+                <div className="p-1.5 rounded-md border border-border/80 bg-background flex items-center justify-between">
+                  <span className="font-medium text-foreground">Instagram</span>
+                  {mediaPreview ? (
+                    <span className="font-mono text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
+                      <CheckCircle2 className="size-3" /> {isVideo ? "Reel" : "Photo"}
+                    </span>
+                  ) : (
+                    <span className="font-mono text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
+                      <AlertCircle className="size-3" /> Need media
+                    </span>
+                  )}
+                </div>
+
+                {/* YouTube */}
+                <div className={cn(
+                  "p-1.5 rounded-md border flex items-center justify-between",
+                  isVideo
+                    ? "border-emerald-300 dark:border-emerald-900 bg-emerald-50/40 dark:bg-emerald-950/20"
+                    : mediaPreview
+                    ? "border-amber-300 dark:border-amber-900 bg-amber-50/50 dark:bg-amber-950/20"
+                    : "border-border/80 bg-background"
+                )}>
+                  <span className="font-medium text-foreground">YouTube</span>
+                  {isVideo ? (
+                    <span className="font-mono text-emerald-600 dark:text-emerald-400 flex items-center gap-0.5">
+                      <CheckCircle2 className="size-3" /> Video OK
+                    </span>
+                  ) : (
+                    <span className="font-mono text-amber-600 dark:text-amber-400 flex items-center gap-0.5">
+                      <AlertCircle className="size-3" /> Video only
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* YouTube Photo Conversion Action Banner */}
+              {selectedPlatforms.includes("youtube") && mediaPreview && !isVideo && (
+                <div className="p-2.5 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200 space-y-2 mt-2">
+                  <div className="flex items-start gap-2">
+                    <AlertCircle className="size-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <div className="text-[11px] leading-relaxed">
+                      <span className="font-semibold block text-amber-950 dark:text-amber-100">
+                        YouTube requires a video file.
+                      </span>
+                      Static photos cannot be published directly to YouTube. Convert your photo into a 1080p MP4 video with 1 click:
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={isConvertingVideo}
+                    onClick={() => void handleConvertToVideo()}
+                    className="w-full h-8 text-xs font-semibold gap-1.5 bg-amber-600 hover:bg-amber-700 text-white shadow-xs cursor-pointer"
+                  >
+                    <Video className="size-3.5" />
+                    <span>{isConvertingVideo ? "Converting to 1080p MP4..." : "Convert Photo to 1080p MP4 Video for YouTube"}</span>
+                  </Button>
+                </div>
+              )}
+
+              {/* Photo Formatting Helpers */}
+              {mediaPreview && !isVideo && (
+                <div className="pt-2 border-t border-border flex items-center justify-between text-[11px]">
+                  <span className="text-muted-foreground">Standard 1080p formatting:</span>
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
                       onClick={() => void handleAutoFormatPhoto("jpeg")}
                       className={cn(
-                        "px-2 py-0.5 rounded text-[10px] font-medium border transition-colors",
-                        targetPhotoFormat === "jpeg" ? "bg-indigo-600 text-white border-indigo-600" : "border-border bg-card text-muted-foreground"
+                        "px-2 py-0.5 rounded text-[10px] font-medium border transition-colors cursor-pointer",
+                        targetPhotoFormat === "jpeg" ? "bg-indigo-600 text-white border-indigo-600" : "border-border bg-card text-muted-foreground hover:text-foreground"
                       )}
                     >
-                      JPEG
+                      JPEG 1080p
                     </button>
                     <button
                       type="button"
                       onClick={() => void handleAutoFormatPhoto("png")}
                       className={cn(
-                        "px-2 py-0.5 rounded text-[10px] font-medium border transition-colors",
-                        targetPhotoFormat === "png" ? "bg-indigo-600 text-white border-indigo-600" : "border-border bg-card text-muted-foreground"
+                        "px-2 py-0.5 rounded text-[10px] font-medium border transition-colors cursor-pointer",
+                        targetPhotoFormat === "png" ? "bg-indigo-600 text-white border-indigo-600" : "border-border bg-card text-muted-foreground hover:text-foreground"
                       )}
                     >
-                      PNG
+                      PNG 1080p
                     </button>
                   </div>
                 </div>
-
-                {selectedPlatforms.includes("youtube") && (
-                  <div className="pt-2 border-t border-border flex items-center justify-between gap-2">
-                    <span className="text-[11px] text-muted-foreground">YouTube requires video:</span>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      disabled={isConvertingVideo}
-                      onClick={() => void handleConvertToVideo()}
-                      className="text-[10px] h-7 px-2.5 gap-1 border-border"
-                    >
-                      <Video className="size-3" />
-                      {isConvertingVideo ? "Converting..." : "Generate 30s MP4 (FFmpeg)"}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           {/* AI Generation Prompt Bar */}

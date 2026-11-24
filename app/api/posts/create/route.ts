@@ -8,20 +8,22 @@ import { captionLimits, mediaCompatibilityError } from '@/lib/publishing/compati
 import { dispatchCampaign } from '@/lib/publishing/engine';
 
 const CreatePost = z.object({
-  requestId: postIdSchema.optional(),
-  mediaAssetId: postIdSchema.optional(),
+  requestId: postIdSchema.nullable().optional(),
+  mediaAssetId: postIdSchema.nullable().optional(),
   title: z.string().trim().max(200).optional(),
   rawPrompt: z.string().trim().max(4000).optional(),
   draft: z.boolean().default(false),
   replaceDraft: z.boolean().default(false),
   queueNext: z.boolean().default(false),
   publishingMode: z.enum(['automatic', 'manual_approval']).default('manual_approval'),
-  scheduledFor: z.string().datetime({ offset: true }).optional(),
+  scheduledFor: z.string().datetime({ offset: true }).nullable().optional(),
   recurrences: z.array(z.string().datetime({ offset: true })).max(7).default([]),
   targetPlatforms: z.array(platformSchema).min(1).max(4),
-  accountIds: z.array(postIdSchema).max(20).optional(),
+  accountIds: z.array(postIdSchema).max(20).nullable().optional(),
   variants: z.array(z.object({
-    platform: platformSchema, caption: captionSchema, title: z.string().trim().max(200).optional(),
+    platform: platformSchema,
+    caption: z.string().max(5000).default(''),
+    title: z.string().trim().max(200).optional(),
     hashtags: z.array(z.string().trim().min(1).max(100)).max(30).default([]),
     keywords: z.array(z.string().trim().min(1).max(100)).max(15).default([]),
     youtubePrivacy: z.enum(['private', 'unlisted', 'public']).optional(),
@@ -30,18 +32,37 @@ const CreatePost = z.object({
     language: z.enum(['English', 'Tamil', 'Tanglish']).default('English'),
     tone: z.string().max(40).default('Professional'),
   })).max(4),
-}).refine((post) => new Set(post.targetPlatforms).size === post.targetPlatforms.length &&
-  new Set(post.variants.map((variant) => variant.platform)).size === post.variants.length &&
-  post.variants.every((variant) => post.targetPlatforms.includes(variant.platform)) &&
-  (post.draft || post.variants.length === post.targetPlatforms.length));
+}).refine((post) => {
+  if (post.draft) return true;
+  return new Set(post.targetPlatforms).size === post.targetPlatforms.length &&
+    post.variants.length > 0 &&
+    post.targetPlatforms.every((platform) => post.variants.some((v) => v.platform === platform));
+}, { message: 'All selected platforms must have configured content' });
 
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
-  const payload = await req.json().catch(() => null);
-  const parsed = CreatePost.safeParse(payload);
-  if (!parsed.success || payload?.mediaUrl || payload?.mediaBase64) {
-    return NextResponse.json({ error: 'Select valid platforms and use an uploaded media asset' }, { status: 400 });
+  const rawPayload = await req.json().catch(() => null);
+  if (!rawPayload) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+
+  // Normalize payload: accept both variants and postVariants, handle draft flag and nullable IDs
+  const rawVariants = rawPayload.variants || rawPayload.postVariants || [];
+  const isDraft = rawPayload.draft === true || rawPayload.status === 'draft';
+  const normalized = {
+    ...rawPayload,
+    draft: isDraft,
+    variants: rawVariants,
+    mediaAssetId: rawPayload.mediaAssetId || undefined,
+    accountIds: Array.isArray(rawPayload.accountIds) && rawPayload.accountIds.length ? rawPayload.accountIds : undefined,
+    scheduledFor: rawPayload.scheduledFor || undefined,
+  };
+
+  const parsed = CreatePost.safeParse(normalized);
+  if (!parsed.success || rawPayload?.mediaUrl || rawPayload?.mediaBase64) {
+    const firstErr = parsed.success ? null : parsed.error.issues[0];
+    const errMsg = firstErr ? `${firstErr.path.join('.') || 'Validation'}: ${firstErr.message}` : 'Select valid platforms and use an uploaded media asset';
+    console.error('CreatePost validation failed:', parsed.success ? 'forbidden media payload' : parsed.error.issues);
+    return NextResponse.json({ error: errMsg, details: parsed.success ? undefined : parsed.error.issues }, { status: 400 });
   }
   const post = parsed.data;
   if (post.queueNext && (post.draft || post.recurrences.length || post.scheduledFor)) {
@@ -50,7 +71,7 @@ export async function POST(req: NextRequest) {
   if (!post.draft && post.scheduledFor && Date.parse(post.scheduledFor) <= Date.now()) {
     return NextResponse.json({ error: 'Choose a future date and time' }, { status: 400 });
   }
-  if (!post.draft && post.accountIds?.length === 0) {
+  if (!post.draft && post.accountIds?.length === 0 && !post.targetPlatforms?.length) {
     return NextResponse.json({ error: 'Choose a connected account for each platform' }, { status: 400 });
   }
   if (post.recurrences.length && (post.draft || !post.scheduledFor || post.publishingMode !== 'automatic' ||
@@ -97,14 +118,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    let query = db.from('social_accounts').select('id, platform').eq('user_id', user.id)
-      .in('platform', post.targetPlatforms).eq('status', 'active');
-    if (post.accountIds?.length) query = query.in('id', post.accountIds);
-    const { data: accounts, error: accountError } = post.accountIds?.length === 0 ? { data: [], error: null } : await query;
+    const { data: allActiveAccounts, error: accountError } = await db
+      .from('social_accounts')
+      .select('id, platform')
+      .eq('user_id', user.id)
+      .in('platform', post.targetPlatforms)
+      .eq('status', 'active');
     if (accountError) throw accountError;
 
-    if (!post.draft && post.accountIds?.some((accountId) => !accounts?.some((account) => account.id === accountId))) {
-      return NextResponse.json({ error: 'A selected publishing account is unavailable' }, { status: 409 });
+    const available = allActiveAccounts || [];
+    const accounts: { id: string; platform: string }[] = [];
+
+    for (const platform of post.targetPlatforms) {
+      const chosen = available.find((a) => a.platform === platform && post.accountIds?.includes(a.id)) ||
+                     available.find((a) => a.platform === platform);
+      if (chosen && !accounts.some((a) => a.id === chosen.id)) {
+        accounts.push(chosen);
+      }
+    }
+
+    if (!post.draft && accounts.length === 0) {
+      return NextResponse.json({ error: 'Please connect at least one active social account in Social Accounts before publishing.' }, { status: 409 });
     }
     const status = post.draft ? 'draft' : post.publishingMode === 'manual_approval' ? 'pending_approval' :
       post.scheduledFor ? 'scheduled' : 'approved';

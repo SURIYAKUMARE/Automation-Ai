@@ -89,9 +89,11 @@ async function generateJson<T>(prompt: string, validate: (value: unknown) => T, 
     : [];
   const candidateModels = [
     ...configuredModels,
-    'gemini-3.5-flash-lite',
-    'gemini-flash-lite-latest',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash',
+    'gemini-1.5-pro',
     'gemini-2.5-flash',
+    'gemini-flash-lite-latest',
   ].filter(Boolean);
   const models = Array.from(new Set(candidateModels)).slice(0, 4);
 
