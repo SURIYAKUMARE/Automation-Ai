@@ -41,18 +41,26 @@ export const GeminiAnalysisResultSchema = z.object({
 
 export class MediaGroundingError extends Error {}
 
-async function generateOpenAIJson(prompt: string, images: string[], key: string): Promise<unknown> {
-  const userContent: Array<{ type: string; text?: string; image_url?: { url: string } }> = [
-    { type: 'text', text: prompt },
-    ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
-  ];
+async function generateOpenAIJson(
+  prompt: string,
+  images: string[],
+  key: string,
+  baseUrl = process.env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1/chat/completions',
+  model = process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
+): Promise<unknown> {
+  const userContent: string | Array<{ type: string; text?: string; image_url?: { url: string } }> = images.length
+    ? [
+        { type: 'text', text: prompt },
+        ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
+      ]
+    : prompt;
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetch(baseUrl, {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
     signal: AbortSignal.timeout(25_000),
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
+      model,
       response_format: { type: 'json_object' },
       messages: [{ role: 'user', content: userContent }],
       max_tokens: 4096,
@@ -60,10 +68,13 @@ async function generateOpenAIJson(prompt: string, images: string[], key: string)
   });
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
-    throw new Error(`OpenAI generation failed with status ${response.status}: ${errText.slice(0, 100)}`);
+    throw new Error(`OpenAI generation failed with status ${response.status}: ${errText.slice(0, 120)}`);
   }
   const result = await response.json();
-  const text = result.choices?.[0]?.message?.content || '{}';
+  let text = (result.choices?.[0]?.message?.content || '{}').trim();
+  if (text.startsWith('```')) {
+    text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+  }
   return JSON.parse(text);
 }
 
@@ -82,9 +93,18 @@ interface GenerateOptions {
   hashtagLimit?: number;
 }
 
+function collectKeys(single?: string, multiple?: string): string[] {
+  const raw = [
+    ...(single ? [single] : []),
+    ...(multiple ? multiple.split(',') : []),
+  ]
+    .map((k) => k.trim())
+    .filter(Boolean);
+  return Array.from(new Set(raw));
+}
+
 async function generateJson<T>(prompt: string, validate: (value: unknown) => T, parts: Part[] = [], responseSchema?: ResponseSchema) {
-  const key = process.env.GEMINI_API_KEY?.trim();
-  const client = key ? new GoogleGenerativeAI(key) : null;
+  const geminiKeys = collectKeys(process.env.GEMINI_API_KEY, process.env.GEMINI_API_KEYS);
   const configuredModels = process.env.GEMINI_MODELS
     ? process.env.GEMINI_MODELS.split(',').map((model) => model.trim()).filter(Boolean)
     : [];
@@ -100,45 +120,47 @@ async function generateJson<T>(prompt: string, validate: (value: unknown) => T, 
   const models = Array.from(new Set(candidateModels));
 
   let lastErrorReason = '';
-  for (const model of models) {
-    if (!client) {
-      lastErrorReason = 'GEMINI_API_KEY is not configured in environment variables.';
-      break;
-    }
-    try {
-      const gemini = client.getGenerativeModel({
-        model, generationConfig: { responseMimeType: 'application/json', responseSchema, temperature: 0.7, maxOutputTokens: 8192 },
-      }, { timeout: 35_000 });
-      const { response } = await gemini.generateContent([{ text: prompt }, ...parts]);
-      let text = response.text().trim();
-      if (text.startsWith('```')) {
-        text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
-      }
-      return { data: validate(JSON.parse(text)), source: 'Gemini' as const };
-    } catch (error) {
-      if (error instanceof MediaGroundingError) throw error;
-      const reason = error instanceof GoogleGenerativeAIFetchError ? 'HTTP ' + error.status :
-        error instanceof z.ZodError ? error.issues.map((issue) => issue.path.join('.') + ':' + issue.code).join(', ') :
-        error instanceof SyntaxError ? 'invalid JSON' : (error instanceof Error ? error.message : 'incomplete response or timeout');
-      lastErrorReason = reason;
-      console.warn(`Gemini model ${model} could not return valid content (${reason})`);
-    }
-  }
-  const openAIKey = process.env.OPENAI_API_KEY?.trim();
-  if (openAIKey) {
-    try {
-      const images = parts.flatMap((part) => part.inlineData ?
-        ['data:' + part.inlineData.mimeType + ';base64,' + part.inlineData.data] : []);
-      const raw = await generateOpenAIJson(prompt, images, openAIKey);
-      return { data: validate(raw), source: 'OpenAI' as const };
-    } catch (openaiErr) {
-      console.warn('OpenAI fallback failed:', openaiErr instanceof Error ? openaiErr.message : openaiErr);
-      if (openaiErr instanceof Error && openaiErr.message.includes('429')) {
-        lastErrorReason = (lastErrorReason ? lastErrorReason + '; ' : '') + 'OpenAI quota exhausted (429)';
+  for (const geminiKey of geminiKeys) {
+    const client = new GoogleGenerativeAI(geminiKey);
+    for (const model of models) {
+      try {
+        const gemini = client.getGenerativeModel({
+          model, generationConfig: { responseMimeType: 'application/json', responseSchema, temperature: 0.7, maxOutputTokens: 8192 },
+        }, { timeout: 35_000 });
+        const { response } = await gemini.generateContent([{ text: prompt }, ...parts]);
+        let text = response.text().trim();
+        if (text.startsWith('```')) {
+          text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim();
+        }
+        return { data: validate(JSON.parse(text)), source: 'Gemini' as const };
+      } catch (error) {
+        if (error instanceof MediaGroundingError) throw error;
+        const reason = error instanceof GoogleGenerativeAIFetchError ? 'HTTP ' + error.status :
+          error instanceof z.ZodError ? error.issues.map((issue) => issue.path.join('.') + ':' + issue.code).join(', ') :
+          error instanceof SyntaxError ? 'invalid JSON' : (error instanceof Error ? error.message : 'incomplete response or timeout');
+        lastErrorReason = reason;
+        console.warn(`Gemini model ${model} could not return valid content (${reason})`);
       }
     }
   }
-  if (!key && !openAIKey) {
+
+  const openAIKeys = collectKeys(process.env.OPENAI_API_KEY, process.env.OPENAI_API_KEYS);
+  if (openAIKeys.length > 0) {
+    const images = parts.flatMap((part) => part.inlineData ?
+      ['data:' + part.inlineData.mimeType + ';base64,' + part.inlineData.data] : []);
+    for (const openAIKey of openAIKeys) {
+      try {
+        const raw = await generateOpenAIJson(prompt, images, openAIKey);
+        return { data: validate(raw), source: 'OpenAI' as const };
+      } catch (openaiErr) {
+        console.warn('OpenAI fallback failed:', openaiErr instanceof Error ? openaiErr.message : openaiErr);
+        if (openaiErr instanceof Error && openaiErr.message.includes('429')) {
+          lastErrorReason = (lastErrorReason ? lastErrorReason + '; ' : '') + 'OpenAI quota exhausted (429)';
+        }
+      }
+    }
+  }
+  if (geminiKeys.length === 0 && openAIKeys.length === 0) {
     throw new Error('AI provider configuration is missing. Configure GEMINI_API_KEY in your environment variables.');
   }
   throw new Error(`Caption and title generation is unavailable (${lastErrorReason || 'provider unavailable'}). Check provider configuration and quota, then try again.`);
