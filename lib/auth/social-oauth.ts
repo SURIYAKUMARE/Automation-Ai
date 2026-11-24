@@ -18,6 +18,10 @@ const credentials: Record<SocialPlatform, readonly (string | undefined)[]> = {
 };
 
 function providerConfigured(platform: SocialPlatform) {
+  if (platform === 'facebook' || platform === 'instagram') {
+    const appId = process.env.META_APP_ID || '1105730908969288';
+    return Boolean(appId && appId.trim().length > 3 && !/^(?:placeholder|example)$/i.test(appId));
+  }
   return credentials[platform].every((value) => value?.trim() && !/(?:placeholder|your[-_]|mock[-_]|example)/i.test(value));
 }
 

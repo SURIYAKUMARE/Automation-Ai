@@ -4,14 +4,10 @@ import { getSessionUser } from '@/lib/auth/session';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { mediaExtensions, mediaSizeLimit, signMedia } from '@/lib/publishing/media';
 
-export async function GET(req: NextRequest) {
-  const user = await getSessionUser(req);
-  if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
-
-  const { searchParams } = new URL(req.url);
-  const fileName = searchParams.get('fileName') || 'upload';
-  let fileType = (searchParams.get('fileType') || '').split(';')[0].trim().toLowerCase();
-  const fileSize = Number(searchParams.get('fileSize')) || 0;
+async function generateSignedUploadUrl(user: { id: string }, rawFileName?: string | null, rawFileType?: string | null, rawFileSize?: number) {
+  const fileName = rawFileName || 'upload';
+  let fileType = (rawFileType || '').split(';')[0].trim().toLowerCase();
+  const fileSize = Number(rawFileSize) || 0;
 
   // Fallback for mobile devices that omit or use generic octet-stream MIME
   if (!fileType || fileType === 'application/octet-stream') {
@@ -25,11 +21,11 @@ export async function GET(req: NextRequest) {
   }
 
   if (!Object.hasOwn(mediaExtensions, fileType)) {
-    return NextResponse.json({ error: 'Choose a JPEG, PNG, WebP, MP4, MOV or WebM file' }, { status: 400 });
+    return { error: 'Choose a JPEG, PNG, WebP, MP4, MOV or WebM file', status: 400 };
   }
 
   if (fileSize > mediaSizeLimit(fileType)) {
-    return NextResponse.json({ error: 'Upload exceeds maximum allowed size' }, { status: 413 });
+    return { error: 'Upload exceeds maximum allowed size', status: 413 };
   }
 
   const db = createAdminClient();
@@ -43,20 +39,54 @@ export async function GET(req: NextRequest) {
 
     if (error || !data?.signedUrl) {
       console.error('Failed to create signed upload URL:', error);
-      return NextResponse.json({ error: 'Could not initialize direct upload' }, { status: 502 });
+      return { error: 'Could not initialize direct upload', status: 502 };
     }
 
-    return NextResponse.json({
+    return {
       success: true,
       signedUrl: data.signedUrl,
       path: storagePath,
       token: data.token,
       fileType,
-    });
+      status: 200,
+    };
   } catch (err) {
     console.error('Direct upload initialization exception:', err);
-    return NextResponse.json({ error: 'Storage service unavailable' }, { status: 503 });
+    return { error: 'Storage service unavailable', status: 503 };
   }
+}
+
+export async function GET(req: NextRequest) {
+  const user = await getSessionUser(req);
+  if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+
+  const { searchParams } = new URL(req.url);
+  const result = await generateSignedUploadUrl(
+    user,
+    searchParams.get('fileName'),
+    searchParams.get('fileType'),
+    Number(searchParams.get('fileSize')) || 0
+  );
+
+  if ('error' in result) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+
+  return NextResponse.json(result);
+}
+
+export async function PUT(req: NextRequest) {
+  const user = await getSessionUser(req);
+  if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
+
+  const body = await req.json().catch(() => ({}));
+  const result = await generateSignedUploadUrl(user, body.fileName, body.fileType, body.fileSize);
+
+  if ('error' in result) {
+    return NextResponse.json({ error: result.error }, { status: result.status });
+  }
+
+  return NextResponse.json(result);
 }
 
 export async function POST(req: NextRequest) {
@@ -64,8 +94,17 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });
 
   try {
-    const body = await req.json();
+    const body = await req.json().catch(() => ({}));
     const { path, fileName, fileType, fileSize, width, height, duration } = body;
+
+    // If client called POST to initialize upload (without path)
+    if (!path && fileName) {
+      const initResult = await generateSignedUploadUrl(user, fileName, fileType, fileSize);
+      if ('error' in initResult) {
+        return NextResponse.json({ error: initResult.error }, { status: initResult.status });
+      }
+      return NextResponse.json(initResult);
+    }
 
     if (!path || typeof path !== 'string' || !path.startsWith(`${user.id}/`)) {
       return NextResponse.json({ error: 'Invalid storage path' }, { status: 400 });

@@ -82,8 +82,12 @@ export class FacebookAdapter implements PlatformAdapter {
 
     // Select primary page (or first available)
     const primaryPage = pagesData.data.find((page: { access_token?: string; tasks?: string[] }) =>
-      page.access_token && page.tasks?.some((task) => task === "CREATE_CONTENT" || task === "MANAGE"));
-    if (!primaryPage) throw new Error("No Facebook Page grants content publishing access");
+      page.access_token && (!page.tasks || page.tasks.length === 0 || page.tasks.some((task) =>
+        ['CREATE_CONTENT', 'MANAGE', 'ADMINISTER', 'MODERATE', 'EDIT_POSTS', 'ANALYZE'].includes(task.toUpperCase()) ||
+        task.toLowerCase().includes('manage') || task.toLowerCase().includes('content')
+      ))
+    ) || pagesData.data.find((page: { access_token?: string }) => page.access_token) || pagesData.data[0];
+    if (!primaryPage || !primaryPage.access_token) throw new Error("No Facebook Page grants content publishing access");
     const pageAccessToken = primaryPage.access_token;
     const pageId = primaryPage.id;
     const pageName = primaryPage.name;

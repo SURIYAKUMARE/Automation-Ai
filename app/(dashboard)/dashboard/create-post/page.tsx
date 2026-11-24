@@ -384,6 +384,10 @@ export default function CreatePostPage() {
 
     const objectUrl = URL.createObjectURL(file);
     setMediaPreview(objectUrl);
+
+    // Pre-upload media in background so it's ready when user clicks publish
+    void storeFile(file).then((id) => setSavedAssetId(id)).catch(() => {});
+
     if (uploadPublishing && !draftId) void publishUpload(file);
     else if (autoGenerate) {
       destinationChosen.current = true;
@@ -558,16 +562,10 @@ export default function CreatePostPage() {
     const notice = toast.loading(isDraft ? "Saving draft..." : customSchedule ? "Scheduling post..." : "Publishing to channels...");
     try {
       let mediaAssetId = savedAssetId;
-      if (!mediaAssetId && uploadFile && !uploadFile.type.startsWith("video/") && selectedPlatforms.includes("youtube")) {
-        const convNotice = toast.loading("Converting photo to 1080p MP4 for YouTube...", { id: notice });
-        try {
-          uploadFile = await convertImageToVideo(uploadFile, 30);
-          setSelectedFile(uploadFile);
-          setIsVideo(true);
-        } catch (convErr) {
-          toast.error("Could not convert image for YouTube", { id: convNotice });
-          throw convErr;
-        }
+      if (!isDraft && selectedPlatforms.includes("youtube") && !isVideo && uploadFile && !uploadFile.type.startsWith("video/")) {
+        toast.error("YouTube only accepts video files. Please deselect YouTube to publish your photo to Facebook, Instagram & LinkedIn, or click 'Convert to Video'.", { id: notice });
+        setIsPublishing(false);
+        return;
       }
 
       if (!mediaAssetId && uploadFile) {

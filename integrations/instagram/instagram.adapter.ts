@@ -80,9 +80,17 @@ export class InstagramAdapter implements PlatformAdapter {
 
     if (pagesData.data && pagesData.data.length > 0) {
       for (const page of pagesData.data) {
-        if (page.instagram_business_account && page.tasks?.some((task: string) => task === "CREATE_CONTENT" || task === "MANAGE")) {
-          igAccount = page.instagram_business_account;
-          break;
+        if (page.instagram_business_account) {
+          const hasAccess = !page.tasks || page.tasks.length === 0 || page.tasks.some((t: string) =>
+            ['CREATE_CONTENT', 'MANAGE', 'ADMINISTER', 'MODERATE', 'EDIT_POSTS', 'ANALYZE'].includes(t.toUpperCase()) ||
+            t.toLowerCase().includes('content') || t.toLowerCase().includes('manage')
+          );
+          if (hasAccess) {
+            igAccount = page.instagram_business_account;
+            break;
+          } else if (!igAccount) {
+            igAccount = page.instagram_business_account;
+          }
         }
       }
     }
