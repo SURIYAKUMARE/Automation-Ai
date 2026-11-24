@@ -24,6 +24,7 @@ const PLATFORM_NAMES: Record<string, string> = {
   youtube: "YouTube",
   linkedin: "LinkedIn",
   instagram: "Instagram",
+  whatsapp: "WhatsApp",
 };
 
 export function PlatformIcon({

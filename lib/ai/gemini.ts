@@ -35,6 +35,7 @@ export const GeminiAnalysisResultSchema = z.object({
     instagram: GeminiPlatformContentSchema,
     facebook: GeminiPlatformContentSchema,
     youtube: GeminiPlatformContentSchema,
+    whatsapp: GeminiPlatformContentSchema,
   }).partial(),
 });
 
@@ -74,7 +75,7 @@ interface GenerateOptions {
   language?: SupportedLanguage;
   tone?: SupportedTone;
   isMediaVideo?: boolean;
-  targetPlatforms?: readonly SocialPlatform[];
+  targetPlatforms?: readonly (SocialPlatform | 'whatsapp')[];
   brand?: { voice: string; audience: string; keywords: string } | null;
   alternatives?: boolean;
   captionLength?: 'short' | 'standard' | 'detailed';
@@ -200,6 +201,11 @@ Platform-Specific Execution Rules:
    - High-CTR, compelling video title strictly under 100 characters.
    - Long, informative, SEO-optimized video description (200-400 words) summarizing key points, outline, and context.
    - Search keywords and category recommendations.
+
+5. WhatsApp:
+   - High-impact, engaging broadcast or status update.
+   - Use WhatsApp formatting: bold key phrases with *stars*, clean emojis, clear bullet points, and a conversational CTA.
+   - Clean spacing with short paragraphs.
 
 Return valid JSON with summary, detected_objects, extracted_text, topics, sentiment, dominant_colors, audience, and platforms.`;
   const parts: Part[] = mediaBuffer && mimeType ? [{ inlineData: { data: mediaBuffer.toString('base64'), mimeType } }] : [];

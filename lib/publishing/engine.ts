@@ -52,7 +52,7 @@ export async function getAccountAccessToken(db: Database, account: Account) {
   }
 }
 
-const eligible = ['draft', 'ready', 'approved', 'scheduled', 'pending_approval', 'failed', 'reauthorization_required'];
+const eligible = ['draft', 'ready', 'approved', 'scheduled', 'pending_approval', 'failed', 'reauthorization_required', 'publishing'];
 
 export async function dispatchCampaign(db: Database, ownerId: string, campaignId: string) {
   try {
@@ -77,7 +77,8 @@ export async function dispatchCampaign(db: Database, ownerId: string, campaignId
         .maybeSingle();
 
       if (existingJob?.status === 'running') {
-        job = existingJob as ClaimedJob;
+        console.log(`Job ${existingJob.id} is already actively running for post ${campaignId}`);
+        return;
       } else if (existingJob?.status === 'queued') {
         await db.from('posts').update({ status: 'publishing', updated_at: new Date().toISOString() })
           .eq('id', campaignId).eq('user_id', ownerId);

@@ -39,8 +39,10 @@ import { SocialMediaLivePreview } from "@/components/dashboard/social-media-live
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
+type ActivePlatform = SocialPlatform | "whatsapp";
+
 interface PlatformOption {
-  id: SocialPlatform;
+  id: ActivePlatform;
   name: string;
   tag: string;
   maxChars: number;
@@ -51,6 +53,7 @@ const PLATFORMS: PlatformOption[] = [
   { id: "facebook", name: "Facebook", tag: "Photo, Video, or Text", maxChars: 63206 },
   { id: "linkedin", name: "LinkedIn", tag: "Photo, Video, or Text", maxChars: 3000 },
   { id: "youtube", name: "YouTube", tag: "Video Only (MP4/MOV)", maxChars: 5000 },
+  { id: "whatsapp", name: "WhatsApp", tag: "Chat, Broadcast or Status via OpenWA", maxChars: 4096 },
 ];
 
 const QUICK_EMOJIS = ["🔥", "🚀", "✨", "💡", "👏", "👇", "📈", "🎯", "🙌", "❤️", "🤝", "⚡"];
@@ -66,7 +69,7 @@ interface PlatformContent {
   rationale?: string;
 }
 
-type Destination = { id: string; platform: SocialPlatform; account_name: string; account_handle?: string; avatar_url?: string; status: string };
+type Destination = { id: string; platform: ActivePlatform; account_name: string; account_handle?: string; avatar_url?: string; status: string };
 
 export default function CreatePostPage() {
   const router = useRouter();
@@ -86,26 +89,48 @@ export default function CreatePostPage() {
   const [accounts, setAccounts] = React.useState<Destination[]>([]);
   const [accountIds, setAccountIds] = React.useState<string[]>([]);
   const connectedPlatforms = accounts.map((account) => account.platform);
-  const [selectedPlatforms, setSelectedPlatforms] = React.useState<SocialPlatform[]>(["instagram"]);
+  const [selectedPlatforms, setSelectedPlatforms] = React.useState<ActivePlatform[]>(["instagram"]);
   const destinationChosen = React.useRef(false);
-  const [activeTab, setActiveTab] = React.useState<SocialPlatform>("instagram");
+  const [activeTab, setActiveTab] = React.useState<ActivePlatform>("instagram");
 
-  // Fetch real connected accounts on load
+  // Fetch real connected accounts & OpenWA WhatsApp session on load
   React.useEffect(() => {
     async function loadAccounts() {
       try {
-        const res = await fetch("/api/accounts");
-        if (res.ok) {
-          const data = await res.json();
-          const active = ((data.accounts || []) as Destination[]).filter((account) => account.status === "active");
-          setAccounts(active);
-          if (new URLSearchParams(window.location.search).has("draft")) return;
-          setAccountIds(active.map((account) => account.id));
-          if (active.length > 0 && !destinationChosen.current) {
-            const platforms = [...new Set(active.map((account) => account.platform))];
-            setSelectedPlatforms(platforms);
-            setActiveTab(platforms[0]);
+        const [accRes, waRes] = await Promise.allSettled([
+          fetch("/api/accounts"),
+          fetch("/api/whatsapp/status"),
+        ]);
+
+        let active: Destination[] = [];
+        if (accRes.status === "fulfilled" && accRes.value.ok) {
+          const data = await accRes.value.json();
+          active = ((data.accounts || []) as Destination[]).filter((account) => account.status === "active");
+        }
+
+        if (waRes.status === "fulfilled" && waRes.value.ok) {
+          const waData = await waRes.value.json();
+          if (waData.online && waData.activeSession) {
+            const sess = waData.activeSession;
+            const phoneDisplay = sess.phone ? `+${sess.phone}` : "OpenWA";
+            active.push({
+              id: "whatsapp-" + (sess.id || "session-1"),
+              platform: "whatsapp",
+              account_name: `${sess.pushName || sess.name || "WhatsApp"} (${phoneDisplay})`,
+              account_handle: sess.phone ? `+${sess.phone}` : "@openwa",
+              avatar_url: "/platforms/whatsapp.png",
+              status: "active",
+            });
           }
+        }
+
+        setAccounts(active);
+        if (new URLSearchParams(window.location.search).has("draft")) return;
+        setAccountIds(active.map((account) => account.id));
+        if (active.length > 0 && !destinationChosen.current) {
+          const platforms = [...new Set(active.map((account) => account.platform))];
+          setSelectedPlatforms(platforms);
+          setActiveTab(platforms[0]);
         }
       } catch (e) {
         console.warn("Failed to fetch connected accounts:", e);
@@ -115,11 +140,12 @@ export default function CreatePostPage() {
   }, []);
 
   // Per-platform tailored content
-  const [platformContents, setPlatformContents] = React.useState<Record<SocialPlatform, PlatformContent>>({
+  const [platformContents, setPlatformContents] = React.useState<Record<ActivePlatform, PlatformContent>>({
     instagram: { caption: "", hashtags: "" },
     facebook: { caption: "", hashtags: "" },
     linkedin: { caption: "", hashtags: "" },
     youtube: { title: "", caption: "", hashtags: "" },
+    whatsapp: { caption: "", hashtags: "" },
   });
 
   // AI & Context Prompt
@@ -209,7 +235,7 @@ export default function CreatePostPage() {
   }, []);
 
   // Toggle platform selection
-  const togglePlatform = (id: SocialPlatform) => {
+  const togglePlatform = (id: ActivePlatform) => {
     destinationChosen.current = true;
     if (id === "youtube" && !isVideo && (selectedFile || savedAssetId)) {
       toast.error("YouTube only accepts video files. Click 'Convert to Video' in Step 2 to generate a 1080p MP4 for YouTube!");
@@ -234,7 +260,7 @@ export default function CreatePostPage() {
 
   React.useEffect(() => () => { if (mediaPreview?.startsWith("blob:")) URL.revokeObjectURL(mediaPreview); }, [mediaPreview]);
 
-  const generatedPlatforms = React.useRef<SocialPlatform[]>([]);
+  const generatedPlatforms = React.useRef<ActivePlatform[]>([]);
   const clearGeneratedCaptions = () => {
     const platforms = generatedPlatforms.current;
     generatedPlatforms.current = [];
@@ -613,7 +639,11 @@ export default function CreatePostPage() {
         setSavedAssetId(mediaAssetId);
       }
 
-      const postVariants = selectedPlatforms.map((platform) => ({
+      const socialPlatforms = selectedPlatforms.filter((p): p is SocialPlatform => p !== "whatsapp");
+      const hasSocial = socialPlatforms.length > 0;
+      const hasWhatsApp = selectedPlatforms.includes("whatsapp");
+
+      const postVariants = socialPlatforms.map((platform) => ({
         platform,
         caption: platformContents[platform].caption,
         title: platform === "youtube" ? ytVideoTitle : (platformContents[platform].title?.trim() || undefined),
@@ -623,8 +653,8 @@ export default function CreatePostPage() {
         alt_text: platformContents[platform].alt_text,
       }));
 
-      // Resolve publishing destinations for each selected platform
-      const targets = selectedPlatforms
+      // Resolve publishing destinations for each selected social platform
+      const targets = socialPlatforms
         .map((platform) => {
           const matching = accounts.find((a) => a.platform === platform && accountIds.includes(a.id)) ||
                            accounts.find((a) => a.platform === platform);
@@ -632,13 +662,13 @@ export default function CreatePostPage() {
         })
         .filter(Boolean) as { social_account_id: string; platform: SocialPlatform }[];
 
-      if (!isDraft && targets.length === 0) {
+      if (!isDraft && !hasWhatsApp && targets.length === 0) {
         toast.error("Please connect at least one active channel account before publishing.", { id: notice });
         setIsPublishing(false);
         return;
       }
 
-      const unconnected = selectedPlatforms.filter((p) => !accounts.some((a) => a.platform === p && a.status === "active"));
+      const unconnected = socialPlatforms.filter((p) => !accounts.some((a) => a.platform === p && a.status === "active"));
       if (!isDraft && unconnected.length > 0) {
         const names = unconnected.map((p) => PLATFORMS.find((pl) => pl.id === p)?.name || p).join(", ");
         toast.error(`Please connect an account for ${names} in Accounts first, or deselect ${names} to publish now.`, { id: notice });
@@ -646,43 +676,83 @@ export default function CreatePostPage() {
         return;
       }
 
-      const postTitle = ytVideoTitle || platformContents[activeTab].caption.slice(0, 50) || "Social Post";
-
-      const res = await fetch("/api/posts/create", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: postTitle,
-          status: isDraft ? "draft" : review ? "pending" : customSchedule ? "scheduled" : "queued",
-          draft: isDraft,
-          replaceDraft: Boolean(draftId),
-          requestId: draftId || undefined,
-          publishingMode: review ? "manual_approval" : "automatic",
-          targetPlatforms: selectedPlatforms,
-          accountIds: targets.map((t) => t.social_account_id),
-          mediaAssetId: mediaAssetId || null,
-          variants: postVariants,
-          postVariants: postVariants,
-          postTargets: isDraft ? [] : targets,
-          scheduledFor: customSchedule ? new Date(scheduledDateTime).toISOString() : null,
-          weeklyOccurrences: customSchedule && !review ? weeklyOccurrences : 1,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to save post");
-
-      // For instant publishing, trigger the live publish dispatch immediately
-      if (!isDraft && !customSchedule && !review && data.post?.id) {
-        await fetch("/api/publish/now", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ postId: data.post.id }),
-        }).catch((err) => console.warn("Background publish dispatch:", err));
+      if (!isDraft && hasWhatsApp && !accounts.some((a) => a.platform === "whatsapp" && a.status === "active")) {
+        toast.error("OpenWA WhatsApp session is offline. Check OpenWA Gateway or connect a session in WhatsApp tab.", { id: notice });
+        setIsPublishing(false);
+        return;
       }
 
+      const postTitle = ytVideoTitle || platformContents[activeTab].caption.slice(0, 50) || "Social Post";
+
+      // If social platforms are selected, persist campaign via posts API
+      let data: any = null;
+      if (hasSocial) {
+        const res = await fetch("/api/posts/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: postTitle,
+            status: isDraft ? "draft" : review ? "pending" : customSchedule ? "scheduled" : "queued",
+            draft: isDraft,
+            replaceDraft: Boolean(draftId),
+            requestId: draftId || undefined,
+            publishingMode: review ? "manual_approval" : "automatic",
+            targetPlatforms: socialPlatforms,
+            accountIds: targets.map((t) => t.social_account_id),
+            mediaAssetId: mediaAssetId || null,
+            variants: postVariants,
+            postVariants: postVariants,
+            postTargets: isDraft ? [] : targets,
+            scheduledFor: customSchedule ? new Date(scheduledDateTime).toISOString() : null,
+            weeklyOccurrences: customSchedule && !review ? weeklyOccurrences : 1,
+          }),
+        });
+
+        data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Failed to save post");
+      }
+
+      // If WhatsApp is selected, dispatch message directly via OpenWA
+      let waDispatched = false;
+      if (hasWhatsApp && !isDraft) {
+        try {
+          const waAccount = accounts.find((a) => a.platform === "whatsapp");
+          const waPhone = waAccount?.account_handle?.replace(/\D/g, "") || "919445648373";
+          const waText = platformContents.whatsapp.caption.trim() ||
+                         platformContents[activeTab]?.caption?.trim() ||
+                         topicPrompt.trim();
+          const waTags = platformContents.whatsapp.hashtags.trim();
+          const fullMessage = [waText, waTags].filter(Boolean).join("\n\n");
+
+          const waRes = await fetch("/api/whatsapp/send", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              phoneNumber: waPhone,
+              message: fullMessage,
+              mediaUrl: mediaPreview || undefined,
+            }),
+          });
+          const waData = await waRes.json();
+          if (waRes.ok && waData.success) {
+            waDispatched = true;
+          } else {
+            console.warn("WhatsApp publish warning:", waData.error || waData);
+          }
+        } catch (waErr) {
+          console.warn("WhatsApp dispatch error:", waErr);
+        }
+      }
+
+      if (!hasSocial && hasWhatsApp) {
+        toast.success(waDispatched ? "Message dispatched via OpenWA WhatsApp!" : "Message queued for WhatsApp via OpenWA!", { id: notice });
+        router.push("/dashboard/whatsapp");
+        return;
+      }
+
+      const channelNames = selectedPlatforms.map((p) => PLATFORMS.find((pl) => pl.id === p)?.name || p).join(", ");
       toast.success(
-        isDraft ? "Draft saved" : customSchedule ? "Post scheduled" : "Post published across all channels",
+        isDraft ? "Draft saved" : customSchedule ? "Post scheduled" : `Post published across ${channelNames}`,
         { id: notice }
       );
       router.push("/dashboard/history");

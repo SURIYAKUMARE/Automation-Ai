@@ -7,6 +7,8 @@ import { matchesMediaSignature } from '@/lib/publishing/media';
 
 export const maxDuration = 60;
 
+const aiPlatformSchema = z.enum(['linkedin', 'youtube', 'instagram', 'facebook', 'whatsapp']);
+
 const Generate = z.object({
   prompt: z.string().trim().max(4000).optional(),
   userPrompt: z.string().trim().max(4000).optional(),
@@ -17,7 +19,7 @@ const Generate = z.object({
   mediaFrames: z.array(z.string().max(1_200_000)).min(1).max(6).optional(),
   mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']).optional(),
   isMediaVideo: z.boolean().default(false),
-  targetPlatforms: z.array(platformSchema).min(1).max(4).optional(),
+  targetPlatforms: z.array(aiPlatformSchema).min(1).max(5).optional(),
   alternatives: z.boolean().default(false),
   captionLength: z.enum(['short', 'standard', 'detailed']).optional(),
   hashtagLimit: z.number().int().min(0).max(30).optional(),

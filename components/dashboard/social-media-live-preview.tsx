@@ -14,6 +14,9 @@ import {
   Volume2,
   Maximize2,
   CheckCircle2,
+  CheckCheck,
+  Phone,
+  Video as VideoIcon,
   Globe,
   Bell,
   Eye,
@@ -22,7 +25,7 @@ import { SocialPlatform } from "@/types";
 import { PlatformIcon } from "@/components/platform-icon";
 
 interface SocialMediaLivePreviewProps {
-  platform: SocialPlatform;
+  platform: SocialPlatform | "whatsapp";
   caption: string;
   hashtags?: string;
   title?: string;
@@ -408,6 +411,77 @@ export function SocialMediaLivePreview({
                 {allHashtags}
               </p>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 5. WHATSAPP LIVE PREVIEW */}
+      {platform === "whatsapp" && (
+        <div className="rounded-xl overflow-hidden border border-border shadow-xs bg-[#efeae2] dark:bg-[#0b141a]">
+          {/* WhatsApp Header */}
+          <div className="bg-[#075E54] dark:bg-[#202c33] text-white px-3 py-2 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="h-8 w-8 rounded-full bg-white/20 overflow-hidden flex items-center justify-center font-bold text-xs text-white">
+                {authorAvatar ? (
+                  <img src={authorAvatar} alt={authorName} className="h-full w-full object-cover" />
+                ) : (
+                  <PlatformIcon platform="whatsapp" className="size-5" />
+                )}
+              </div>
+              <div className="leading-tight">
+                <div className="flex items-center gap-1">
+                  <span className="font-semibold text-xs">{authorName || "SocialSync Broadcast"}</span>
+                  <CheckCircle2 className="size-3 text-emerald-300 fill-emerald-300/20" />
+                </div>
+                <p className="text-[10px] text-emerald-100/80 font-mono">Channel • OpenWA Gateway</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-white/90">
+              <Phone className="size-3.5" />
+              <VideoIcon className="size-4" />
+              <MoreHorizontal className="size-4" />
+            </div>
+          </div>
+
+          {/* Chat Canvas */}
+          <div className="p-3 min-h-[220px] flex flex-col justify-end">
+            <div className="flex justify-end">
+              <div className="bg-[#d9fdd3] dark:bg-[#005c4b] text-[#111b21] dark:text-[#e9edef] rounded-lg p-2.5 shadow-xs max-w-[92%] space-y-2 border border-emerald-200/50 dark:border-emerald-800/40">
+                {/* Media preview */}
+                {mediaUrl && (
+                  <div className="rounded-md overflow-hidden bg-black/10 aspect-video relative flex items-center justify-center">
+                    {isVideo ? (
+                      <div className="relative w-full h-full flex items-center justify-center">
+                        <video src={mediaUrl} className="w-full h-full object-cover" />
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <div className="h-10 w-10 rounded-full bg-black/60 flex items-center justify-center text-white">
+                            <Play className="h-5 w-5 fill-white ml-0.5" />
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <img src={mediaUrl} alt="WhatsApp attachment" className="w-full h-full object-cover" />
+                    )}
+                  </div>
+                )}
+
+                {/* Text Body */}
+                <div className="text-xs whitespace-pre-wrap leading-relaxed break-words font-sans">
+                  {renderFormattedText(displayText)}
+                  {allHashtags && (
+                    <p className="text-[#027eb5] dark:text-[#53bdeb] font-mono text-[11px] mt-1.5 font-medium">
+                      {allHashtags}
+                    </p>
+                  )}
+                </div>
+
+                {/* Read Receipt Footer */}
+                <div className="flex items-center justify-end gap-1 text-[10px] text-muted-foreground dark:text-white/60 font-mono pt-0.5">
+                  <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                  <CheckCheck className="size-3.5 text-[#53bdeb]" />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
