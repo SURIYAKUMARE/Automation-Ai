@@ -8,7 +8,7 @@ const CaptionSchema = z.object({
   topic: z.string().min(1),
   platform: z.enum(['linkedin', 'instagram', 'facebook', 'youtube']).default('linkedin'),
   language: z.enum(['English', 'Tamil', 'Tanglish']).default('English'),
-  tone: z.enum(['Professional', 'Friendly', 'Creative', 'Educational', 'Minimal', 'Promotional']).default('Professional'),
+  tone: z.enum(['Professional', 'Friendly', 'Creative', 'Educational', 'Minimal', 'Promotional', 'Funny', 'Motivational', 'Marketing', 'Viral-style']).default('Professional'),
   captionLength: z.enum(['short', 'standard', 'detailed']).default('detailed'),
 });
 

@@ -216,9 +216,9 @@ export async function executePostPublishing(db: Database, job: ClaimedJob) {
           result.processing ? 'YouTube accepted the upload and is still processing it.' :
           limited ? 'Provider rate limit reached.' : stagingFailure ? 'Temporary failure while preparing the media.' :
           reconnect ? 'Reconnect the destination and retry.' :
-          result.success ? null : (result.actionRequired || (result.errorCode
+          result.success ? null : (result.errorMessage || result.actionRequired || (result.errorCode
             ? 'Provider rejected this post (' + result.errorCode + '). Check permissions and media requirements.'
-            : result.errorMessage || 'Provider rejected this post.'));
+            : 'Provider rejected this post.'));
         const recorded = await db.rpc('record_publishing_result', {
           job: job.id, target_id: target.id, result: {
             status, error_code: result.errorCode, error_message: message, retryable,

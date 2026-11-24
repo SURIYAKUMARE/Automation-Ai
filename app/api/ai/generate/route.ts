@@ -13,8 +13,8 @@ const Generate = z.object({
   language: z.enum(['English', 'Tamil', 'Tanglish']).default('English'),
   tone: z.enum(['Professional', 'Friendly', 'Funny', 'Motivational', 'Educational', 'Marketing', 'Viral-style',
     'Creative', 'Minimal', 'Promotional']).default('Professional'),
-  mediaBase64: z.string().max(4_000_000).optional(),
-  mediaFrames: z.array(z.string().max(550_000)).min(2).max(6).optional(),
+  mediaBase64: z.string().max(6_000_000).optional(),
+  mediaFrames: z.array(z.string().max(1_200_000)).min(1).max(6).optional(),
   mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']).optional(),
   isMediaVideo: z.boolean().default(false),
   targetPlatforms: z.array(platformSchema).min(1).max(4).optional(),
@@ -26,7 +26,7 @@ const Generate = z.object({
 export async function POST(req: NextRequest) {
   const access = await authorizeAI(req);
   if (access.response) return access.response;
-  if (Number(req.headers.get('content-length')) > 4_100_000) {
+  if (Number(req.headers.get('content-length')) > 10_000_000) {
     return NextResponse.json({ error: 'AI preview exceeds the size limit' }, { status: 413 });
   }
   const request = Generate.safeParse(await req.json().catch(() => null));
@@ -35,10 +35,13 @@ export async function POST(req: NextRequest) {
   const context = userPrompt || prompt;
   const bytes = mediaBase64 ? Buffer.from(mediaBase64.replace(/^data:[^;]+;base64,/, ''), 'base64') : undefined;
   const frames = mediaFrames?.map((frame) => Buffer.from(frame.replace(/^data:image\/jpeg;base64,/, ''), 'base64'));
-  if (options.isMediaVideo && (!frames || bytes) || frames && !options.isMediaVideo) {
-    return NextResponse.json({ error: 'Video captioning requires frames from the uploaded clip' }, { status: 400 });
+  if (options.isMediaVideo && bytes) {
+    return NextResponse.json({ error: 'Video captioning cannot use a static photo preview' }, { status: 400 });
   }
-  if ((!context && !bytes && !frames) || (bytes && (!mimeType || !matchesMediaSignature(bytes, mimeType))) ||
+  if (!context && !bytes && (!frames || frames.length === 0)) {
+    return NextResponse.json({ error: 'Add text context or a valid image or video preview' }, { status: 400 });
+  }
+  if ((bytes && (!mimeType || !matchesMediaSignature(bytes, mimeType))) ||
       frames?.some((frame) => !matchesMediaSignature(frame, 'image/jpeg'))) {
     return NextResponse.json({ error: 'Add text context or a valid image or video preview' }, { status: 400 });
   }

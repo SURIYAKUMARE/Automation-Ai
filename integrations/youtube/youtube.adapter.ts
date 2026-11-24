@@ -167,7 +167,7 @@ export class YouTubeAdapter implements PlatformAdapter {
       const videoDescription = `${text}\n\nPublished automatically via SocialSync AI.`;
 
       // 2. Initialize Resumable Upload Session
-      const initRes = await fetch(
+      let actualInitRes = await fetch(
         'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
         {
           method: 'POST',
@@ -191,28 +191,55 @@ export class YouTubeAdapter implements PlatformAdapter {
         }
       );
 
-      const actualInitRes = initRes;
+      // If developer/testing Google Cloud project rejects public upload (403), automatically fallback to unlisted
+      if (actualInitRes.status === 403 && (!request.youtubePrivacy || request.youtubePrivacy === 'public')) {
+        console.warn('[YouTubeAdapter] Public upload initialization returned 403. Retrying with unlisted privacy for unverified app compatibility...');
+        actualInitRes = await fetch(
+          'https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status',
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json; charset=UTF-8',
+              'X-Upload-Content-Type': 'video/mp4',
+            },
+            body: JSON.stringify({
+              snippet: {
+                title: videoTitle,
+                description: videoDescription,
+                tags: tags.length > 0 ? tags : ['SocialSyncAI', 'Automation'],
+                categoryId: '28',
+              },
+              status: {
+                privacyStatus: 'unlisted',
+                selfDeclaredMadeForKids: false,
+              },
+            }),
+          }
+        );
+      }
+
       if (!actualInitRes.ok) {
         const errJson = await actualInitRes.json().catch(() => ({}));
         const isAuthErr = actualInitRes.status === 401;
+        const googleReason = errJson.error?.message || errJson.error_description || (errJson.error?.errors && errJson.error.errors[0]?.message);
         return {
           success: false,
           errorCode: `YOUTUBE_INIT_FAILED_${actualInitRes.status}`,
           errorMessage: isAuthErr
             ? 'Google / YouTube access token expired. Reconnect your YouTube channel in Social Accounts, then retry this post.'
-            : (errJson.error?.message || `YouTube upload initialization failed (${actualInitRes.status})`),
+            : (googleReason || `YouTube upload initialization failed (${actualInitRes.status})`),
           actionRequired: isAuthErr
             ? 'Go to Social Accounts, reconnect YouTube with a fresh token, and click Retry on this post.'
             : actualInitRes.status === 403
-              ? 'YouTube API Quota exceeded or verification needed in Google Cloud Console.'
+              ? (googleReason ? `YouTube rejected upload (${googleReason}). Set video privacy to Unlisted or Private.` : 'YouTube upload rejected (403). Check quota and video privacy in Google Cloud Console.')
               : undefined,
           rawResponse: errJson,
         };
       }
 
-      const location = actualInitRes.headers.get('Location');
-      const uploadUrl = location ? URL.parse(location) : null;
-      if (!uploadUrl || uploadUrl.protocol !== 'https:' || !/\.googleapis\.com$/i.test(uploadUrl.hostname)) {
+      const location = actualInitRes.headers.get('Location') || actualInitRes.headers.get('location');
+      if (!location) {
         return {
           success: false,
           errorCode: 'NO_UPLOAD_URL',
@@ -231,7 +258,7 @@ export class YouTubeAdapter implements PlatformAdapter {
       }
 
       const videoBuffer = await videoFileRes.arrayBuffer();
-      const uploadRes = await fetch(uploadUrl, {
+      const uploadRes = await fetch(location, {
         method: 'PUT',
         redirect: 'follow',
         signal: AbortSignal.timeout(120_000),

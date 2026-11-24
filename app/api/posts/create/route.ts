@@ -7,6 +7,8 @@ import { captionSchema, platformSchema, postIdSchema } from '@/lib/publishing/ca
 import { captionLimits, mediaCompatibilityError } from '@/lib/publishing/compatibility';
 import { dispatchCampaign } from '@/lib/publishing/engine';
 
+export const maxDuration = 60;
+
 const CreatePost = z.object({
   requestId: postIdSchema.nullable().optional(),
   mediaAssetId: postIdSchema.nullable().optional(),

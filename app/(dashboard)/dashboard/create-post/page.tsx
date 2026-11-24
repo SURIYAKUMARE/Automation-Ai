@@ -403,6 +403,14 @@ export default function CreatePostPage() {
           duration: 3500,
         });
       }
+      const defaultTitle = rawFile.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ").slice(0, 100);
+      setPlatformContents((prev) => ({
+        ...prev,
+        youtube: {
+          ...prev.youtube,
+          title: prev.youtube.title || defaultTitle,
+        },
+      }));
     }
 
     setSelectedFile(file);
@@ -1355,6 +1363,33 @@ export default function CreatePostPage() {
                 className="text-xs rounded-lg h-8"
               />
             </div>
+
+            {/* YouTube Privacy Selector */}
+            {activeTab === "youtube" && (
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-foreground flex items-center justify-between">
+                  <span>Video Privacy</span>
+                  <span className="text-[10px] text-muted-foreground">Unlisted recommended for test apps</span>
+                </label>
+                <select
+                  value={platformContents.youtube.youtubePrivacy || "public"}
+                  onChange={(e) =>
+                    setPlatformContents((prev) => ({
+                      ...prev,
+                      youtube: {
+                        ...prev.youtube,
+                        youtubePrivacy: e.target.value as "public" | "unlisted" | "private",
+                      },
+                    }))
+                  }
+                  className="w-full text-xs rounded-lg h-8 bg-background border border-border px-2.5 text-foreground"
+                >
+                  <option value="public">Public (Everyone can search & view)</option>
+                  <option value="unlisted">Unlisted (Anyone with link can view - Best for test apps)</option>
+                  <option value="private">Private (Only you can view in YouTube Studio)</option>
+                </select>
+              </div>
+            )}
 
             {/* Caption Textarea */}
             <div className="space-y-1">

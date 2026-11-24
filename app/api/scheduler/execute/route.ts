@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin';
 import { ClaimedJob, executePostPublishing } from '@/lib/publishing/engine';
 import { reconcileYouTubeProcessing } from '@/lib/publishing/youtube-processing';
 
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   const secret = process.env.CRON_SECRET;
   if (!secret || secret.length < 32) {

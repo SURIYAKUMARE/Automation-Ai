@@ -4,6 +4,8 @@ import { manageCampaign, postIdSchema } from '@/lib/publishing/campaign';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { dispatchCampaign } from '@/lib/publishing/engine';
 
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   const user = await getSessionUser(req);
   if (!user) return NextResponse.json({ error: 'Sign in required' }, { status: 401 });

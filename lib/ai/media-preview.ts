@@ -49,26 +49,31 @@ export async function prepareMediaPreview(file: Blob, isVideo = file.type.starts
       return { mediaBase64: makeImagePreview(image, image.naturalWidth, image.naturalHeight, 2400, photoBudget), mimeType: 'image/jpeg' };
     }
 
-    const clip = document.createElement('video');
-    video = clip;
-    clip.preload = 'auto';
-    clip.muted = true;
-    clip.playsInline = true;
-    await waitForVideo(clip, 'loadeddata', () => { clip.src = url; });
-    // Some recorded WebM files omit duration in the container header.
-    if (!Number.isFinite(clip.duration)) await waitForVideo(clip, 'seeked', () => { clip.currentTime = 1e10; });
-    const duration = Number.isFinite(clip.duration) ? clip.duration : clip.currentTime;
-    if (duration <= 0) throw new Error('The video has no readable duration. Try exporting it again.');
-
-    const frames: string[] = [];
-    for (const point of samplePoints) {
-      const time = duration * point;
-      if (Math.abs(clip.currentTime - time) > 0.001) {
-        await waitForVideo(clip, 'seeked', () => { clip.currentTime = time; });
+    try {
+      const clip = document.createElement('video');
+      video = clip;
+      clip.preload = 'auto';
+      clip.muted = true;
+      clip.playsInline = true;
+      await waitForVideo(clip, 'loadeddata', () => { clip.src = url; });
+      // Some recorded WebM files omit duration in the container header.
+      if (!Number.isFinite(clip.duration)) await waitForVideo(clip, 'seeked', () => { clip.currentTime = 1e10; });
+      const duration = Number.isFinite(clip.duration) ? clip.duration : clip.currentTime;
+      if (duration > 0) {
+        const frames: string[] = [];
+        for (const point of samplePoints) {
+          const time = duration * point;
+          if (Math.abs(clip.currentTime - time) > 0.001) {
+            await waitForVideo(clip, 'seeked', () => { clip.currentTime = time; });
+          }
+          frames.push(makeImagePreview(clip, clip.videoWidth, clip.videoHeight, 640, frameBudget));
+        }
+        if (frames.length > 0) return { mediaFrames: frames, isMediaVideo: true };
       }
-      frames.push(makeImagePreview(clip, clip.videoWidth, clip.videoHeight, 640, frameBudget));
+    } catch (videoProbeErr) {
+      console.warn('Could not extract browser frames from video, continuing with prompt context:', videoProbeErr);
     }
-    return { mediaFrames: frames, isMediaVideo: true };
+    return { isMediaVideo: true };
   } finally {
     if (video) {
       video.removeAttribute('src');
