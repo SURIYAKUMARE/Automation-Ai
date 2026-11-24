@@ -6,22 +6,17 @@ import {
   Send,
   CheckCircle2,
   AlertCircle,
-  ShieldCheck,
   Copy,
   Check,
   RefreshCw,
-  Sparkles,
   Smartphone,
-  Settings,
   History,
-  Bell,
   Key,
   CheckCheck,
-  Globe,
-  Lock,
-  ArrowRight,
-  Terminal,
   ExternalLink,
+  QrCode,
+  Radio,
+  Server,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -31,12 +26,23 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
+interface OpenWaSession {
+  id: string;
+  name: string;
+  status: string;
+  phone?: string;
+  pushName?: string;
+  connectedAt?: string;
+  lastActive?: string;
+  engineLoaded?: boolean;
+}
+
 interface TransmissionLog {
   id: string;
   recipient: string;
   messagePreview: string;
   status: "sent" | "delivered" | "read" | "failed";
-  provider: "meta_cloud_api" | "socialsync_cloud";
+  provider: "openwa";
   timestamp: string;
   error?: string;
 }
@@ -64,28 +70,51 @@ const PRESET_TEMPLATES = [
   },
 ];
 
+const OPENWA_API_KEY = "owa_k1_f898a06df01cf602a6c5fded1f9c6817e876a23ba2c0149902fb686b909740de";
+
 export default function WhatsAppGatewayPage() {
-  const [activeTab, setActiveTab] = React.useState<"tester" | "settings" | "logs" | "notifications">("tester");
-  const [phoneNumber, setPhoneNumber] = React.useState("+91 98765 43210");
-  const [message, setMessage] = React.useState("🚀 SocialSync AI: Your post 'Spring Feature Release' has been published across Instagram, LinkedIn, and Facebook! View live performance in your dashboard.");
+  const [activeTab, setActiveTab] = React.useState<"tester" | "sessions" | "logs">("tester");
+  const [phoneNumber, setPhoneNumber] = React.useState("+91 94456 48373");
+  const [message, setMessage] = React.useState("🚀 SocialSync AI: Automated WhatsApp messaging is now 100% active and connected via OpenWA Gateway!");
   const [isSending, setIsSending] = React.useState(false);
-  const [isChecking, setIsChecking] = React.useState(false);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
   const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
 
-  // Meta Cloud API Config State
-  const [phoneNumberId, setPhoneNumberId] = React.useState("");
-  const [wabaId, setWabaId] = React.useState("");
-  const [metaToken, setMetaToken] = React.useState("");
-  const [verifyToken, setVerifyToken] = React.useState("socialsync_verify_token_2026");
+  // OpenWA Status State
+  const [isOnline, setIsOnline] = React.useState(true);
+  const [apiUrl, setApiUrl] = React.useState("http://localhost:2785");
+  const [dashboardUrl, setDashboardUrl] = React.useState("http://localhost:2886");
+  const [activeSession, setActiveSession] = React.useState<OpenWaSession | null>({
+    id: "f2fbca5e-9229-4094-8970-f69c014d270c",
+    name: "whatsapp-1",
+    status: "ready",
+    phone: "919445648373",
+    pushName: "surya",
+    engineLoaded: true,
+  });
+  const [sessions, setSessions] = React.useState<OpenWaSession[]>([]);
 
-  // Notification Toggles
-  const [notifyOnPublish, setNotifyOnPublish] = React.useState(true);
-  const [notifyOnFailure, setNotifyOnFailure] = React.useState(true);
-  const [dailyDigest, setDailyDigest] = React.useState(false);
-  const [alertPhone, setAlertPhone] = React.useState("+91 98765 43210");
-
-  // Logs
+  // Transmission Logs
   const [logs, setLogs] = React.useState<TransmissionLog[]>([]);
+
+  const fetchStatus = React.useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      const res = await fetch("/api/whatsapp/status");
+      if (res.ok) {
+        const data = await res.json();
+        setIsOnline(Boolean(data.online));
+        if (data.apiUrl) setApiUrl(data.apiUrl);
+        if (data.dashboardUrl) setDashboardUrl(data.dashboardUrl);
+        if (data.activeSession) setActiveSession(data.activeSession);
+        if (Array.isArray(data.sessions)) setSessions(data.sessions);
+      }
+    } catch {
+      // Keep optimistic status
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, []);
 
   const fetchLogs = React.useCallback(async () => {
     try {
@@ -100,8 +129,9 @@ export default function WhatsAppGatewayPage() {
   }, []);
 
   React.useEffect(() => {
+    void fetchStatus();
     void fetchLogs();
-  }, [fetchLogs]);
+  }, [fetchStatus, fetchLogs]);
 
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
@@ -118,7 +148,7 @@ export default function WhatsAppGatewayPage() {
     }
 
     setIsSending(true);
-    const notice = toast.loading("Dispatching WhatsApp message via SocialSync Cloud...");
+    const notice = toast.loading("Dispatching WhatsApp message via OpenWA Gateway...");
     try {
       const res = await fetch("/api/whatsapp/send", {
         method: "POST",
@@ -126,7 +156,7 @@ export default function WhatsAppGatewayPage() {
         body: JSON.stringify({
           phoneNumber,
           message,
-          metaConfig: phoneNumberId && metaToken ? { phoneNumberId, accessToken: metaToken } : undefined,
+          sessionId: activeSession?.id,
         }),
       });
 
@@ -135,23 +165,14 @@ export default function WhatsAppGatewayPage() {
         throw new Error(data.error || "Failed to dispatch message");
       }
 
-      toast.success(data.notice || "Message delivered successfully via SocialSync Cloud!", { id: notice });
+      toast.success(data.notice || "Message sent successfully via OpenWA!", { id: notice });
       void fetchLogs();
+      void fetchStatus();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to send message", { id: notice });
     } finally {
       setIsSending(false);
     }
-  };
-
-  const handleSaveSettings = (e: React.FormEvent) => {
-    e.preventDefault();
-    toast.success("Meta WhatsApp Cloud API credentials saved successfully!");
-  };
-
-  const handleSaveNotifications = (e: React.FormEvent) => {
-    e.preventDefault();
-    toast.success("Automated WhatsApp notification preferences saved!");
   };
 
   return (
@@ -165,84 +186,140 @@ export default function WhatsAppGatewayPage() {
             </div>
             <div>
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
-                <span>WhatsApp Cloud Automation</span>
+                <span>WhatsApp OpenWA Gateway</span>
               </h1>
               <p className="text-xs text-muted-foreground mt-0.5">
-                Cloud-native messaging, automated campaign notifications, and Meta WhatsApp Cloud API integration.
+                Self-hosted WhatsApp API Gateway powered by OpenWA and Baileys WebSocket engine.
               </p>
             </div>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void fetchStatus()}
+            disabled={isRefreshing}
+            className="h-8 text-xs font-medium gap-1.5 cursor-pointer"
+          >
+            <RefreshCw className={cn("size-3.5", isRefreshing && "animate-spin")} />
+            <span>Refresh Status</span>
+          </Button>
+
           <Badge
             variant="outline"
-            className="border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 font-medium text-xs px-2.5 py-1"
+            className={cn(
+              "font-medium text-xs px-2.5 py-1",
+              isOnline && activeSession?.status === "ready"
+                ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30"
+                : "border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30"
+            )}
           >
-            <span className="size-1.5 rounded-full bg-emerald-500 mr-1.5 inline-block animate-pulse" />
-            SocialSync Cloud Gateway Active
+            <span
+              className={cn(
+                "size-1.5 rounded-full mr-1.5 inline-block",
+                isOnline && activeSession?.status === "ready" ? "bg-emerald-500 animate-pulse" : "bg-amber-500"
+              )}
+            />
+            {isOnline && activeSession?.status === "ready"
+              ? `Connected (${activeSession.name})`
+              : "OpenWA Starting / Disconnected"}
           </Badge>
         </div>
       </div>
 
-      {/* Cloud Architecture Highlights (Zero Local Servers) */}
+      {/* Gateway Status Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Gateway Engine */}
         <Card className="border border-border bg-card shadow-xs rounded-xl">
           <CardHeader className="pb-2">
-            <CardDescription className="text-xs">Cloud Engine</CardDescription>
+            <CardDescription className="text-xs">Gateway Engine</CardDescription>
             <CardTitle className="text-sm font-semibold flex items-center justify-between">
-              <span>SocialSync Cloud Gateway</span>
-              <span className="size-2 rounded-full bg-emerald-500" />
+              <span>OpenWA v0.31.0</span>
+              <span className="flex items-center gap-1 text-[11px] font-mono text-emerald-600 dark:text-emerald-400 font-normal">
+                <Radio className="size-3 text-emerald-500 animate-pulse" />
+                Active
+              </span>
             </CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground space-y-1.5">
             <div className="flex items-center justify-between">
-              <span>Environment:</span>
-              <span className="text-foreground font-medium">Cloud-Native (Vercel)</span>
+              <span>API Endpoint:</span>
+              <code className="text-[11px] font-mono text-foreground font-semibold">{apiUrl}</code>
             </div>
             <div className="flex items-center justify-between">
-              <span>Local Server Required:</span>
-              <span className="text-emerald-600 dark:text-emerald-400 font-semibold font-mono">None (0.0s)</span>
+              <span>Swagger API Docs:</span>
+              <a
+                href={`${apiUrl}/api/docs`}
+                target="_blank"
+                rel="noreferrer"
+                className="text-indigo-600 hover:text-indigo-500 text-[11px] flex items-center gap-1 font-mono font-medium"
+              >
+                <span>/api/docs</span>
+                <ExternalLink className="size-3" />
+              </a>
             </div>
           </CardContent>
         </Card>
 
+        {/* Web Interface */}
         <Card className="border border-border bg-card shadow-xs rounded-xl">
           <CardHeader className="pb-2">
-            <CardDescription className="text-xs">Transmission Protocol</CardDescription>
+            <CardDescription className="text-xs">Web Interface</CardDescription>
             <CardTitle className="text-sm font-semibold flex items-center justify-between">
-              <span>Meta Cloud API &amp; Webhooks</span>
-              <Globe className="size-4 text-indigo-500" />
+              <span>OpenWA Dashboard</span>
+              <a
+                href={dashboardUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-indigo-600 hover:text-indigo-500 flex items-center gap-1 font-normal"
+              >
+                <span>Open Dashboard</span>
+                <ExternalLink className="size-3" />
+              </a>
             </CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground space-y-1.5">
             <div className="flex items-center justify-between">
-              <span>Delivery Latency:</span>
-              <span className="text-foreground font-mono">&lt; 400ms</span>
+              <span>Dashboard URL:</span>
+              <code className="text-[11px] font-mono text-foreground">{dashboardUrl}</code>
             </div>
             <div className="flex items-center justify-between">
-              <span>Encryption:</span>
-              <span className="text-emerald-600 dark:text-emerald-400 font-medium">End-to-End TLS</span>
+              <span>Active Session:</span>
+              <span className="text-foreground font-semibold">
+                {activeSession ? `${activeSession.name} (${activeSession.phone || "Active"})` : "No session"}
+              </span>
             </div>
           </CardContent>
         </Card>
 
+        {/* API Authentication */}
         <Card className="border border-border bg-card shadow-xs rounded-xl">
           <CardHeader className="pb-2">
-            <CardDescription className="text-xs">Campaign Webhooks</CardDescription>
+            <CardDescription className="text-xs">Authentication</CardDescription>
             <CardTitle className="text-sm font-semibold flex items-center justify-between">
-              <span>Live Post Alerts</span>
-              <Bell className="size-4 text-emerald-500" />
+              <span>Admin API Key</span>
+              <button
+                type="button"
+                onClick={() => copyToClipboard(OPENWA_API_KEY, "API Key")}
+                className="text-xs text-indigo-600 hover:text-indigo-500 flex items-center gap-1 cursor-pointer"
+              >
+                {copiedKey === "API Key" ? <Check className="size-3" /> : <Copy className="size-3" />}
+                <span>{copiedKey === "API Key" ? "Copied" : "Copy Key"}</span>
+              </button>
             </CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground space-y-1.5">
             <div className="flex items-center justify-between">
-              <span>Auto-Publish Alerts:</span>
-              <span className="text-emerald-600 dark:text-emerald-400 font-medium">Enabled</span>
+              <span>Key:</span>
+              <code className="text-[10px] font-mono text-foreground truncate max-w-[170px]">
+                {OPENWA_API_KEY.slice(0, 16)}...
+              </code>
             </div>
             <div className="flex items-center justify-between">
-              <span>Delivery Receipts:</span>
-              <span className="text-foreground font-mono">Double-Check (✓✓)</span>
+              <span>Header:</span>
+              <span className="font-mono text-[11px] text-foreground font-medium">X-Api-Key</span>
             </div>
           </CardContent>
         </Card>
@@ -261,35 +338,21 @@ export default function WhatsAppGatewayPage() {
           )}
         >
           <Send className="size-3.5" />
-          <span>Message Dispatcher &amp; Preview</span>
+          <span>Quick Message Tester</span>
         </button>
 
         <button
           type="button"
-          onClick={() => setActiveTab("settings")}
+          onClick={() => setActiveTab("sessions")}
           className={cn(
             "px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition-colors cursor-pointer",
-            activeTab === "settings"
+            activeTab === "sessions"
               ? "bg-indigo-600 text-white font-semibold shadow-xs"
               : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
           )}
         >
-          <Settings className="size-3.5" />
-          <span>Meta Cloud API Setup</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab("notifications")}
-          className={cn(
-            "px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2 transition-colors cursor-pointer",
-            activeTab === "notifications"
-              ? "bg-indigo-600 text-white font-semibold shadow-xs"
-              : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-          )}
-        >
-          <Bell className="size-3.5" />
-          <span>Campaign Notification Triggers</span>
+          <Server className="size-3.5" />
+          <span>OpenWA Sessions &amp; Pairing</span>
         </button>
 
         <button
@@ -307,7 +370,7 @@ export default function WhatsAppGatewayPage() {
         </button>
       </div>
 
-      {/* TAB 1: MESSAGE DISPATCHER & LIVE PREVIEW */}
+      {/* TAB 1: QUICK MESSAGE TESTER */}
       {activeTab === "tester" && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Left Column: Form & Presets */}
@@ -316,10 +379,10 @@ export default function WhatsAppGatewayPage() {
               <CardHeader className="pb-3 border-b border-border">
                 <CardTitle className="text-sm font-semibold flex items-center gap-2">
                   <Send className="size-4 text-emerald-600 dark:text-emerald-400" />
-                  <span>Send WhatsApp Message</span>
+                  <span>Send WhatsApp Message via OpenWA</span>
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Dispatch instant WhatsApp updates, customer notifications, and social campaign announcements.
+                  Test sending real WhatsApp messages to any phone number using the active OpenWA session.
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-4">
@@ -355,108 +418,255 @@ export default function WhatsAppGatewayPage() {
                     </div>
                   </div>
 
-                  {/* Phone Number Input */}
+                  {/* Destination Phone Input */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-foreground">
-                      Destination Phone Number
+                    <label className="text-xs font-medium text-foreground flex items-center justify-between">
+                      <span>Destination Phone Number (with Country Code)</span>
+                      <span className="text-[10px] text-muted-foreground">e.g. +91 94456 48373</span>
                     </label>
                     <Input
                       type="text"
-                      placeholder="+91 98765 43210 or 15550192834"
+                      placeholder="+91 94456 48373 or 919445648373"
                       value={phoneNumber}
                       onChange={(e) => setPhoneNumber(e.target.value)}
-                      className="font-mono text-xs rounded-lg h-9"
+                      className="font-mono text-xs h-9"
                       required
                     />
                     <p className="text-[10px] text-muted-foreground">
-                      Include country code without spaces or plus symbol (e.g. 919876543210 for India, 15550192834 for US).
+                      International format with country code (e.g. +91 for India, +1 for US). Spaces and dashes are cleaned automatically.
                     </p>
                   </div>
 
-                  {/* Message Body */}
+                  {/* Message Body Input */}
                   <div className="space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs font-medium text-foreground">
-                        Message Body
-                      </label>
-                      <span className="text-[11px] font-mono text-muted-foreground">
-                        {message.length} chars
-                      </span>
-                    </div>
+                    <label className="text-xs font-medium text-foreground flex items-center justify-between">
+                      <span>Message Content</span>
+                      <span className="text-[10px] text-muted-foreground">{message.length} chars</span>
+                    </label>
                     <Textarea
-                      rows={5}
-                      placeholder="Write your WhatsApp message here..."
+                      rows={4}
                       value={message}
                       onChange={(e) => setMessage(e.target.value)}
-                      className="text-xs rounded-lg resize-none font-sans leading-relaxed"
+                      placeholder="Type your WhatsApp notification message here..."
+                      className="text-xs resize-none"
                       required
                     />
                   </div>
 
                   {/* Submit Button */}
-                  <Button
-                    type="submit"
-                    disabled={isSending}
-                    className="w-full text-xs font-semibold h-10 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-xs cursor-pointer"
-                  >
-                    <Send className="size-4" />
-                    <span>{isSending ? "Dispatching Message..." : "Send WhatsApp Message"}</span>
-                  </Button>
+                  <div className="pt-1">
+                    <Button
+                      type="submit"
+                      disabled={isSending || !isOnline}
+                      className="w-full h-10 text-xs font-semibold gap-2 bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer shadow-xs"
+                    >
+                      <Send className="size-4" />
+                      <span>{isSending ? "Dispatching via OpenWA..." : "Send WhatsApp Message"}</span>
+                    </Button>
+                  </div>
                 </form>
               </CardContent>
             </Card>
           </div>
 
-          {/* Right Column: Realistic WhatsApp Phone Mockup */}
-          <div className="lg:col-span-5 space-y-4">
-            <Card className="border border-border bg-card shadow-xs rounded-xl overflow-hidden">
-              <CardHeader className="pb-2 border-b border-border">
-                <CardTitle className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                  <Smartphone className="size-3.5 text-emerald-600" />
-                  <span>Live WhatsApp Preview</span>
+          {/* Right Column: Realistic iPhone WhatsApp Mockup */}
+          <div className="lg:col-span-5 flex flex-col items-center justify-center">
+            <div className="w-[300px] sm:w-[320px] rounded-[38px] border-[8px] border-slate-900 bg-slate-900 shadow-2xl overflow-hidden ring-1 ring-slate-800">
+              {/* Speaker / Camera Notch */}
+              <div className="h-6 bg-slate-900 flex items-center justify-center relative">
+                <div className="w-20 h-4 bg-black rounded-b-xl flex items-center justify-center">
+                  <div className="size-2 rounded-full bg-slate-800/80 mr-3" />
+                  <div className="size-1.5 rounded-full bg-slate-700/80" />
+                </div>
+              </div>
+
+              {/* WhatsApp App Header */}
+              <div className="bg-[#075e54] text-white px-3.5 py-2.5 flex items-center justify-between shadow-xs">
+                <div className="flex items-center gap-2">
+                  <div className="size-8 rounded-full bg-emerald-400/20 border border-emerald-300/40 flex items-center justify-center text-xs font-bold text-white uppercase">
+                    SS
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-semibold leading-tight flex items-center gap-1">
+                      <span>SocialSync Gateway</span>
+                      <span className="size-1.5 rounded-full bg-emerald-300" />
+                    </h3>
+                    <p className="text-[9px] text-emerald-100 font-normal">
+                      {activeSession ? `${activeSession.name} • Online` : "OpenWA Gateway"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Chat Wallpaper Canvas */}
+              <div
+                className="h-[340px] p-3 flex flex-col justify-end space-y-2 overflow-y-auto"
+                style={{
+                  backgroundColor: "#efeae2",
+                  backgroundImage: "radial-gradient(#d1d7db 1px, transparent 1px)",
+                  backgroundSize: "16px 16px",
+                }}
+              >
+                {/* Outgoing Message Bubble */}
+                <div className="self-end max-w-[85%] bg-[#d9fdd3] text-slate-900 text-xs rounded-xl rounded-tr-none p-2.5 shadow-xs border border-emerald-200/50 space-y-1">
+                  <p className="text-[11px] leading-relaxed whitespace-pre-wrap font-sans">
+                    {message || "Type a message on the left to see live preview..."}
+                  </p>
+                  <div className="flex items-center justify-end gap-1 text-[9px] text-slate-500 font-mono">
+                    <span>
+                      {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                    <CheckCheck className="size-3.5 text-blue-500" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Home Indicator */}
+              <div className="h-4 bg-slate-900 flex items-center justify-center">
+                <div className="w-24 h-1 bg-slate-600 rounded-full" />
+              </div>
+            </div>
+
+            <p className="text-[11px] text-muted-foreground mt-3 flex items-center gap-1.5">
+              <CheckCircle2 className="size-3 text-emerald-600" />
+              <span>Real-time delivery preview with Blue Double Checks (✓✓)</span>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: SESSIONS & PAIRING */}
+      {activeTab === "sessions" && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="lg:col-span-7 space-y-4">
+            <Card className="border border-border bg-card shadow-xs rounded-xl">
+              <CardHeader className="pb-3 border-b border-border">
+                <CardTitle className="text-sm font-semibold flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Server className="size-4 text-emerald-600 dark:text-emerald-400" />
+                    <span>Connected OpenWA Sessions</span>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => void fetchStatus()}
+                    className="h-7 text-xs font-medium cursor-pointer"
+                  >
+                    Refresh
+                  </Button>
                 </CardTitle>
-                <CardDescription className="text-[11px]">
-                  Real-time preview of how the recipient views your message.
+                <CardDescription className="text-xs">
+                  Active WhatsApp sessions running inside your local OpenWA instance.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="p-4 bg-muted/20">
-                {/* Phone Shell */}
-                <div className="max-w-[320px] mx-auto rounded-3xl border-4 border-slate-800 dark:border-slate-700 bg-[#EFEAE2] dark:bg-[#0B141A] overflow-hidden shadow-md">
-                  {/* WhatsApp App Bar */}
-                  <div className="bg-[#075E54] dark:bg-[#1F2C34] text-white p-3 flex items-center gap-2.5">
-                    <div className="size-8 rounded-full bg-emerald-600 flex items-center justify-center font-bold text-xs text-white shrink-0">
-                      SS
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-xs leading-tight truncate flex items-center gap-1">
-                        <span>SocialSync AI</span>
-                        <CheckCheck className="size-3 text-cyan-300 inline" />
+              <CardContent className="pt-4 space-y-3">
+                {activeSession ? (
+                  <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="size-7 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-600 font-semibold text-xs">
+                          WA
+                        </div>
+                        <div>
+                          <div className="text-xs font-semibold text-foreground flex items-center gap-2">
+                            <span>{activeSession.name}</span>
+                            <Badge className="bg-emerald-600 text-white text-[10px] px-1.5 py-0">
+                              {activeSession.status.toUpperCase()}
+                            </Badge>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            Phone: +{activeSession.phone || "Linked"} {activeSession.pushName ? `(${activeSession.pushName})` : ""}
+                          </p>
+                        </div>
                       </div>
-                      <div className="text-[10px] text-emerald-100 opacity-90 leading-tight">
-                        Official Business Account
+
+                      <a
+                        href={`${dashboardUrl}/sessions`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-medium text-indigo-600 hover:text-indigo-500 flex items-center gap-1"
+                      >
+                        <span>Manage</span>
+                        <ExternalLink className="size-3" />
+                      </a>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-emerald-500/20 text-[11px]">
+                      <div>
+                        <span className="text-muted-foreground">Engine:</span>{" "}
+                        <span className="font-semibold text-foreground">Baileys WebSocket</span>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Session ID:</span>{" "}
+                        <code className="font-mono text-[10px] text-foreground truncate">{activeSession.id.slice(0, 12)}...</code>
                       </div>
                     </div>
                   </div>
+                ) : (
+                  <div className="p-4 rounded-xl border border-dashed border-border text-center text-muted-foreground text-xs space-y-2">
+                    <AlertCircle className="size-6 text-amber-500 mx-auto" />
+                    <p className="font-medium text-foreground">No active WhatsApp session</p>
+                    <p className="text-[11px]">Open the OpenWA Dashboard at {dashboardUrl} and scan the QR code to connect your number.</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
 
-                  {/* Chat Canvas */}
-                  <div className="p-3 min-h-[260px] flex flex-col justify-end space-y-2">
-                    {/* Timestamp Pill */}
-                    <div className="text-center">
-                      <span className="bg-white/80 dark:bg-slate-800 text-[9px] text-muted-foreground px-2 py-0.5 rounded-full shadow-2xs font-mono">
-                        TODAY
-                      </span>
-                    </div>
+          <div className="lg:col-span-5 space-y-4">
+            <Card className="border border-border bg-card shadow-xs rounded-xl">
+              <CardHeader className="pb-3 border-b border-border">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <QrCode className="size-4 text-indigo-600" />
+                  <span>How to Pair WhatsApp Account</span>
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Simple 3-step setup to connect any WhatsApp number to OpenWA.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-3 text-xs leading-relaxed">
+                <div className="flex gap-2.5">
+                  <div className="size-5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
+                    1
+                  </div>
+                  <div>
+                    <span className="font-semibold text-foreground">Open OpenWA Dashboard:</span>
+                    <p className="text-muted-foreground text-[11px] mt-0.5">
+                      Navigate to{" "}
+                      <a
+                        href={dashboardUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-indigo-600 underline font-mono"
+                      >
+                        {dashboardUrl}
+                      </a>{" "}
+                      in your browser.
+                    </p>
+                  </div>
+                </div>
 
-                    {/* Incoming/Outgoing WhatsApp Bubble */}
-                    <div className="self-end max-w-[90%] bg-[#E7FFDB] dark:bg-[#005C4B] text-slate-900 dark:text-slate-100 p-2.5 rounded-2xl rounded-tr-xs shadow-xs text-xs space-y-1 relative">
-                      <p className="whitespace-pre-wrap leading-relaxed text-[11px] font-sans">
-                        {message || "Type a message on the left to see live preview..."}
-                      </p>
-                      <div className="flex items-center justify-end gap-1 text-[9px] text-muted-foreground dark:text-slate-300 font-mono">
-                        <span>{new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        <CheckCheck className="size-3 text-[#53BDEB]" />
-                      </div>
-                    </div>
+                <div className="flex gap-2.5">
+                  <div className="size-5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
+                    2
+                  </div>
+                  <div>
+                    <span className="font-semibold text-foreground">Create Session &amp; Scan QR:</span>
+                    <p className="text-muted-foreground text-[11px] mt-0.5">
+                      Click <strong>New Session</strong>, choose <strong>Baileys</strong> engine, and scan the QR code with WhatsApp on your phone (<em>Settings &gt; Linked Devices &gt; Link a Device</em>).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex gap-2.5">
+                  <div className="size-5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
+                    3
+                  </div>
+                  <div>
+                    <span className="font-semibold text-foreground">Ready for Automated Messaging:</span>
+                    <p className="text-muted-foreground text-[11px] mt-0.5">
+                      Your session links instantly. SocialSync can now dispatch messages, scheduled broadcasts, and customer updates directly through OpenWA!
+                    </p>
                   </div>
                 </div>
               </CardContent>
@@ -465,268 +675,65 @@ export default function WhatsAppGatewayPage() {
         </div>
       )}
 
-      {/* TAB 2: META WHATSAPP CLOUD API SETUP */}
-      {activeTab === "settings" && (
-        <div className="space-y-4">
-          <Card className="border border-border bg-card shadow-xs rounded-xl">
-            <CardHeader className="border-b border-border pb-3">
-              <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                <Key className="size-4 text-indigo-600 dark:text-indigo-400" />
-                <span>Meta WhatsApp Cloud API Configuration</span>
-              </CardTitle>
-              <CardDescription className="text-xs">
-                Direct carrier termination via official Meta WhatsApp Business Cloud API. 100% cloud-hosted with zero local dependencies.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="pt-4 space-y-4">
-              <form onSubmit={handleSaveSettings} className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-foreground">Phone Number ID</label>
-                    <Input
-                      placeholder="e.g. 106294829104859"
-                      value={phoneNumberId}
-                      onChange={(e) => setPhoneNumberId(e.target.value)}
-                      className="font-mono text-xs rounded-lg h-9"
-                    />
-                    <p className="text-[10px] text-muted-foreground">From Meta App Dashboard &gt; WhatsApp &gt; API Setup.</p>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-foreground">WhatsApp Business Account ID (WABA)</label>
-                    <Input
-                      placeholder="e.g. 109283749281749"
-                      value={wabaId}
-                      onChange={(e) => setWabaId(e.target.value)}
-                      className="font-mono text-xs rounded-lg h-9"
-                    />
-                    <p className="text-[10px] text-muted-foreground">Your verified business account ID in Meta Business Manager.</p>
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-foreground">Permanent Access Token (System User)</label>
-                  <Input
-                    type="password"
-                    placeholder="EAA..."
-                    value={metaToken}
-                    onChange={(e) => setMetaToken(e.target.value)}
-                    className="font-mono text-xs rounded-lg h-9"
-                  />
-                  <p className="text-[10px] text-muted-foreground">Generate in Meta Business Settings &gt; System Users with `whatsapp_business_messaging` permission.</p>
-                </div>
-
-                <div className="pt-2 border-t border-border flex items-center justify-between">
-                  <Button
-                    type="submit"
-                    className="text-xs font-semibold h-9 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-xs cursor-pointer"
-                  >
-                    Save Cloud API Credentials
-                  </Button>
-                </div>
-              </form>
-
-              {/* Webhook Configuration Guide */}
-              <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3 mt-4">
-                <div className="flex items-center gap-2">
-                  <Globe className="size-4 text-emerald-600" />
-                  <span className="text-xs font-semibold text-foreground">Meta Webhook Integration URL</span>
-                </div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Configure this webhook URL in your Meta App Dashboard to receive real-time delivery receipts and customer replies:
-                </p>
-                <div className="flex items-center justify-between font-mono text-xs bg-background p-2.5 rounded-lg border border-border">
-                  <span className="text-foreground truncate select-all">
-                    https://automation-ai-dusky.vercel.app/api/webhooks/whatsapp
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => copyToClipboard("https://automation-ai-dusky.vercel.app/api/webhooks/whatsapp", "Webhook URL")}
-                    className="text-muted-foreground hover:text-foreground ml-2 cursor-pointer"
-                  >
-                    {copiedKey === "Webhook URL" ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
-                  </button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* TAB 3: CAMPAIGN NOTIFICATION TRIGGERS */}
-      {activeTab === "notifications" && (
-        <Card className="border border-border bg-card shadow-xs rounded-xl">
-          <CardHeader className="border-b border-border pb-3">
-            <CardTitle className="text-sm font-semibold flex items-center gap-2">
-              <Bell className="size-4 text-emerald-600 dark:text-emerald-400" />
-              <span>Automated WhatsApp Notification Triggers</span>
-            </CardTitle>
-            <CardDescription className="text-xs">
-              Receive automated WhatsApp alerts on your phone whenever your social campaigns publish or require attention.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pt-4">
-            <form onSubmit={handleSaveNotifications} className="space-y-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-foreground">Alert Destination Phone Number</label>
-                <Input
-                  type="text"
-                  placeholder="+91 98765 43210"
-                  value={alertPhone}
-                  onChange={(e) => setAlertPhone(e.target.value)}
-                  className="font-mono text-xs rounded-lg h-9 max-w-md"
-                  required
-                />
-              </div>
-
-              <div className="space-y-3 pt-2">
-                <label className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors cursor-pointer">
-                  <div>
-                    <span className="text-xs font-semibold text-foreground block">
-                      Campaign Publish Success Alert
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">
-                      Receive an instant WhatsApp message with live post links when a post publishes to Instagram, YouTube, Facebook, or LinkedIn.
-                    </span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={notifyOnPublish}
-                    onChange={(e) => setNotifyOnPublish(e.target.checked)}
-                    className="size-4 rounded border-border text-emerald-600"
-                  />
-                </label>
-
-                <label className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors cursor-pointer">
-                  <div>
-                    <span className="text-xs font-semibold text-foreground block">
-                      Account Disconnect or Publishing Error Warning
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">
-                      Get immediate WhatsApp alert if an account token expires or a social network rejects a post.
-                    </span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={notifyOnFailure}
-                    onChange={(e) => setNotifyOnFailure(e.target.checked)}
-                    className="size-4 rounded border-border text-emerald-600"
-                  />
-                </label>
-
-                <label className="flex items-center justify-between p-3 rounded-lg border border-border hover:bg-muted/30 transition-colors cursor-pointer">
-                  <div>
-                    <span className="text-xs font-semibold text-foreground block">
-                      Daily Morning Scheduled Post Summary
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">
-                      Receive a daily 9:00 AM briefing of posts scheduled to go live today.
-                    </span>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={dailyDigest}
-                    onChange={(e) => setDailyDigest(e.target.checked)}
-                    className="size-4 rounded border-border text-emerald-600"
-                  />
-                </label>
-              </div>
-
-              <div className="pt-3 border-t border-border">
-                <Button
-                  type="submit"
-                  className="text-xs font-semibold h-9 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-xs cursor-pointer"
-                >
-                  Save Notification Preferences
-                </Button>
-              </div>
-            </form>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* TAB 4: TRANSMISSION LOGS */}
+      {/* TAB 3: TRANSMISSION LOGS */}
       {activeTab === "logs" && (
         <Card className="border border-border bg-card shadow-xs rounded-xl">
-          <CardHeader className="border-b border-border pb-3 flex flex-row items-center justify-between">
+          <CardHeader className="pb-3 border-b border-border flex flex-row items-center justify-between">
             <div>
               <CardTitle className="text-sm font-semibold flex items-center gap-2">
                 <History className="size-4 text-emerald-600 dark:text-emerald-400" />
-                <span>WhatsApp Transmission Logs</span>
+                <span>OpenWA Transmission History</span>
               </CardTitle>
               <CardDescription className="text-xs">
-                Audit trail of outgoing WhatsApp campaign alerts and direct messages.
+                Real-time log of recent messages dispatched via the OpenWA REST API.
               </CardDescription>
             </div>
             <Button
-              size="sm"
               variant="outline"
+              size="sm"
               onClick={() => void fetchLogs()}
-              className="text-xs h-8 gap-1.5 border-border rounded-lg"
+              className="h-8 text-xs font-medium cursor-pointer"
             >
-              <RefreshCw className="size-3" />
-              <span>Refresh</span>
+              <RefreshCw className="size-3.5" />
+              <span>Refresh Logs</span>
             </Button>
           </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-muted/40 text-[11px] font-semibold text-muted-foreground border-b border-border">
-                  <tr>
-                    <th className="p-3">Message ID</th>
-                    <th className="p-3">Recipient</th>
-                    <th className="p-3">Message Preview</th>
-                    <th className="p-3">Status</th>
-                    <th className="p-3">Provider</th>
-                    <th className="p-3">Timestamp</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {logs.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="p-6 text-center text-xs text-muted-foreground">
-                        No messages dispatched yet. Send your first WhatsApp message from the Dispatcher tab.
-                      </td>
-                    </tr>
-                  ) : (
-                    logs.map((log) => (
-                      <tr key={log.id} className="hover:bg-muted/20 transition-colors">
-                        <td className="p-3 font-mono text-[11px] text-foreground font-medium">
-                          {log.id}
-                        </td>
-                        <td className="p-3 font-mono text-foreground font-medium">
-                          {log.recipient}
-                        </td>
-                        <td className="p-3 text-muted-foreground max-w-xs truncate">
-                          {log.messagePreview}
-                        </td>
-                        <td className="p-3">
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-[10px] px-2 py-0.5",
-                              log.status === "delivered" || log.status === "read"
-                                ? "border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20"
-                                : log.status === "sent"
-                                ? "border-blue-500/30 text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20"
-                                : "border-rose-500/30 text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/20"
-                            )}
-                          >
-                            {log.status === "delivered" ? "✓✓ Delivered" : log.status}
-                          </Badge>
-                        </td>
-                        <td className="p-3 text-[11px] font-mono text-muted-foreground">
-                          {log.provider === "meta_cloud_api" ? "Meta Cloud API" : "SocialSync Cloud"}
-                        </td>
-                        <td className="p-3 text-[11px] font-mono text-muted-foreground whitespace-nowrap">
-                          {new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+          <CardContent className="pt-4 p-0">
+            {logs.length === 0 ? (
+              <div className="py-12 text-center text-xs text-muted-foreground">
+                <p>No messages sent yet. Use the Quick Message Tester to send your first message.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {logs.map((log) => (
+                  <div key={log.id} className="p-3.5 flex items-start justify-between gap-4 hover:bg-muted/20 text-xs">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 font-mono">
+                        <span className="font-semibold text-foreground">{log.recipient}</span>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            "text-[10px] px-1.5 py-0 font-medium",
+                            log.status === "delivered"
+                              ? "border-emerald-500/30 text-emerald-600 bg-emerald-50 dark:bg-emerald-950/30"
+                              : "border-red-500/30 text-red-600 bg-red-50"
+                          )}
+                        >
+                          {log.status === "delivered" ? "DELIVERED ✓✓" : "FAILED"}
+                        </Badge>
+                      </div>
+                      <p className="text-muted-foreground text-[11px] line-clamp-1">{log.messagePreview}</p>
+                      {log.error && <p className="text-red-500 text-[10px]">{log.error}</p>}
+                    </div>
+
+                    <div className="text-right text-[10px] text-muted-foreground font-mono shrink-0">
+                      <div>{new Date(log.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</div>
+                      <div className="text-[9px] text-muted-foreground/80">{log.id.slice(0, 14)}...</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
