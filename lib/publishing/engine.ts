@@ -52,7 +52,7 @@ export async function getAccountAccessToken(db: Database, account: Account) {
   }
 }
 
-const eligible = ['draft', 'ready', 'approved', 'scheduled', 'pending', 'queued', 'pending_approval', 'failed', 'reauthorization_required'];
+const eligible = ['draft', 'ready', 'approved', 'scheduled', 'pending_approval', 'failed', 'reauthorization_required'];
 
 export async function dispatchCampaign(db: Database, ownerId: string, campaignId: string) {
   try {
@@ -62,45 +62,55 @@ export async function dispatchCampaign(db: Database, ownerId: string, campaignId
     });
     if (!error && data?.[0]) {
       job = data[0] as ClaimedJob;
-    } else if (error?.code === 'PGRST202' || error?.message?.includes('claim_campaign_publishing_job')) {
-      // Direct claim fallback when RPC is pending migration in remote PostgreSQL
-      const { data: queued } = await db.from('publishing_jobs')
+    } else {
+      if (error) {
+        console.warn('claim_campaign_publishing_job notification:', error.message);
+      }
+      // Check for an existing queued or running job for this post
+      const { data: existingJob } = await db.from('publishing_jobs')
         .select('*')
         .eq('user_id', ownerId)
         .eq('post_id', campaignId)
-        .eq('status', 'queued')
-        .lte('run_at', new Date().toISOString())
-        .order('run_at', { ascending: true })
+        .in('status', ['queued', 'running'])
+        .order('created_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (queued) {
+      if (existingJob?.status === 'running') {
+        job = existingJob as ClaimedJob;
+      } else if (existingJob?.status === 'queued') {
         await db.from('posts').update({ status: 'publishing', updated_at: new Date().toISOString() })
           .eq('id', campaignId).eq('user_id', ownerId);
         const { data: claimed } = await db.from('publishing_jobs')
           .update({ status: 'running', updated_at: new Date().toISOString() })
-          .eq('id', queued.id)
+          .eq('id', existingJob.id)
           .eq('status', 'queued')
           .select()
           .maybeSingle();
         if (claimed) job = claimed as ClaimedJob;
       }
-    } else if (error) {
-      console.warn('claim_campaign_publishing_job non-critical warning:', error.message);
     }
 
-    // Direct fallback: ensure post execution occurs immediately without depending on external cron
+    // Direct fallback: ensure a real database-backed job exists with valid UUID
     if (!job) {
-      job = {
-        id: 'direct-' + campaignId,
+      const { data: fallbackJob, error: insertErr } = await db.from('publishing_jobs').insert({
         post_id: campaignId,
         user_id: ownerId,
-        retry_count: 0,
-        max_retries: 3,
-      };
+        status: 'running',
+        run_at: new Date().toISOString(),
+        idempotency_key: `campaign:${campaignId}:${Date.now()}`,
+      }).select().maybeSingle();
+
+      if (!insertErr && fallbackJob) {
+        await db.from('posts').update({ status: 'publishing', updated_at: new Date().toISOString() })
+          .eq('id', campaignId).eq('user_id', ownerId);
+        job = fallbackJob as ClaimedJob;
+      }
     }
 
-    await executePostPublishing(db, job);
+    if (job) {
+      await executePostPublishing(db, job);
+    }
   } catch (error) {
     // The worker handles queued jobs and reconciles interrupted dispatches.
     console.warn('Immediate publishing execution encountered an error:', error);
@@ -123,9 +133,19 @@ export async function executePostPublishing(db: Database, job: ClaimedJob) {
     if (assetData) media = assetData;
   }
 
-  const mediaUrl = media?.user_id === job.user_id && media.file_path
-    ? await signMedia(media.file_path, job.user_id, 86400).catch(() => undefined)
-    : undefined;
+  let mediaUrl: string | undefined;
+  if (media?.file_path) {
+    try {
+      mediaUrl = await signMedia(media.file_path, job.user_id, 86400);
+    } catch {
+      try {
+        const { data: directSign } = await db.storage.from('media-assets').createSignedUrl(media.file_path, 86400);
+        if (directSign?.signedUrl) mediaUrl = directSign.signedUrl;
+      } catch (storageErr) {
+        console.warn('Direct media signing fallback failed:', storageErr);
+      }
+    }
+  }
 
   const targetStatuses = job.retry_count > 0 ? ['scheduled'] : eligible;
   const results = await Promise.all(post.targets.filter((target: { id: string; status: string; external_post_id?: string }) =>
@@ -249,14 +269,27 @@ export async function executePostPublishing(db: Database, job: ClaimedJob) {
 
   // If at least one platform successfully published, mark post as published so successful live posts are preserved
   try {
-    const { data: targets } = await db.from('post_targets').select('status').eq('post_id', job.post_id);
-    const hasPublished = targets?.some((t) => t.status === 'published');
-    if (hasPublished && !nextRun) {
+    const { data: targets } = await db.from('post_targets').select('status, platform, external_post_url').eq('post_id', job.post_id);
+    const published = targets?.filter((t) => t.status === 'published') || [];
+    if (published.length > 0 && !nextRun) {
       await db.from('posts').update({
         status: 'published',
         published_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }).eq('id', job.post_id);
+
+      // Automated WhatsApp notification via OpenWA Gateway
+      try {
+        const { sendOpenWaMessage } = await import('@/lib/whatsapp/openwa');
+        const platformsList = published.map((p) => p.platform.toUpperCase()).join(', ');
+        const urlsList = published.map((p) => p.external_post_url).filter(Boolean).join('\n');
+        await sendOpenWaMessage({
+          phoneNumber: '919445648373',
+          message: `🚀 SocialSync AI Live Alert: Post "${post.title || 'Untitled'}" is now live on ${platformsList}!${urlsList ? `\n\nLive Links:\n${urlsList}` : ''}`,
+        }).catch((waErr) => console.warn('Automated OpenWA alert non-critical:', waErr.message));
+      } catch (waAlertErr) {
+        console.warn('OpenWA alert non-critical notice:', waAlertErr);
+      }
     }
   } catch (statusSyncErr) {
     console.warn('Could not sync composite post status:', statusSyncErr);

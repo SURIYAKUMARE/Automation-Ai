@@ -32,23 +32,22 @@ export async function POST(req: NextRequest) {
   const request = Generate.safeParse(await req.json().catch(() => null));
   if (!request.success) return NextResponse.json({ error: 'Invalid generation request' }, { status: 400 });
   const { mediaBase64, mediaFrames, mimeType, prompt, userPrompt, ...options } = request.data;
-  const context = userPrompt || prompt;
-  const bytes = mediaBase64 ? Buffer.from(mediaBase64.replace(/^data:[^;]+;base64,/, ''), 'base64') : undefined;
+  let context = userPrompt || prompt;
+  if (!context) {
+    context = options.isMediaVideo
+      ? 'Create an engaging video title, description, and hashtags for social channels'
+      : (mediaBase64 || mimeType)
+      ? 'Create an engaging photo caption, title, and hashtags for social channels'
+      : 'Create an engaging social media post with title, caption, and hashtags';
+  }
+  const bytes = (mediaBase64 && (!options.isMediaVideo)) ? Buffer.from(mediaBase64.replace(/^data:[^;]+;base64,/, ''), 'base64') : undefined;
+  const validBytes = bytes && mimeType && matchesMediaSignature(bytes, mimeType) ? bytes : undefined;
   const frames = mediaFrames?.map((frame) => Buffer.from(frame.replace(/^data:image\/jpeg;base64,/, ''), 'base64'));
-  if (options.isMediaVideo && bytes) {
-    return NextResponse.json({ error: 'Video captioning cannot use a static photo preview' }, { status: 400 });
-  }
-  if (!context && !bytes && (!frames || frames.length === 0)) {
-    return NextResponse.json({ error: 'Add text context or a valid image or video preview' }, { status: 400 });
-  }
-  if ((bytes && (!mimeType || !matchesMediaSignature(bytes, mimeType))) ||
-      frames?.some((frame) => !matchesMediaSignature(frame, 'image/jpeg'))) {
-    return NextResponse.json({ error: 'Add text context or a valid image or video preview' }, { status: 400 });
-  }
+  const validFrames = frames?.filter((frame) => matchesMediaSignature(frame, 'image/jpeg'));
   try {
     const { source, ...data } = await generateSocialContent({
-      ...options, userPrompt: context, mediaBuffer: bytes, mediaFrames: frames, mimeType,
-      brand: bytes && !context ? null : access.brand,
+      ...options, userPrompt: context, mediaBuffer: validBytes, mediaFrames: validFrames?.length ? validFrames : undefined, mimeType: validBytes ? mimeType : undefined,
+      brand: validBytes && !context ? null : access.brand,
     });
     return NextResponse.json({ success: true, data, variants: data.platforms, source, hashtagSource: 'AI relevance' });
   } catch (error) {

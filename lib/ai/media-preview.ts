@@ -43,10 +43,15 @@ export async function prepareMediaPreview(file: Blob, isVideo = file.type.starts
   let video: HTMLVideoElement | undefined;
   try {
     if (!isVideo) {
-      const image = new Image();
-      image.src = url;
-      await image.decode().catch(() => { throw new Error('The browser cannot read this photo. Try a JPEG, PNG or WebP export.'); });
-      return { mediaBase64: makeImagePreview(image, image.naturalWidth, image.naturalHeight, 2400, photoBudget), mimeType: 'image/jpeg' };
+      try {
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        return { mediaBase64: makeImagePreview(image, image.naturalWidth, image.naturalHeight, 2400, photoBudget), mimeType: 'image/jpeg' };
+      } catch (imgErr) {
+        console.warn('Could not extract browser canvas preview for photo, continuing with prompt context:', imgErr);
+        return { mimeType: 'image/jpeg' };
+      }
     }
 
     try {

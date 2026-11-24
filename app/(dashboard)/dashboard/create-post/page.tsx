@@ -510,14 +510,20 @@ export default function CreatePostPage() {
         if (!saved?.ok) throw new Error("Could not read saved media. Reattach and try again.");
         file = await saved.blob();
       }
-      const media = file ? await prepareMediaPreview(file, file.type ? file.type.startsWith("video/") : isVideo) : {};
+      const isVid = file ? (file.type ? file.type.startsWith("video/") : isVideo) : isVideo;
+      const media = file ? await prepareMediaPreview(file, isVid) : {};
+      const fallbackPrompt = file
+        ? (isVid ? "Create an engaging viral video caption, catchy title, and hashtags" : "Create an engaging viral photo caption, title, and hashtags")
+        : "Create an engaging social media post";
+      const effectivePrompt = topicPrompt.trim() || fallbackPrompt;
+
       const res = await fetch("/api/ai/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...media,
-          prompt: topicPrompt.trim() || undefined,
-          userPrompt: topicPrompt.trim() || undefined,
+          prompt: effectivePrompt,
+          userPrompt: effectivePrompt,
           language,
           tone,
           captionLength,
