@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Sparkles, PanelLeftClose, PanelLeftOpen, X, Cpu } from "lucide-react";
+import { Sparkles, PanelLeftClose, PanelLeftOpen, X, Cpu, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { workspaceNavigation } from "./navigation";
 
@@ -16,38 +16,38 @@ export function Sidebar({ close }: { close?: () => void }) {
   return (
     <div
       className={cn(
-        "flex h-full flex-col bg-[#071328] text-slate-100 border-r border-blue-900/30 transition-all duration-200 select-none",
-        close ? "w-full" : collapsed ? "w-[74px]" : "w-56 xl:w-[252px]"
+        "flex h-full flex-col bg-[#0B0F19] text-slate-100 border-r border-slate-800/60 transition-all duration-200 select-none z-30",
+        close ? "w-full" : collapsed ? "w-[72px]" : "w-56 xl:w-[250px]"
       )}
     >
       {/* Brand Header */}
-      <div className="flex h-[66px] shrink-0 items-center justify-between gap-1 border-b border-blue-900/30 px-3.5">
+      <div className="flex h-16 shrink-0 items-center justify-between gap-1 border-b border-slate-800/60 px-3.5">
         <Link
           href="/dashboard"
           onClick={close}
-          aria-label="SocialFlow dashboard"
+          aria-label="SocialSync AI dashboard"
           className="flex min-w-0 items-center gap-2.5 group"
         >
-          <div className="relative flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-blue-700 via-blue-600 to-sky-400 text-white shadow-md shadow-blue-500/30 group-hover:shadow-blue-500/50 transition-shadow">
-            <Sparkles size={18} className="transition-transform group-hover:scale-110" />
+          <div className="relative flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-tr from-indigo-500 via-indigo-600 to-violet-600 text-white shadow-md shadow-indigo-500/30 group-hover:shadow-indigo-500/50 group-hover:scale-105 transition-all">
+            <Sparkles size={17} className="transition-transform group-hover:rotate-12" />
           </div>
           {!collapsed && (
             <div className="flex flex-col min-w-0">
               <span className="truncate text-sm font-bold tracking-tight text-white flex items-center gap-1">
-                SocialFlow
-                <span className="bg-gradient-to-r from-blue-400 via-sky-300 to-blue-200 bg-clip-text text-transparent">
+                SocialSync
+                <span className="bg-gradient-to-r from-indigo-400 via-violet-400 to-purple-300 bg-clip-text text-transparent">
                   AI
                 </span>
               </span>
-              <span className="text-[10px] text-blue-300/70 font-medium tracking-wide">
-                Google Stitch Engine
+              <span className="text-[10px] text-indigo-300/70 font-medium tracking-wide">
+                Omnichannel SaaS
               </span>
             </div>
           )}
         </Link>
         <button
           type="button"
-          className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-blue-950/80 hover:text-white transition-colors"
+          className="shrink-0 rounded-lg p-1.5 text-slate-400 hover:bg-slate-800/80 hover:text-white transition-colors"
           aria-label={toggleLabel}
           onClick={close ?? (() => setCollapsed((value) => !value))}
         >
@@ -56,11 +56,11 @@ export function Sidebar({ close }: { close?: () => void }) {
       </div>
 
       {/* Navigation Links */}
-      <nav aria-label="Workspace" className="min-h-0 grow space-y-5 overflow-y-auto px-3 py-4">
+      <nav aria-label="Workspace" className="min-h-0 grow space-y-4 overflow-y-auto px-3 py-3.5 custom-scrollbar">
         {workspaceNavigation.map((group) => (
           <div key={group.label} className="space-y-1">
             {!collapsed && (
-              <p className="px-2.5 pb-1 text-[11px] font-semibold tracking-wider uppercase text-blue-300/60">
+              <p className="px-2.5 pb-1 text-[10px] font-semibold tracking-wider uppercase text-slate-400/70">
                 {group.label}
               </p>
             )}
@@ -75,18 +75,18 @@ export function Sidebar({ close }: { close?: () => void }) {
                   aria-label={collapsed ? label : undefined}
                   aria-current={isActive ? "page" : undefined}
                   className={cn(
-                    "flex h-9 items-center gap-3 rounded-lg px-2.5 text-sm transition-all duration-150",
+                    "flex h-9 items-center gap-3 rounded-xl px-2.5 text-xs transition-all duration-150 font-medium",
                     collapsed && "justify-center px-0",
                     isActive
-                      ? "bg-gradient-to-r from-blue-600 to-blue-500 text-white font-semibold shadow-sm shadow-blue-500/35"
-                      : "text-slate-300 hover:bg-blue-950/60 hover:text-white"
+                      ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-semibold shadow-sm shadow-indigo-500/35"
+                      : "text-slate-300 hover:bg-slate-800/60 hover:text-white"
                   )}
                 >
                   <Icon
-                    size={17}
+                    size={16}
                     className={cn(
                       "shrink-0 transition-colors",
-                      isActive ? "text-white" : "text-blue-300/60 group-hover:text-blue-100"
+                      isActive ? "text-white" : "text-slate-400 group-hover:text-slate-200"
                     )}
                   />
                   {!collapsed && <span className="truncate">{label}</span>}
@@ -99,16 +99,16 @@ export function Sidebar({ close }: { close?: () => void }) {
 
       {/* Footer System Status */}
       {!collapsed && (
-        <div className="shrink-0 p-3 border-t border-blue-900/30">
-          <div className="flex items-center justify-between rounded-lg bg-blue-950/60 border border-blue-800/40 px-3 py-2 text-xs">
+        <div className="shrink-0 p-3 border-t border-slate-800/60">
+          <div className="flex items-center justify-between rounded-xl bg-slate-900/80 border border-slate-800/80 px-3 py-2 text-xs">
             <div className="flex items-center gap-2 text-slate-300">
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
               </span>
-              <span className="text-[11px] font-medium text-blue-200">Gemini 2.5 Active</span>
+              <span className="text-[11px] font-medium text-slate-300">Fast AI Engine</span>
             </div>
-            <Cpu size={13} className="text-blue-300/70" />
+            <Zap size={13} className="text-indigo-400" />
           </div>
         </div>
       )}

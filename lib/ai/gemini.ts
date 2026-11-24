@@ -89,12 +89,11 @@ async function generateJson<T>(prompt: string, validate: (value: unknown) => T, 
     : [];
   const candidateModels = [
     ...configuredModels,
-    'gemini-2.5-flash',
     'gemini-3.5-flash-lite',
-    'gemini-2.5-flash-lite',
-    'gemini-3.1-flash-lite',
+    'gemini-flash-lite-latest',
+    'gemini-2.5-flash',
   ].filter(Boolean);
-  const models = Array.from(new Set(candidateModels)).slice(0, 5);
+  const models = Array.from(new Set(candidateModels)).slice(0, 4);
 
   let lastErrorReason = '';
   for (const model of models) {
@@ -105,7 +104,7 @@ async function generateJson<T>(prompt: string, validate: (value: unknown) => T, 
     try {
       const gemini = client.getGenerativeModel({
         model, generationConfig: { responseMimeType: 'application/json', responseSchema, temperature: 0.7, maxOutputTokens: 8192 },
-      }, { timeout: 35_000 });
+      }, { timeout: 12_000 });
       const { response } = await gemini.generateContent([{ text: prompt }, ...parts]);
       let text = response.text().trim();
       if (text.startsWith('```')) {

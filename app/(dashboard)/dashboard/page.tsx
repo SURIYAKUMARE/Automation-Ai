@@ -3,8 +3,23 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { addDays, format, isSameDay, startOfDay } from "date-fns";
-import { ArrowUpRight, CalendarDays, CheckCircle2, CircleAlert, Clock3, Link2, Plus, Sparkles } from "lucide-react";
+import {
+  ArrowUpRight,
+  CalendarDays,
+  CheckCircle2,
+  CircleAlert,
+  Clock3,
+  Link2,
+  Plus,
+  Sparkles,
+  BarChart3,
+  Video,
+  Layers,
+  TrendingUp,
+  RefreshCw,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
 type DashboardSummary = {
   published: number;
@@ -17,11 +32,46 @@ type DashboardSummary = {
 };
 
 const stats = [
-  { key: "connectedAccounts", label: "Connected accounts", icon: Link2, href: "accounts", color: "text-blue-600 dark:text-blue-400 bg-blue-500/10" },
-  { key: "published", label: "Published posts", icon: CheckCircle2, href: "published", color: "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10" },
-  { key: "scheduled", label: "Scheduled posts", icon: CalendarDays, href: "scheduled", color: "text-indigo-600 dark:text-indigo-400 bg-indigo-500/10" },
-  { key: "pending", label: "Awaiting approval", icon: Clock3, href: "approvals", color: "text-amber-600 dark:text-amber-400 bg-amber-500/10" },
-  { key: "failed", label: "Failed destinations", icon: CircleAlert, href: "history", color: "text-rose-600 dark:text-rose-400 bg-rose-500/10" },
+  {
+    key: "connectedAccounts",
+    label: "Connected Accounts",
+    icon: Link2,
+    href: "accounts",
+    badge: "Verified",
+    color: "text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 border-indigo-500/20",
+  },
+  {
+    key: "published",
+    label: "Published Posts",
+    icon: CheckCircle2,
+    href: "history",
+    badge: "Live",
+    color: "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+  },
+  {
+    key: "scheduled",
+    label: "Scheduled Posts",
+    icon: CalendarDays,
+    href: "calendar",
+    badge: "Queued",
+    color: "text-violet-600 dark:text-violet-400 bg-violet-500/10 border-violet-500/20",
+  },
+  {
+    key: "pending",
+    label: "Drafts & Approvals",
+    icon: Clock3,
+    href: "approvals",
+    badge: "Pending",
+    color: "text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/20",
+  },
+  {
+    key: "failed",
+    label: "Failed Destinations",
+    icon: CircleAlert,
+    href: "history?status=failed",
+    badge: "Action Req.",
+    color: "text-rose-600 dark:text-rose-400 bg-rose-500/10 border-rose-500/20",
+  },
 ] as const;
 
 export default function DashboardOverviewPage() {
@@ -32,164 +82,270 @@ export default function DashboardOverviewPage() {
   useEffect(() => {
     const controller = new AbortController();
     const cutoff = startOfDay(new Date()).toISOString();
-    fetch("/api/dashboard/summary?from=" + encodeURIComponent(cutoff), { signal: controller.signal }).then(async (response) => {
-      if (!response.ok) throw new Error("Dashboard unavailable");
-      setSummary(await response.json());
-    }).catch(() => { if (!controller.signal.aborted) setFailed(true); });
+    fetch("/api/dashboard/summary?from=" + encodeURIComponent(cutoff), { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Dashboard unavailable");
+        setSummary(await response.json());
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setFailed(true);
+      });
     return () => controller.abort();
   }, [attempt]);
 
   const schedule = Array.from({ length: 7 }, (_, index) => {
     const day = addDays(new Date(), index);
-    return { label: format(day, "EEE"), count: summary?.upcoming.filter((post) => isSameDay(day, new Date(post.scheduled_for))).length ?? 0 };
+    return {
+      label: format(day, "EEE"),
+      date: format(day, "MMM d"),
+      count: summary?.upcoming.filter((post) => isSameDay(day, new Date(post.scheduled_for))).length ?? 0,
+    };
   });
   const maxCount = Math.max(1, ...schedule.map((day) => day.count));
 
   return (
     <div className="space-y-6">
-      {/* Google Blue Dashboard Hero Banner */}
-      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#061533] via-[#0b2454] to-[#040e24] border border-blue-500/30 p-6 text-white sm:p-9 shadow-xl shadow-blue-950/30">
-        <div className="pointer-events-none absolute -right-16 -top-20 h-72 w-72 rounded-full bg-blue-600/25 blur-3xl" />
-        <div className="pointer-events-none absolute -left-10 -bottom-10 h-64 w-64 rounded-full bg-sky-500/20 blur-3xl" />
-        <div className="pointer-events-none absolute -right-20 -top-24 h-80 w-80 rounded-full border-[36px] border-white/[0.04]" />
+      {/* SaaS Hero Welcome Banner */}
+      <section className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-[#0B0F19] via-[#131B2E] to-[#0B0F19] border border-slate-800/80 p-6 sm:p-8 text-white shadow-xl">
+        <div className="pointer-events-none absolute -right-16 -top-20 h-72 w-72 rounded-full bg-indigo-600/20 blur-3xl" />
+        <div className="pointer-events-none absolute -left-10 -bottom-10 h-64 w-64 rounded-full bg-violet-600/20 blur-3xl" />
+        <div className="pointer-events-none absolute right-12 top-1/2 -translate-y-1/2 hidden xl:block opacity-10">
+          <Layers className="h-64 w-64 text-indigo-400" />
+        </div>
 
         <div className="relative flex flex-wrap items-end justify-between gap-6">
-          <div>
-            <div className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/20 border border-blue-400/30 px-3 py-1 text-xs font-semibold text-blue-300 mb-3">
-              <Sparkles size={13} className="text-blue-400" />
-              <span>Google Blue • Multimodal AI Automation</span>
+          <div className="space-y-2 max-w-xl">
+            <div className="inline-flex items-center gap-2 rounded-full bg-indigo-500/10 border border-indigo-500/30 px-3 py-1 text-xs font-semibold text-indigo-300">
+              <Sparkles size={13} className="text-indigo-400" />
+              <span>SocialSync AI • Omnichannel Cloud</span>
             </div>
-            <h1 className="text-3xl font-bold tracking-tight sm:text-4xl text-white">
-              Publishing Overview
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
+              Publishing Workspace
             </h1>
-            <p className="mt-2 max-w-xl text-sm leading-relaxed text-blue-100/80">
-              Intelligent cross-platform distribution engine. Create, automate, and publish directly to LinkedIn, YouTube, Instagram, and Facebook.
+            <p className="text-xs sm:text-sm leading-relaxed text-slate-300/90">
+              Create once and syndicate across Instagram, Facebook, LinkedIn, and YouTube with lightning-fast AI caption generation and video optimization.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+
+          <div className="flex flex-wrap items-center gap-2.5">
             <Link
               href="/dashboard/create-post"
-              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 via-blue-500 to-sky-500 hover:from-blue-700 hover:to-sky-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/30 active:scale-[0.98] transition-all"
+              className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-indigo-500 via-indigo-600 to-violet-600 hover:from-indigo-600 hover:to-violet-700 px-4 py-2.5 text-xs font-semibold text-white shadow-lg shadow-indigo-500/25 active:scale-[0.98] transition-all"
             >
-              <Plus size={17} /> Create Post
+              <Plus size={15} />
+              <span>Compose Post</span>
             </Link>
             <Link
               href="/dashboard/caption-studio"
-              className="inline-flex items-center gap-2 rounded-xl border border-blue-400/30 hover:bg-blue-500/15 px-4 py-2.5 text-sm font-medium text-blue-100 transition-colors"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 hover:bg-slate-800/60 px-3.5 py-2.5 text-xs font-medium text-slate-200 transition-colors"
             >
-              <Sparkles size={15} /> AI Studio
+              <Sparkles size={14} className="text-indigo-400" />
+              <span>AI Studio</span>
+            </Link>
+            <Link
+              href="/dashboard/calendar"
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-700 hover:bg-slate-800/60 px-3.5 py-2.5 text-xs font-medium text-slate-200 transition-colors"
+            >
+              <CalendarDays size={14} className="text-violet-400" />
+              <span>Calendar</span>
             </Link>
           </div>
         </div>
       </section>
 
       {failed && (
-        <div role="alert" className="flex items-center gap-3 text-sm text-destructive bg-destructive/10 border border-destructive/20 p-3 rounded-xl">
-          <CircleAlert size={16} />
-          <p>Dashboard activity is unavailable.</p>
-          <button type="button" className="underline font-semibold" onClick={() => { setFailed(false); setAttempt((value) => value + 1); }}>
+        <div role="alert" className="flex items-center justify-between text-xs text-destructive bg-destructive/10 border border-destructive/20 p-3.5 rounded-xl">
+          <div className="flex items-center gap-2.5">
+            <CircleAlert size={16} />
+            <span>Dashboard metrics are currently unreachable.</span>
+          </div>
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 font-semibold hover:underline"
+            onClick={() => {
+              setFailed(false);
+              setAttempt((v) => v + 1);
+            }}
+          >
+            <RefreshCw size={12} />
             Retry
           </button>
         </div>
       )}
 
-      {/* Metric Cards with Stitch Palette */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5" aria-busy={!summary && !failed}>
-        {stats.map(({ key, label, icon: Icon, href, color }) => (
+      {/* Real Metric Cards */}
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-5" aria-busy={!summary && !failed}>
+        {stats.map(({ key, label, icon: Icon, href, color, badge }) => (
           <Link
             key={key}
-            href={"/dashboard/" + href + (key === "failed" ? "?status=failed" : "")}
-            className="group rounded-xl border border-border bg-card p-4 transition-all hover:border-primary/50 hover:shadow-md hover:shadow-primary/5"
+            href={`/dashboard/${href}`}
+            className="group rounded-2xl border border-border/70 bg-card p-4 transition-all hover:border-indigo-500/40 hover:shadow-lg hover:shadow-indigo-500/5 hover:-translate-y-0.5"
           >
-            <div className="mb-3 flex items-center justify-between">
-              <span className={cn("size-8 rounded-lg flex items-center justify-center", color)}>
-                <Icon size={17} aria-hidden />
+            <div className="mb-2.5 flex items-center justify-between">
+              <span className={cn("size-8 rounded-xl flex items-center justify-center border", color)}>
+                <Icon size={16} aria-hidden />
               </span>
-              <ArrowUpRight size={15} aria-hidden className="text-muted-foreground opacity-0 group-focus-visible:opacity-100 group-hover:opacity-100 transition-opacity" />
+              <span className="text-[10px] font-medium text-muted-foreground bg-muted/60 px-1.5 py-0.5 rounded-md flex items-center gap-1">
+                {badge}
+                <ArrowUpRight size={11} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+              </span>
             </div>
-            <div className="text-2xl font-bold tabular-nums tracking-tight text-foreground">{summary?.[key] ?? "—"}</div>
-            <p className="text-xs font-medium text-muted-foreground mt-0.5">{label}</p>
+            <div className="text-2xl font-bold tabular-nums tracking-tight text-foreground">
+              {summary ? summary[key] : "—"}
+            </div>
+            <p className="text-[11px] font-medium text-muted-foreground mt-0.5 truncate">{label}</p>
           </Link>
         ))}
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[1fr_1.15fr]">
-        {/* Next 7 Days Calendar */}
-        <section className="min-w-0 rounded-xl border border-border bg-card p-5 shadow-sm">
-          <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
-            <h2 className="font-semibold text-foreground flex items-center gap-2">
-              <CalendarDays size={18} className="text-primary" />
-              <span>Next 7 Days Schedule</span>
-            </h2>
-            <Link className="text-xs font-semibold text-primary hover:underline" href="/dashboard/calendar">
-              Open Calendar →
+      <div className="grid gap-4 xl:grid-cols-[1fr_1.1fr]">
+        {/* Next 7 Days Publishing Schedule */}
+        <section className="min-w-0 rounded-2xl border border-border/70 bg-card p-5 shadow-xs">
+          <div className="flex flex-wrap justify-between items-center gap-2 pb-3 border-b border-border/50">
+            <div className="flex items-center gap-2">
+              <div className="h-7 w-7 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                <CalendarDays size={16} />
+              </div>
+              <div>
+                <h2 className="text-xs font-semibold text-foreground">Next 7 Days Schedule</h2>
+                <p className="text-[11px] text-muted-foreground">Upcoming scheduled content distribution</p>
+              </div>
+            </div>
+            <Link className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1" href="/dashboard/calendar">
+              Open Calendar <ArrowUpRight size={13} />
             </Link>
           </div>
+
           {summary ? (
-            <div role="group" aria-label="Scheduled posts per day" className="mt-6 grid grid-cols-7 gap-2 text-center text-xs">
+            <div role="group" aria-label="Scheduled posts per day" className="mt-5 grid grid-cols-7 gap-2 text-center text-xs">
               {schedule.map((day, index) => (
                 <div key={index} className="flex flex-col items-center">
-                  <div className="flex h-24 w-full items-end justify-center rounded-lg bg-muted/40 p-1">
-                    {day.count > 0 && (
+                  <div className="flex h-28 w-full items-end justify-center rounded-xl bg-muted/40 p-1">
+                    {day.count > 0 ? (
                       <div
-                        className="flex w-full items-start justify-center rounded-md bg-gradient-to-t from-blue-700 via-blue-600 to-sky-400 text-white font-bold text-xs pt-1 shadow-sm shadow-blue-500/30 transition-all"
-                        style={{ height: Math.max(24, Math.round((day.count / maxCount) * 88)) }}
+                        className="flex w-full items-start justify-center rounded-lg bg-gradient-to-t from-indigo-600 via-indigo-500 to-violet-500 text-white font-bold text-xs pt-1 shadow-sm shadow-indigo-500/30 transition-all hover:brightness-110"
+                        style={{ height: Math.max(26, Math.round((day.count / maxCount) * 100)) }}
+                        title={`${day.count} posts on ${day.date}`}
                       >
                         {day.count}
                       </div>
+                    ) : (
+                      <div className="h-1.5 w-6 rounded-full bg-muted-foreground/20 mb-1" />
                     )}
                   </div>
-                  <div className="mt-2 text-xs font-medium text-muted-foreground">
+                  <div className="mt-2 text-[11px] font-medium text-foreground">
                     {day.label}
-                    <span className="sr-only"> {day.count} scheduled posts</span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground font-mono">
+                    {day.date.split(" ")[1]}
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="mt-5 text-sm text-muted-foreground">{failed ? "Schedule unavailable." : "Loading schedule…"}</p>
+            <div className="h-32 flex items-center justify-center text-xs text-muted-foreground">
+              {failed ? "Schedule unavailable." : "Loading schedule metrics…"}
+            </div>
           )}
+
           {summary && !schedule.some((day) => day.count) && (
-            <p className="mt-4 text-xs text-muted-foreground text-center py-2 bg-muted/20 rounded-lg">
-              No posts scheduled for the upcoming week.
+            <p className="mt-4 text-xs text-muted-foreground text-center py-2.5 bg-muted/30 rounded-xl">
+              No posts scheduled for the upcoming week. Use the Composer to queue upcoming releases.
             </p>
           )}
         </section>
 
-        {/* Recent Activity */}
-        <section className="min-w-0 rounded-xl border border-border bg-card p-5 shadow-sm">
-          <div className="flex flex-wrap justify-between items-center gap-2 mb-2">
-            <h2 className="font-semibold text-foreground flex items-center gap-2">
-              <Clock3 size={18} className="text-indigo-500" />
-              <span>Recent Activity</span>
-            </h2>
-            <Link className="text-xs font-semibold text-primary hover:underline" href="/dashboard/history">
-              Open History →
+        {/* Recent Publishing Activity */}
+        <section className="min-w-0 rounded-2xl border border-border/70 bg-card p-5 shadow-xs flex flex-col justify-between">
+          <div>
+            <div className="flex flex-wrap justify-between items-center gap-2 pb-3 border-b border-border/50">
+              <div className="flex items-center gap-2">
+                <div className="h-7 w-7 rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400 flex items-center justify-center">
+                  <Clock3 size={16} />
+                </div>
+                <div>
+                  <h2 className="text-xs font-semibold text-foreground">Recent Activity</h2>
+                  <p className="text-[11px] text-muted-foreground">Latest campaigns &amp; delivery statuses</p>
+                </div>
+              </div>
+              <Link className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline inline-flex items-center gap-1" href="/dashboard/history">
+                View History <ArrowUpRight size={13} />
+              </Link>
+            </div>
+
+            {summary ? (
+              summary.recent.length ? (
+                <ul className="mt-3 divide-y divide-border/40 text-xs">
+                  {summary.recent.map((post) => {
+                    const isDraft = post.status === "draft";
+                    const isPublished = post.status === "published";
+                    const isFailed = post.status.includes("fail");
+                    return (
+                      <li key={post.id}>
+                        <Link
+                          href={isDraft ? `/dashboard/create-post?draft=${post.id}` : `/dashboard/history?post=${post.id}`}
+                          className="flex items-center justify-between gap-3 py-3 hover:bg-muted/40 px-2 rounded-xl transition-colors group"
+                        >
+                          <div className="min-w-0">
+                            <span className="break-words font-medium text-foreground group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors block truncate">
+                              {post.title || "Untitled Social Campaign"}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {post.updated_at ? format(new Date(post.updated_at), "MMM d, h:mm a") : "Recent"}
+                            </span>
+                          </div>
+                          <span
+                            className={cn(
+                              "rounded-full px-2.5 py-0.5 text-[10px] font-semibold capitalize shrink-0 border",
+                              isPublished && "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
+                              isFailed && "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20",
+                              isDraft && "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
+                              !isPublished && !isFailed && !isDraft && "bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20"
+                            )}
+                          >
+                            {post.status.replaceAll("_", " ")}
+                          </span>
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <div className="py-12 text-center text-xs text-muted-foreground">
+                  No post records found. Create your first post to see activity here!
+                </div>
+              )
+            ) : (
+              <div className="py-12 text-center text-xs text-muted-foreground">
+                {failed ? "Recent activity unavailable." : "Loading recent activities…"}
+              </div>
+            )}
+          </div>
+
+          {/* Quick Actions Footer */}
+          <div className="pt-3 mt-3 border-t border-border/50 flex flex-wrap items-center gap-2">
+            <Link
+              href="/dashboard/scripts"
+              className="text-[11px] font-medium text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-muted/60 transition-colors"
+            >
+              <Video size={13} className="text-indigo-500" />
+              <span>Hook Scripts</span>
+            </Link>
+            <Link
+              href="/dashboard/analytics"
+              className="text-[11px] font-medium text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-muted/60 transition-colors"
+            >
+              <BarChart3 size={13} className="text-emerald-500" />
+              <span>Analytics</span>
+            </Link>
+            <Link
+              href="/dashboard/accounts"
+              className="text-[11px] font-medium text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg hover:bg-muted/60 transition-colors"
+            >
+              <Link2 size={13} className="text-violet-500" />
+              <span>Manage Channels</span>
             </Link>
           </div>
-          {summary ? (
-            summary.recent.length ? (
-              <ul className="mt-3 divide-y divide-border/60 text-sm">
-                {summary.recent.map((post) => (
-                  <li key={post.id}>
-                    <Link
-                      href={post.status === "draft" ? "/dashboard/create-post?draft=" + post.id : "/dashboard/history?post=" + post.id}
-                      className="flex flex-wrap items-center justify-between gap-2 py-3 hover:bg-muted/30 px-2 rounded-lg transition-colors"
-                    >
-                      <span className="break-words font-medium text-foreground">{post.title || "Untitled post"}</span>
-                      <span className="rounded-full bg-primary/10 border border-primary/20 px-2.5 py-0.5 text-[11px] font-semibold capitalize text-primary">
-                        {post.status.replaceAll("_", " ")}
-                      </span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="mt-4 text-sm text-muted-foreground">No posts yet.</p>
-            )
-          ) : (
-            <p className="mt-4 text-sm text-muted-foreground">{failed ? "Recent activity unavailable." : "Loading activity…"}</p>
-          )}
         </section>
       </div>
     </div>

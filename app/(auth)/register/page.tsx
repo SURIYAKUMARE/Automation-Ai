@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Lock, Mail, User, ArrowRight } from "lucide-react";
+import { Lock, Mail, User, ArrowRight, Eye, EyeOff, Sparkles, Check, AlertCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -14,42 +14,54 @@ export default function RegisterPage() {
   const [fullName, setFullName] = React.useState("");
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const [showPassword, setShowPassword] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
+  const [errorMessage, setErrorMessage] = React.useState("");
+
+  const passwordRequirements = [
+    { label: "At least 6 characters", met: password.length >= 6 },
+    { label: "Contains a number or symbol", met: /[0-9!@#$%^&*(),.?":{}|<>]/.test(password) },
+  ];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMessage("");
+
     if (password.length < 6) {
+      setErrorMessage("Password must be at least 6 characters long.");
       toast.error("Password must be at least 6 characters");
       return;
     }
 
     setIsLoading(true);
-    toast.loading("Creating account...");
+    const toastId = toast.loading("Creating your SocialSync AI account...");
 
     try {
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, name: fullName }),
+        body: JSON.stringify({ email: email.trim(), password, name: fullName.trim() }),
       });
 
       const data = await res.json();
-      toast.dismiss();
+      toast.dismiss(toastId);
 
       if (!res.ok || !data.success) {
-        throw new Error(data.error || "Registration failed");
+        throw new Error(data.error || "Registration failed. Please check your credentials.");
       }
 
       if (data.confirmationRequired) {
-        toast.success("Check your email to confirm your account.");
+        toast.success("Account created! Please check your email to confirm your account.");
         router.push("/login");
         return;
       }
-      toast.success("Account created.");
+      toast.success("Account created successfully! Welcome to SocialSync AI.");
       router.push("/dashboard");
     } catch (err: any) {
-      toast.dismiss();
-      toast.error(err.message || "Failed to create account. Please try again.");
+      toast.dismiss(toastId);
+      const msg = err.message || "Failed to create account. Please try again.";
+      setErrorMessage(msg);
+      toast.error(msg);
     } finally {
       setIsLoading(false);
     }
@@ -60,31 +72,47 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12 relative overflow-hidden">
-      <div className="pointer-events-none absolute top-1/4 left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-blue-600/15 dark:bg-blue-500/20 rounded-full blur-3xl" />
-      <Card className="w-full max-w-md border border-border shadow-xl relative bg-card/90 backdrop-blur-md">
-        <CardHeader className="space-y-2 text-center pb-6">
-          <img
-            src="/icon.png"
-            alt="SocialFlow AI"
-            className="mx-auto h-12 w-12 rounded-xl object-contain mb-1 shadow-md shadow-blue-500/20"
-          />
-          <CardTitle className="text-2xl font-bold tracking-tight text-foreground">
-            Create your Account
-          </CardTitle>
-          <CardDescription className="text-xs text-muted-foreground">
-            Multi-Platform Social Media Automation System
-          </CardDescription>
+    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12 relative overflow-hidden selection:bg-indigo-500/20">
+      {/* Background ambient light */}
+      <div className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 w-[600px] h-[500px] bg-gradient-to-b from-indigo-500/15 via-violet-500/10 to-transparent rounded-full blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 left-1/4 w-[400px] h-[400px] bg-violet-600/10 rounded-full blur-3xl" />
+
+      <Card className="w-full max-w-md border border-border/80 shadow-2xl relative bg-card/95 backdrop-blur-xl rounded-2xl overflow-hidden">
+        {/* Top subtle highlight line */}
+        <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500" />
+
+        <CardHeader className="space-y-3 text-center pt-8 pb-4">
+          <Link href="/" className="inline-flex items-center justify-center gap-2.5 mx-auto group">
+            <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/25 group-hover:scale-105 transition-transform duration-200">
+              <Sparkles className="h-5 w-5 text-white" />
+            </div>
+          </Link>
+          <div className="space-y-1">
+            <CardTitle className="text-2xl font-bold tracking-tight text-foreground">
+              Create your <span className="bg-gradient-to-r from-indigo-500 to-violet-500 bg-clip-text text-transparent">SocialSync AI</span> Account
+            </CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
+              Start publishing across Instagram, Facebook, LinkedIn &amp; YouTube in minutes
+            </CardDescription>
+          </div>
         </CardHeader>
 
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-5 px-6 pt-2 pb-6">
+          {errorMessage && (
+            <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span className="leading-relaxed">{errorMessage}</span>
+            </div>
+          )}
+
+          {/* Continue with Google */}
           <Button
             type="button"
             variant="outline"
             onClick={handleGoogleSignup}
-            className="w-full flex items-center justify-center gap-2.5 h-10 text-xs font-semibold border-border hover:bg-muted/50"
+            className="w-full flex items-center justify-center gap-3 h-11 text-xs font-semibold border-border hover:bg-muted/70 transition-all rounded-xl shadow-xs"
           >
-            <svg className="h-4 w-4" viewBox="0 0 24 24">
+            <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24">
               <path
                 fill="#4285F4"
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -105,10 +133,10 @@ export default function RegisterPage() {
             <span>Continue with Google</span>
           </Button>
 
-          <div className="relative flex items-center justify-center">
+          <div className="relative flex items-center justify-center my-2">
             <div className="border-t border-border w-full" />
-            <span className="bg-card px-2 text-[11px] text-muted-foreground uppercase font-mono tracking-wider absolute">
-              or register
+            <span className="bg-card px-3 text-[11px] text-muted-foreground uppercase font-mono tracking-wider absolute">
+              or register with email
             </span>
           </div>
 
@@ -121,22 +149,23 @@ export default function RegisterPage() {
                 required
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                placeholder="Your Full Name"
-                className="text-xs h-10"
+                placeholder="Alex Morgan"
+                className="text-xs h-10 rounded-xl bg-background/50 focus:bg-background transition-colors"
               />
             </div>
 
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
-                <Mail className="h-3.5 w-3.5 text-muted-foreground" /> Email Address
+                <Mail className="h-3.5 w-3.5 text-muted-foreground" /> Work Email
               </label>
               <Input
                 type="email"
+                autoComplete="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="name@company.com"
-                className="text-xs font-mono h-10"
+                placeholder="alex@company.com"
+                className="text-xs h-10 rounded-xl bg-background/50 focus:bg-background transition-colors"
               />
             </div>
 
@@ -144,31 +173,58 @@ export default function RegisterPage() {
               <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
                 <Lock className="h-3.5 w-3.5 text-muted-foreground" /> Password
               </label>
-              <Input
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Minimum 6 characters"
-                className="text-xs h-10"
-              />
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Create a strong password"
+                  className="text-xs h-10 pr-10 rounded-xl bg-background/50 focus:bg-background transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+
+              {/* Password strength checklist */}
+              {password.length > 0 && (
+                <div className="pt-1.5 space-y-1">
+                  {passwordRequirements.map((req, i) => (
+                    <div key={i} className="flex items-center gap-1.5 text-[11px]">
+                      <div className={`h-3 w-3 rounded-full flex items-center justify-center ${req.met ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>
+                        <Check className="h-2 w-2" />
+                      </div>
+                      <span className={req.met ? "text-emerald-600 dark:text-emerald-400 font-medium" : "text-muted-foreground"}>
+                        {req.label}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <Button
               type="submit"
               variant="stitch"
               disabled={isLoading}
-              className="w-full h-10 font-semibold text-xs shadow-md shadow-blue-500/25 gap-2"
+              className="w-full h-11 font-semibold text-xs rounded-xl shadow-md shadow-indigo-500/20 gap-2 mt-2"
             >
-              <span>{isLoading ? "Creating Account..." : "Create Account & Start"}</span>
+              <span>{isLoading ? "Creating workspace..." : "Create Account & Get Started"}</span>
               <ArrowRight className="h-4 w-4" />
             </Button>
           </form>
         </CardContent>
 
-        <CardFooter className="border-t border-border pt-4 flex items-center justify-center text-xs text-muted-foreground">
-          <span>Already have an account? </span>
-          <Link href="/login" className="ml-1 text-foreground font-semibold hover:underline">
+        <CardFooter className="border-t border-border/60 py-4 px-6 flex items-center justify-center text-xs text-muted-foreground bg-muted/20">
+          <span>Already have an account?</span>
+          <Link href="/login" className="ml-1 text-indigo-600 dark:text-indigo-400 font-semibold hover:underline">
             Sign in
           </Link>
         </CardFooter>

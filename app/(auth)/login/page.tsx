@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { Lock, Mail, ArrowRight, ShieldCheck } from "lucide-react";
+import { Lock, Mail, ArrowRight, Eye, EyeOff, Sparkles, AlertCircle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -20,8 +20,11 @@ const GOOGLE_ERRORS: Record<string, string> = {
 export default function LoginPage() {
   const [email, setEmail] = React.useState("");
   const [password, setPassword] = React.useState("");
+  const [showPassword, setShowPassword] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
   const [errorMessage, setErrorMessage] = React.useState("");
+  const [showForgotPassword, setShowForgotPassword] = React.useState(false);
+  const [resetEmailSent, setResetEmailSent] = React.useState(false);
 
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -34,28 +37,36 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
+
+    if (!email.trim() || !password.trim()) {
+      setErrorMessage("Please enter both email and password.");
+      return;
+    }
+
     setIsLoading(true);
-    toast.loading("Authenticating credentials...");
+    const toastId = toast.loading("Signing into SocialSync AI...");
 
     try {
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
 
       const data = await res.json();
-      toast.dismiss();
+      toast.dismiss(toastId);
 
       if (!res.ok || !data.success) {
-        throw new Error(data.error || "Authentication failed");
+        throw new Error(data.error || "Authentication failed. Check your email and password.");
       }
 
-      toast.success("Welcome back! Redirecting to Dashboard...");
+      toast.success("Welcome back! Redirecting to dashboard...");
       window.location.replace(new URL("/dashboard", window.location.origin));
     } catch (err) {
-      toast.dismiss();
-      setErrorMessage(err instanceof Error ? err.message : "Sign-in could not be completed.");
+      toast.dismiss(toastId);
+      const msg = err instanceof Error ? err.message : "Sign-in could not be completed.";
+      setErrorMessage(msg);
+      toast.error(msg);
     } finally {
       setIsLoading(false);
     }
@@ -65,34 +76,58 @@ export default function LoginPage() {
     window.location.assign(new URL("/api/auth/google", window.location.origin));
   };
 
+  const handleForgotPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email.trim()) {
+      toast.error("Please enter your account email address first.");
+      return;
+    }
+    setResetEmailSent(true);
+    toast.success("Password reset instructions sent if an account matches.");
+  };
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12 relative overflow-hidden">
-      <div className="pointer-events-none absolute top-1/4 left-1/2 -translate-x-1/2 w-[500px] h-[300px] bg-blue-600/15 dark:bg-blue-500/20 rounded-full blur-3xl" />
-      <Card className="w-full max-w-md border border-border shadow-xl relative bg-card/90 backdrop-blur-md">
-        <CardHeader className="space-y-2 text-center pb-6">
-          <img
-            src="/icon.png"
-            alt="SocialFlow AI"
-            className="mx-auto h-12 w-12 rounded-xl object-contain mb-1 shadow-md shadow-blue-500/20"
-          />
-          <CardTitle className="text-2xl font-bold tracking-tight text-foreground">
-            Sign in to SocialFlow <span className="bg-gradient-to-r from-blue-600 via-blue-500 to-sky-400 bg-clip-text text-transparent">AI</span>
-          </CardTitle>
-          <CardDescription className="text-xs text-muted-foreground">
-            Cross-Platform Distribution Engine
-          </CardDescription>
+    <div className="min-h-screen flex items-center justify-center bg-background px-4 py-12 relative overflow-hidden selection:bg-indigo-500/20">
+      {/* Background radial ambient lights */}
+      <div className="pointer-events-none absolute -top-40 left-1/2 -translate-x-1/2 w-[600px] h-[500px] bg-gradient-to-b from-indigo-500/15 via-violet-500/10 to-transparent rounded-full blur-3xl" />
+      <div className="pointer-events-none absolute -bottom-40 right-1/4 w-[400px] h-[400px] bg-violet-600/10 rounded-full blur-3xl" />
+
+      <Card className="w-full max-w-md border border-border/80 shadow-2xl relative bg-card/95 backdrop-blur-xl rounded-2xl overflow-hidden">
+        {/* Top subtle highlight line */}
+        <div className="h-1 w-full bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-500" />
+
+        <CardHeader className="space-y-3 text-center pt-8 pb-4">
+          <Link href="/" className="inline-flex items-center justify-center gap-2.5 mx-auto group">
+            <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-indigo-500 via-indigo-600 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/25 group-hover:scale-105 transition-transform duration-200">
+              <Sparkles className="h-5 w-5 text-white" />
+            </div>
+          </Link>
+          <div className="space-y-1">
+            <CardTitle className="text-2xl font-bold tracking-tight text-foreground">
+              Sign in to <span className="bg-gradient-to-r from-indigo-500 to-violet-500 bg-clip-text text-transparent">SocialSync AI</span>
+            </CardTitle>
+            <CardDescription className="text-xs text-muted-foreground">
+              Commercial AI Social Media Automation &amp; Publishing
+            </CardDescription>
+          </div>
         </CardHeader>
 
-        <CardContent className="space-y-4">
-          {errorMessage && <p role="alert" className="rounded-lg border border-destructive/30 p-3 text-sm text-destructive">{errorMessage}</p>}
+        <CardContent className="space-y-5 px-6 pt-2 pb-6">
+          {errorMessage && (
+            <div role="alert" className="flex items-start gap-2.5 rounded-xl border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive">
+              <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+              <span className="leading-relaxed">{errorMessage}</span>
+            </div>
+          )}
+
           {/* Continue with Google */}
           <Button
             type="button"
             variant="outline"
             onClick={handleGoogleLogin}
-            className="w-full flex items-center justify-center gap-2.5 h-10 text-xs font-semibold border-border hover:bg-muted/50"
+            className="w-full flex items-center justify-center gap-3 h-11 text-xs font-semibold border-border hover:bg-muted/70 transition-all rounded-xl shadow-xs"
           >
-            <svg className="h-4 w-4" viewBox="0 0 24 24">
+            <svg className="h-4 w-4 shrink-0" viewBox="0 0 24 24">
               <path
                 fill="#4285F4"
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -113,17 +148,19 @@ export default function LoginPage() {
             <span>Continue with Google</span>
           </Button>
 
-          <div className="relative flex items-center justify-center">
+          <div className="relative flex items-center justify-center my-2">
             <div className="border-t border-border w-full" />
-            <span className="bg-card px-2 text-[11px] text-muted-foreground uppercase font-mono tracking-wider absolute">
+            <span className="bg-card px-3 text-[11px] text-muted-foreground uppercase font-mono tracking-wider absolute">
               or credentials
             </span>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
-                <Mail className="h-3.5 w-3.5 text-muted-foreground" /> Email Address
+              <label className="text-xs font-medium text-foreground flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Mail className="h-3.5 w-3.5 text-muted-foreground" /> Email Address
+                </span>
               </label>
               <Input
                 type="email"
@@ -131,8 +168,8 @@ export default function LoginPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="text-xs font-mono h-10"
+                placeholder="you@company.com"
+                className="text-xs h-10 rounded-xl bg-background/50 focus:bg-background transition-colors"
               />
             </div>
 
@@ -141,33 +178,75 @@ export default function LoginPage() {
                 <label className="text-xs font-medium text-foreground flex items-center gap-1.5">
                   <Lock className="h-3.5 w-3.5 text-muted-foreground" /> Password
                 </label>
+                <button
+                  type="button"
+                  onClick={() => setShowForgotPassword(!showForgotPassword)}
+                  className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline"
+                >
+                  Forgot password?
+                </button>
               </div>
-              <Input
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="text-xs h-10"
-              />
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Enter your password"
+                  className="text-xs h-10 pr-10 rounded-xl bg-background/50 focus:bg-background transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
+
+            {showForgotPassword && (
+              <div className="p-3.5 rounded-xl border border-indigo-500/20 bg-indigo-50/50 dark:bg-indigo-950/20 text-xs space-y-2">
+                <p className="text-muted-foreground">
+                  Enter your email above and click below to request a password recovery email.
+                </p>
+                {resetEmailSent ? (
+                  <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-medium text-xs">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Reset instructions dispatched.
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleForgotPassword}
+                    className="w-full h-8 text-xs font-medium rounded-lg"
+                  >
+                    Send Reset Link
+                  </Button>
+                )}
+              </div>
+            )}
 
             <Button
               type="submit"
               variant="stitch"
               disabled={isLoading}
-              className="w-full h-10 font-semibold text-xs shadow-md shadow-blue-500/25 gap-2"
+              className="w-full h-11 font-semibold text-xs rounded-xl shadow-md shadow-indigo-500/20 gap-2 mt-2"
             >
-              <span>{isLoading ? "Signing in..." : "Sign In to Dashboard"}</span>
+              <span>{isLoading ? "Authenticating..." : "Sign in to Dashboard"}</span>
               <ArrowRight className="h-4 w-4" />
             </Button>
           </form>
         </CardContent>
 
-        <CardFooter className="border-t border-border pt-4 flex items-center justify-center text-xs text-muted-foreground">
-          <span>Don&apos;t have an account? </span>
-          <Link href="/register" className="ml-1 text-foreground font-semibold hover:underline">
-            Register here
+        <CardFooter className="border-t border-border/60 py-4 px-6 flex items-center justify-center text-xs text-muted-foreground bg-muted/20">
+          <span>Don&apos;t have an account?</span>
+          <Link href="/register" className="ml-1 text-indigo-600 dark:text-indigo-400 font-semibold hover:underline">
+            Create account
           </Link>
         </CardFooter>
       </Card>

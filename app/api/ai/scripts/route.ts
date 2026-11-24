@@ -121,7 +121,7 @@ export async function POST(req: NextRequest) {
   if (resolvedApiKey && !resolvedApiKey.startsWith("sk-")) {
     try {
       const genAI = new GoogleGenerativeAI(resolvedApiKey);
-      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash-lite" });
 
       const prompt = `You are a viral video scriptwriter trained on the official yt-script (21 hook formulas, retention beats) and ig-reel (26 hook formulas, blunt on-screen text) skills.
 Topic: "${topic}"
