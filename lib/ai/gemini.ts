@@ -4,16 +4,16 @@ import { z } from 'zod';
 import type { SocialPlatform, SupportedLanguage, SupportedTone } from '@/types';
 
 export const GeminiPlatformContentSchema = z.object({
-  caption: z.string().trim().min(1).max(5000),
-  title: z.string().trim().max(100).optional().default(''),
-  hashtags: z.array(z.string().trim().min(1).max(100)).max(30)
+  caption: z.string().trim().default('').transform((c) => c.slice(0, 10000)),
+  title: z.string().trim().optional().default('').transform((t) => (t || '').slice(0, 100)),
+  hashtags: z.array(z.string().trim()).default([])
     .transform((tags) => Array.from(new Map(tags
       .filter((tag) => /^#?[\p{L}\p{M}\p{N}_]+$/u.test(tag))
       .map((tag) => tag.replace(/^#?/, '#'))
-      .map((tag) => [tag.toLocaleLowerCase(), tag])).values())),
+      .map((tag) => [tag.toLocaleLowerCase(), tag])).values()).slice(0, 30)),
   keywords: z.array(z.string()).default([]).transform((keywords) => keywords.map((item) => item.trim().slice(0, 100)).filter(Boolean).slice(0, 15)),
   call_to_action: z.string().optional().default(''),
-  alternatives: z.array(z.string().trim().min(1).max(5000)).default([]).transform((alts) => alts.slice(0, 5)),
+  alternatives: z.array(z.string().trim()).default([]).transform((alts) => alts.slice(0, 5)),
   rationale: z.string().optional(),
   suggested_category: z.string().optional(),
   thumbnail_recommendation: z.string().optional(),
@@ -90,12 +90,14 @@ async function generateJson<T>(prompt: string, validate: (value: unknown) => T, 
     : [];
   const candidateModels = [
     ...configuredModels,
+    'gemini-3.5-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-3-flash-preview',
+    'gemini-flash-lite-latest',
+    'gemini-3.7-flash',
     'gemini-2.5-flash',
-    'gemini-2.5-flash-lite',
-    'gemini-flash-latest',
-    'gemini-2.5-pro',
   ].filter(Boolean);
-  const models = Array.from(new Set(candidateModels)).slice(0, 4);
+  const models = Array.from(new Set(candidateModels));
 
   let lastErrorReason = '';
   for (const model of models) {
@@ -288,7 +290,7 @@ Return valid JSON with summary, detected_objects, extracted_text, topics, sentim
   } catch (aiErr) {
     if (aiErr instanceof MediaGroundingError) throw aiErr;
     console.warn('AI provider generation unavailable, synthesizing fallback captions:', aiErr instanceof Error ? aiErr.message : aiErr);
-    const baseSubject = userPrompt?.trim() || (isMediaVideo ? 'New Video Update' : 'New Visual Update');
+    const baseSubject = userPrompt?.trim() || (isMediaVideo ? 'Transforming Ideas into Impact: Highlights & Behind the Scenes' : 'Moments of Innovation, Dedication & Progress');
     const defaultTitle = baseSubject.slice(0, 100);
     const fallbackPlatforms: Record<string, any> = {};
     for (const p of targetPlatforms) {
@@ -296,58 +298,60 @@ Return valid JSON with summary, detected_objects, extracted_text, topics, sentim
         fallbackPlatforms[p] = {
           title: defaultTitle,
           caption: isMediaVideo
-            ? `${baseSubject} 🎬\n\nWatch till the end! Let us know what you think in the comments below. 👇`
-            : `${baseSubject} 📸\n\nDouble tap if you resonate with this! Save this post for later. ✨`,
+            ? `🎥 ${baseSubject}\n\nEvery milestone is built on relentless consistency, teamwork, and bold execution. Watch the full reel to catch the key moments and behind-the-scenes energy!\n\n💡 What part resonated with you the most? Drop your thoughts below! 👇\n\nSave this reel for later inspiration! ✨`
+            : `✨ ${baseSubject}\n\nGreat things never happen in silos. Celebrating the effort, vision, and dedication that brought this to life. A reminder to stay curious and keep pushing boundaries every day.\n\nDouble tap if this resonates with your journey! 💬 What is your biggest focus this week?`,
           hashtags: (isMediaVideo
-            ? ['#reels', '#trendingreels', '#video', '#viral', '#explore']
-            : ['#photooftheday', '#visuals', '#photography', '#trending', '#explore']
+            ? ['#reels', '#trendingreels', '#reelsinstagram', '#videooftheday', '#viralvideo', '#explorepage', '#inspiration', '#motivation']
+            : ['#photooftheday', '#visuals', '#creativity', '#workinprogess', '#behindthescenes', '#trending', '#explore', '#growthmindset']
           ).slice(0, hashtagLimit),
-          keywords: isMediaVideo ? ['trending', 'video'] : ['photo', 'visuals'],
-          call_to_action: isMediaVideo ? 'Watch till the end and comment!' : 'Double tap and save!',
-          alternatives: [],
-          character_count: 85,
+          keywords: isMediaVideo ? ['trending', 'video', 'highlights'] : ['photo', 'visuals', 'creativity'],
+          call_to_action: isMediaVideo ? 'Watch till the end and comment your thoughts!' : 'Double tap and save this post!',
+          alternatives: [
+            isMediaVideo ? `Highlights from ${baseSubject} 🚀 Don't miss this reel!` : `Behind the scenes of ${baseSubject} 📸 Keep growing!`,
+          ],
+          character_count: 140,
         };
       } else if (p === 'facebook') {
         fallbackPlatforms[p] = {
           title: defaultTitle,
           caption: isMediaVideo
-            ? `🎥 ${baseSubject}\n\nCheck out this video and share your thoughts in the comments below!`
-            : `📸 ${baseSubject}\n\nHere is a quick glimpse! What do you think about this? Let us know in the comments!`,
-          hashtags: (isMediaVideo ? ['#video', '#trending', '#community'] : ['#photo', '#trending', '#community']).slice(0, hashtagLimit),
+            ? `🎬 ${baseSubject}\n\nWe are excited to share this visual update with our community! From concept to execution, here are the standout moments and takeaways.\n\nTake a look at the video, and let us know what you think in the comments! Don't forget to share with friends and colleagues who would appreciate this.`
+            : `📸 ${baseSubject}\n\nSharing a glimpse of what our team has been working on! Innovation is a continuous journey of learning, adapting, and creating value.\n\nWhat are your thoughts on this? Join the conversation in the comments below! 👇`,
+          hashtags: (isMediaVideo ? ['#video', '#community', '#trending', '#highlights'] : ['#photo', '#community', '#trending', '#leadership']).slice(0, hashtagLimit),
           keywords: [isMediaVideo ? 'video' : 'photo'],
-          call_to_action: 'Let us know in the comments!',
+          call_to_action: 'Share your perspective in the comments below!',
           alternatives: [],
-          character_count: 80,
+          character_count: 130,
         };
       } else if (p === 'linkedin') {
         fallbackPlatforms[p] = {
           title: defaultTitle,
-          caption: `Excited to share this ${isMediaVideo ? 'video' : 'update'} on ${baseSubject}.\n\nContinuous improvement and creative execution drive lasting results. What are your thoughts or experiences?`,
-          hashtags: ['#leadership', '#innovation', '#technology', '#growth'].slice(0, hashtagLimit),
-          keywords: ['leadership', 'innovation'],
-          call_to_action: 'Looking forward to hearing your insights.',
+          caption: `🚀 ${baseSubject}\n\nTrue progress comes from continuous improvement, clear vision, and disciplined execution. Here are 3 key takeaways from this journey:\n\n1️⃣ Relentless focus on core value and impact.\n2️⃣ Collaboration multiplies outcomes.\n3️⃣ Consistency turns small efforts into breakthrough milestones.\n\nLooking forward to hearing how you and your team approach these opportunities in your domain. How do you maintain momentum during big initiatives?`,
+          hashtags: ['#leadership', '#innovation', '#technology', '#growth', '#strategy', '#culture'].slice(0, hashtagLimit),
+          keywords: ['leadership', 'innovation', 'strategy'],
+          call_to_action: 'Looking forward to hearing your insights in the comments.',
           alternatives: [],
-          character_count: 120,
+          character_count: 180,
         };
       } else if (p === 'youtube') {
         fallbackPlatforms[p] = {
           title: defaultTitle,
-          caption: `${baseSubject}\n\nThanks for watching! Make sure to like, comment, and subscribe for more content.`,
-          hashtags: ['#shorts', '#youtube', '#video'].slice(0, hashtagLimit),
-          keywords: ['video', 'shorts'],
-          call_to_action: 'Subscribe for more content!',
+          caption: `${baseSubject}\n\nWelcome to our channel! In this video, we break down the key highlights, behind-the-scenes moments, and essential insights.\n\n📌 Timestamps & Highlights:\n0:00 - Introduction & Context\n0:30 - Key Moments & Demonstration\n1:00 - Takeaways & Next Steps\n\n🔔 If you enjoyed this video, please LIKE, SUBSCRIBE, and turn on notifications so you never miss an update!\n\n💬 Share your questions and feedback in the comments below!`,
+          hashtags: ['#shorts', '#youtube', '#video', '#trending', '#tech'].slice(0, hashtagLimit),
+          keywords: ['video', 'shorts', 'youtube', 'trending'],
+          call_to_action: 'Subscribe and like for more updates!',
           alternatives: [],
-          character_count: 95,
+          character_count: 175,
         };
       } else if (p === 'whatsapp') {
         fallbackPlatforms[p] = {
           title: defaultTitle,
-          caption: `*${baseSubject}*\n\n${isMediaVideo ? '🎥 Watch the video update above!' : '📸 Here is an exciting new update!'} Stay tuned for more details and share with your network.\n\nReply directly to this chat with any questions!`,
-          hashtags: ['#update', '#announcement'].slice(0, hashtagLimit),
-          keywords: ['update'],
+          caption: `*${baseSubject}*\n\n${isMediaVideo ? '🎥 *Watch the video update above!*' : '📸 *Here is an exciting new update!*'}\n\nKey highlights:\n• Highlights & behind-the-scenes breakdown\n• Important takeaways and upcoming milestones\n\n💬 Reply directly to this message with your feedback or questions! Feel free to forward this to your team.`,
+          hashtags: ['#update', '#announcement', '#exclusive'].slice(0, hashtagLimit),
+          keywords: ['update', 'announcement'],
           call_to_action: 'Reply directly to this chat!',
           alternatives: [],
-          character_count: 90,
+          character_count: 120,
         };
       }
     }

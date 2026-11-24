@@ -413,7 +413,7 @@ export default function CreatePostPage() {
       const nonYt = basePlatforms.filter((p) => p !== "youtube");
       targetPlatforms = nonYt.length
         ? nonYt
-        : (["instagram", "facebook", "linkedin", "whatsapp"] as ActivePlatform[]).filter((p) => connectedPlatforms.includes(p as any));
+        : (["instagram", "facebook", "linkedin", "whatsapp"] as ActivePlatform[]);
       setSelectedPlatforms(targetPlatforms);
       if (basePlatforms.includes("youtube")) {
         toast("Photo attached for Instagram, Facebook, LinkedIn & WhatsApp. (YouTube is video-only; click 'Convert to Video' if you want to include YouTube).", {
@@ -527,11 +527,27 @@ export default function CreatePostPage() {
     let file: Blob | null = attachedFile ?? selectedFile;
     const isVid = file ? (file.type ? file.type.startsWith("video/") : isVideo) : isVideo;
     const rawPlatforms = platforms.length ? platforms : (selectedPlatforms.length ? selectedPlatforms : [activeTab]);
-    const targetPlatforms = isVid ? rawPlatforms : rawPlatforms.filter((p) => p !== "youtube");
-    if (!targetPlatforms.length || (!file && !savedAssetId && !topicPrompt.trim())) {
-      toast.error("Select at least one channel and add a topic or media.");
-      return;
+    let targetPlatforms = isVid ? rawPlatforms : rawPlatforms.filter((p) => p !== "youtube");
+    if (!targetPlatforms.length) {
+      targetPlatforms = isVid
+        ? (["instagram", "facebook", "linkedin", "youtube", "whatsapp"] as ActivePlatform[])
+        : (["instagram", "facebook", "linkedin", "whatsapp"] as ActivePlatform[]);
     }
+
+    const cleanFileName = attachedFile?.name
+      ? attachedFile.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ")
+      : (selectedFile?.name ? selectedFile.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ") : "");
+
+    const fallbackPrompt = cleanFileName
+      ? (isVid
+          ? `Topic: ${cleanFileName}. Create an engaging viral video caption, catchy hook, video title, and hashtags`
+          : `Topic: ${cleanFileName}. Create an engaging photo caption, storytelling headline, and hashtags`)
+      : (isVid
+          ? "Create an engaging viral video caption, catchy hook, video title, and hashtags for our latest highlights and achievements"
+          : "Create an engaging social media post highlighting our latest announcements, achievements, and community updates");
+
+    const effectivePrompt = topicPrompt.trim() || fallbackPrompt;
+
     setIsGenerating(true);
     const notice = toast.loading(isVid ? "Generating video captions, titles & hashtags..." : "Generating photo captions & hashtags...");
     try {
@@ -545,10 +561,6 @@ export default function CreatePostPage() {
         file = await saved.blob();
       }
       const media = file ? await prepareMediaPreview(file, isVid) : { isMediaVideo: isVid };
-      const fallbackPrompt = isVid
-        ? "Create an engaging viral video caption, catchy hook, video title, and hashtags"
-        : "Create an engaging viral photo caption, storytelling headline, and hashtags";
-      const effectivePrompt = topicPrompt.trim() || fallbackPrompt;
 
       const res = await fetch("/api/ai/generate", {
         method: "POST",

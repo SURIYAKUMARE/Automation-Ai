@@ -22,7 +22,10 @@ function makeImagePreview(source: CanvasImageSource, width: number, height: numb
 
 function waitForVideo(video: HTMLVideoElement, event: 'loadeddata' | 'seeked', start: () => void) {
   return new Promise<void>((resolve, reject) => {
+    let resolved = false;
     function finish(error?: Error) {
+      if (resolved) return;
+      resolved = true;
       window.clearTimeout(timeout);
       video.removeEventListener(event, onReady);
       video.removeEventListener('error', onError);
@@ -31,10 +34,15 @@ function waitForVideo(video: HTMLVideoElement, event: 'loadeddata' | 'seeked', s
     }
     const onReady = () => finish();
     const onError = () => finish(new Error('The browser cannot read this video. Try an MP4 or WebM export.'));
-    const timeout = window.setTimeout(() => finish(new Error('The browser timed out while reading the video')), 8000);
+    const timeout = window.setTimeout(() => finish(new Error('The browser timed out while reading the video')), 4000);
     video.addEventListener(event, onReady);
     video.addEventListener('error', onError);
-    try { start(); } catch { onError(); }
+    try {
+      start();
+      if (event === 'loadeddata' && video.readyState >= 2) {
+        finish();
+      }
+    } catch { onError(); }
   });
 }
 
