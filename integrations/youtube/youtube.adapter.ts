@@ -94,10 +94,15 @@ export class YouTubeAdapter implements PlatformAdapter {
     };
   }
 
-  async refreshAccessToken(refreshToken: string): Promise<{ accessToken: string; expiresInSeconds?: number }> {
+  async refreshAccessToken(refreshToken: string, metadata?: Record<string, unknown>): Promise<{ accessToken: string; expiresInSeconds?: number }> {
+    const clientId = (metadata?.clientId as string) || this.clientId;
+    const clientSecret = (metadata?.clientSecret as string) || this.clientSecret;
+    if (!clientId || !clientSecret) {
+      throw new Error('Google OAuth Client ID and Secret are required to refresh YouTube tokens');
+    }
     const params = new URLSearchParams({
-      client_id: this.clientId,
-      client_secret: this.clientSecret,
+      client_id: clientId,
+      client_secret: clientSecret,
       refresh_token: refreshToken,
       grant_type: 'refresh_token',
     });
@@ -189,11 +194,18 @@ export class YouTubeAdapter implements PlatformAdapter {
       const actualInitRes = initRes;
       if (!actualInitRes.ok) {
         const errJson = await actualInitRes.json().catch(() => ({}));
+        const isAuthErr = actualInitRes.status === 401;
         return {
           success: false,
           errorCode: `YOUTUBE_INIT_FAILED_${actualInitRes.status}`,
-          errorMessage: errJson.error?.message || `YouTube upload initialization failed (${actualInitRes.status})`,
-          actionRequired: actualInitRes.status === 403 ? 'YouTube API Quota exceeded or verification needed in Google Cloud Console.' : undefined,
+          errorMessage: isAuthErr
+            ? 'Google / YouTube access token expired. Reconnect your YouTube channel in Social Accounts, then retry this post.'
+            : (errJson.error?.message || `YouTube upload initialization failed (${actualInitRes.status})`),
+          actionRequired: isAuthErr
+            ? 'Go to Social Accounts, reconnect YouTube with a fresh token, and click Retry on this post.'
+            : actualInitRes.status === 403
+              ? 'YouTube API Quota exceeded or verification needed in Google Cloud Console.'
+              : undefined,
           rawResponse: errJson,
         };
       }

@@ -177,7 +177,9 @@ export default function ConnectedAccountsPage() {
             </button>
           </div>
           <p className="text-xs text-muted-foreground">
-            Paste your official access token (such as a Meta System User token, Page Access token, or developer token). We will automatically retrieve and link your account.
+            {tokenModalProvider.id === "youtube"
+              ? "For YouTube: Paste your Google access token (starts with ya29...) or the JSON response from Google OAuth 2.0 Playground. Note: Google access tokens expire after 1 hour unless refreshed."
+              : "Paste your official access token (such as a Meta System User token, Page Access token, or developer token). We will automatically retrieve and link your account."}
           </p>
           <div className="space-y-1.5">
             <label className="text-xs font-medium">Access Token</label>
@@ -185,7 +187,7 @@ export default function ConnectedAccountsPage() {
               rows={4}
               value={tokenInput}
               onChange={(e) => setTokenInput(e.target.value)}
-              placeholder="Paste token starting with EAAP... or similar"
+              placeholder={tokenModalProvider.id === "youtube" ? "Paste Google access token (ya29...) or Playground JSON" : "Paste token starting with EAAP... or similar"}
               className="w-full rounded-lg border border-input bg-transparent p-2.5 text-xs font-mono focus:outline-hidden focus:ring-1 focus:ring-primary"
             />
           </div>

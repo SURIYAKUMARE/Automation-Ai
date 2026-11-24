@@ -28,7 +28,8 @@ export async function GET(req: NextRequest) {
 
 const ConnectTokenSchema = z.object({
   platform: platformSchema,
-  accessToken: z.string().trim().min(10, 'Access token is required'),
+  accessToken: z.string().trim().min(5, 'Access token is required'),
+  refreshToken: z.string().trim().optional(),
   pageId: z.string().trim().optional(),
 });
 
@@ -79,6 +80,9 @@ export async function POST(req: NextRequest) {
     let grantedScopes: string[] = [];
     let tokenToSave = accessToken;
     let metadata: Record<string, any> = {};
+    let refreshTokenToSave: string | undefined = input.data.refreshToken;
+    let customClientId: string | undefined;
+    let customClientSecret: string | undefined;
 
     if (platform === 'instagram') {
       // 1. Try finding assigned Instagram accounts (System User or Business Manager)
@@ -183,11 +187,23 @@ export async function POST(req: NextRequest) {
       grantedScopes = ['openid', 'profile', 'email', 'w_member_social'];
       metadata = liData;
     } else if (platform === 'youtube') {
+      let resolvedToken = accessToken;
+      if (accessToken.startsWith('{') && accessToken.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(accessToken);
+          if (parsed.access_token) resolvedToken = parsed.access_token;
+          if (parsed.refresh_token) refreshTokenToSave = parsed.refresh_token;
+          if (parsed.client_id) customClientId = parsed.client_id;
+          if (parsed.client_secret) customClientSecret = parsed.client_secret;
+        } catch {}
+      }
+      tokenToSave = resolvedToken;
+
       const ytRes = await fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true', {
-        headers: { Authorization: `Bearer ${accessToken}` },
+        headers: { Authorization: `Bearer ${resolvedToken}` },
       });
       if (!ytRes.ok) {
-        return NextResponse.json({ error: 'Invalid Google / YouTube access token or missing YouTube scope.' }, { status: 400 });
+        return NextResponse.json({ error: 'Invalid Google / YouTube access token or missing YouTube scope (https://www.googleapis.com/auth/youtube.upload).' }, { status: 400 });
       }
       const ytData = await ytRes.json();
       if (!ytData.items || ytData.items.length === 0) {
@@ -199,7 +215,11 @@ export async function POST(req: NextRequest) {
       accountHandle = channel.snippet?.customUrl || `@${channel.snippet?.title}`;
       avatarUrl = channel.snippet?.thumbnails?.default?.url || null;
       grantedScopes = ['youtube.upload', 'youtube.readonly'];
-      metadata = channel;
+      metadata = {
+        ...channel,
+        ...(customClientId ? { clientId: customClientId } : {}),
+        ...(customClientSecret ? { clientSecret: customClientSecret } : {}),
+      };
     }
 
     // Encrypt token
@@ -225,6 +245,10 @@ export async function POST(req: NextRequest) {
       avatar_url: avatarUrl,
       granted_scopes: grantedScopes,
       encrypted_access_token: encryptedToken,
+      ...(refreshTokenToSave ? { encrypted_refresh_token: encryptToken(refreshTokenToSave) } : {}),
+      token_expires_at: platform === 'youtube'
+        ? new Date(Date.now() + 3600 * 1000).toISOString()
+        : null,
       status: 'active',
       metadata,
       last_validated_at: new Date().toISOString(),

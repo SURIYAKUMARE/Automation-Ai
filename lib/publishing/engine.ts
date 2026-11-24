@@ -33,7 +33,7 @@ export async function getAccountAccessToken(db: Database, account: Account) {
   }
   const adapter = getPlatformAdapter(account.platform);
   if (!adapter.refreshAccessToken || !account.encrypted_refresh_token) return null;
-  const refreshed = await adapter.refreshAccessToken(decryptToken(account.encrypted_refresh_token));
+  const refreshed = await adapter.refreshAccessToken(decryptToken(account.encrypted_refresh_token), account.metadata);
   if (!refreshed.accessToken) return null;
   const { data, error } = await db.from('social_accounts').update({
     encrypted_access_token: encryptToken(refreshed.accessToken),

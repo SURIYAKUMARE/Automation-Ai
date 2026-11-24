@@ -46,7 +46,7 @@ export interface PlatformAdapter {
   platform: SocialPlatform;
   getAuthorizationUrl(params: OAuthUrlParams): string;
   exchangeCodeForToken(code: string, redirectUri: string): Promise<OAuthTokenResult>;
-  refreshAccessToken?(refreshToken: string): Promise<{ accessToken: string; expiresInSeconds?: number; refreshToken?: string }>;
+  refreshAccessToken?(refreshToken: string, metadata?: Record<string, unknown>): Promise<{ accessToken: string; expiresInSeconds?: number; refreshToken?: string }>;
   publish(request: PublishRequest): Promise<PublishResult>;
   validateToken(accessToken: string, accountId: string): Promise<boolean>;
 }
