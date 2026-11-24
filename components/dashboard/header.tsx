@@ -71,7 +71,7 @@ export function Header({ user, openMenu }: { user: User; openMenu: () => void })
 
   return (
     <>
-      <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur-sm">
+      <header className="sticky top-0 z-20 border-b border-border bg-background">
         <div className="flex h-14 min-w-0 items-center justify-between gap-3 px-4 sm:px-6">
           {/* Left: Mobile hamburger & Breadcrumb */}
           <div className="flex items-center gap-3 min-w-0">

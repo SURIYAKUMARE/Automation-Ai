@@ -82,6 +82,9 @@
     @apply bg-background text-foreground antialiased font-sans;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
+  code, kbd, samp, pre {
+    font-feature-settings: normal;
+  }
 }
 
 /* Glassmorphism & Micro-Interactions */
