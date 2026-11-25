@@ -17,6 +17,12 @@ import {
   QrCode,
   Radio,
   Server,
+  Plus,
+  Play,
+  Square,
+  LogOut,
+  Trash2,
+  Globe,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -81,18 +87,26 @@ export default function WhatsAppGatewayPage() {
   const [copiedKey, setCopiedKey] = React.useState<string | null>(null);
 
   // OpenWA Status State
-  const [isOnline, setIsOnline] = React.useState(true);
-  const [apiUrl, setApiUrl] = React.useState("http://localhost:2785");
-  const [dashboardUrl, setDashboardUrl] = React.useState("http://localhost:2886");
-  const [activeSession, setActiveSession] = React.useState<OpenWaSession | null>({
-    id: "f2fbca5e-9229-4094-8970-f69c014d270c",
-    name: "whatsapp-1",
-    status: "ready",
-    phone: "919445648373",
-    pushName: "surya",
-    engineLoaded: true,
-  });
+  const [isOnline, setIsOnline] = React.useState(false);
+  const [apiUrl, setApiUrl] = React.useState("");
+  const [dashboardUrl, setDashboardUrl] = React.useState("");
+  const [activeSession, setActiveSession] = React.useState<OpenWaSession | null>(null);
   const [sessions, setSessions] = React.useState<OpenWaSession[]>([]);
+
+  // Multi-device Session & Pairing State
+  const [newSessionName, setNewSessionName] = React.useState("");
+  const [isCreatingSession, setIsCreatingSession] = React.useState(false);
+  const [sessionBusyId, setSessionBusyId] = React.useState<string | null>(null);
+  const [pairingSessionId, setPairingSessionId] = React.useState<string | null>(null);
+  const [qrImage, setQrImage] = React.useState<string | null>(null);
+  const [qrError, setQrError] = React.useState<string | null>(null);
+  const [pairingPhone, setPairingPhone] = React.useState("");
+  const [pairingCode, setPairingCode] = React.useState<string | null>(null);
+  const [isRequestingCode, setIsRequestingCode] = React.useState(false);
+
+  // Gateway URL Config State
+  const [gatewayInput, setGatewayInput] = React.useState("");
+  const [isSavingGateway, setIsSavingGateway] = React.useState(false);
 
   // Transmission Logs
   const [logs, setLogs] = React.useState<TransmissionLog[]>([]);
@@ -104,17 +118,158 @@ export default function WhatsAppGatewayPage() {
       if (res.ok) {
         const data = await res.json();
         setIsOnline(Boolean(data.online));
-        if (data.apiUrl) setApiUrl(data.apiUrl);
+        if (data.apiUrl) {
+          setApiUrl(data.apiUrl);
+          setGatewayInput((prev) => prev || data.apiUrl);
+        }
         if (data.dashboardUrl) setDashboardUrl(data.dashboardUrl);
-        if (data.activeSession) setActiveSession(data.activeSession);
+        setActiveSession(data.activeSession || null);
         if (Array.isArray(data.sessions)) setSessions(data.sessions);
       }
     } catch {
-      // Keep optimistic status
+      setIsOnline(false);
     } finally {
       setIsRefreshing(false);
     }
   }, []);
+
+  const handleCreateSession = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = newSessionName.trim() || `device-${Date.now().toString().slice(-4)}`;
+    setIsCreatingSession(true);
+    const notice = toast.loading(`Creating WhatsApp session "${cleanName}"...`);
+    try {
+      const res = await fetch("/api/whatsapp/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: cleanName }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to create session");
+      toast.success(`Session "${data.session.name}" created! Scan QR or enter phone to link.`, { id: notice });
+      setNewSessionName("");
+      setPairingSessionId(data.session.id);
+      setQrImage(null);
+      setPairingCode(null);
+      await fetchStatus();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not create session", { id: notice });
+    } finally {
+      setIsCreatingSession(false);
+    }
+  };
+
+  const handleSessionAction = async (sessionId: string, action: "start" | "stop" | "logout" | "delete") => {
+    setSessionBusyId(sessionId);
+    const notice = toast.loading(`Running ${action} on session...`);
+    try {
+      const res = await fetch(`/api/whatsapp/sessions/${encodeURIComponent(sessionId)}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Failed to ${action} session`);
+      toast.success(`Session ${action} completed`, { id: notice });
+      if (action === "delete" && pairingSessionId === sessionId) {
+        setPairingSessionId(null);
+        setQrImage(null);
+        setPairingCode(null);
+      }
+      await fetchStatus();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Session action failed", { id: notice });
+    } finally {
+      setSessionBusyId(null);
+    }
+  };
+
+  const fetchQRForSession = React.useCallback(async (sessionId: string) => {
+    setQrError(null);
+    try {
+      const res = await fetch(`/api/whatsapp/sessions/${encodeURIComponent(sessionId)}/qr`);
+      const data = await res.json();
+      if (!res.ok) {
+        setQrError(data.error || "QR code not ready yet");
+        return;
+      }
+      const raw = data.qrCode || data.qr || data.raw;
+      if (typeof raw === "string" && raw) {
+        if (raw.startsWith("data:image/")) {
+          setQrImage(raw);
+        } else {
+          setQrImage(`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(raw)}`);
+        }
+      }
+    } catch {
+      setQrError("Could not fetch QR code");
+    }
+  }, []);
+
+  React.useEffect(() => {
+    if (!pairingSessionId || activeTab !== "sessions") return;
+    void fetchQRForSession(pairingSessionId);
+    const timer = window.setInterval(() => {
+      void fetchQRForSession(pairingSessionId);
+      void fetchStatus();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [pairingSessionId, activeTab, fetchQRForSession, fetchStatus]);
+
+  const handleRequestPairingCode = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pairingSessionId || !pairingPhone.trim()) {
+      toast.error("Select a session and enter your WhatsApp phone number with country code.");
+      return;
+    }
+    setIsRequestingCode(true);
+    const notice = toast.loading("Requesting 8-digit pairing code...");
+    try {
+      const res = await fetch(`/api/whatsapp/sessions/${encodeURIComponent(pairingSessionId)}/pairing-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phoneNumber: pairingPhone }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not get pairing code");
+      const code = data.code || data.pairingCode;
+      setPairingCode(code || null);
+      toast.success("Pairing code generated! Enter it in WhatsApp → Linked Devices.", { id: notice });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Pairing code failed", { id: notice });
+    } finally {
+      setIsRequestingCode(false);
+    }
+  };
+
+  const handleSaveGateway = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!gatewayInput.trim()) return;
+    setIsSavingGateway(true);
+    const notice = toast.loading("Connecting to OpenWA Gateway...");
+    try {
+      const res = await fetch("/api/whatsapp/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apiUrl: gatewayInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to save gateway URL");
+      setIsOnline(Boolean(data.status?.online));
+      if (data.status?.apiUrl) setApiUrl(data.status.apiUrl);
+      setActiveSession(data.status?.activeSession || null);
+      if (Array.isArray(data.status?.sessions)) setSessions(data.status.sessions);
+      if (data.status?.online) {
+        toast.success("OpenWA Gateway connected across all devices!", { id: notice });
+      } else {
+        toast.warning(`Saved URL, but gateway at ${gatewayInput.trim()} is currently unreachable.`, { id: notice });
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Could not save gateway URL", { id: notice });
+    } finally {
+      setIsSavingGateway(false);
+    }
+  };
 
   const fetchLogs = React.useCallback(async () => {
     try {
@@ -544,7 +699,7 @@ export default function WhatsAppGatewayPage() {
                 <CardTitle className="text-sm font-semibold flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Server className="size-4 text-emerald-600 dark:text-emerald-400" />
-                    <span>Connected OpenWA Sessions</span>
+                    <span>OpenWA Sessions ({sessions.length})</span>
                   </div>
                   <Button
                     variant="outline"
@@ -556,57 +711,149 @@ export default function WhatsAppGatewayPage() {
                   </Button>
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Active WhatsApp sessions running inside your local OpenWA instance.
+                  Manage and pair WhatsApp devices from any phone, tablet, or browser.
                 </CardDescription>
               </CardHeader>
               <CardContent className="pt-4 space-y-3">
-                {activeSession ? (
-                  <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-950/20 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className="size-7 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-600 font-semibold text-xs">
-                          WA
-                        </div>
-                        <div>
-                          <div className="text-xs font-semibold text-foreground flex items-center gap-2">
-                            <span>{activeSession.name}</span>
-                            <Badge className="bg-emerald-600 text-white text-[10px] px-1.5 py-0">
-                              {activeSession.status.toUpperCase()}
-                            </Badge>
+                {/* Create New Session */}
+                <form onSubmit={handleCreateSession} className="flex items-center gap-2">
+                  <Input
+                    value={newSessionName}
+                    onChange={(e) => setNewSessionName(e.target.value)}
+                    placeholder="New session name (e.g. sales-phone)"
+                    className="h-8 text-xs"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={isCreatingSession || !isOnline}
+                    className="h-8 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shrink-0 gap-1 cursor-pointer"
+                  >
+                    <Plus className="size-3.5" />
+                    <span>{isCreatingSession ? "Creating..." : "Add Device"}</span>
+                  </Button>
+                </form>
+
+                {sessions.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {sessions.map((sess) => {
+                      const isReady = sess.status === "ready";
+                      const busy = sessionBusyId === sess.id;
+                      return (
+                        <div
+                          key={sess.id}
+                          className={cn(
+                            "p-3.5 rounded-xl border space-y-2.5",
+                            isReady
+                              ? "border-emerald-500/30 bg-emerald-50/40 dark:bg-emerald-950/20"
+                              : "border-border bg-muted/20"
+                          )}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <div className="size-7 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-600 font-semibold text-xs">
+                                WA
+                              </div>
+                              <div>
+                                <div className="text-xs font-semibold text-foreground flex items-center gap-2">
+                                  <span>{sess.name}</span>
+                                  <Badge
+                                    className={cn(
+                                      "text-[10px] px-1.5 py-0 text-white",
+                                      isReady ? "bg-emerald-600" : "bg-amber-600"
+                                    )}
+                                  >
+                                    {sess.status.toUpperCase()}
+                                  </Badge>
+                                </div>
+                                <p className="text-[11px] text-muted-foreground">
+                                  {sess.phone ? `+${sess.phone}` : "Not linked yet"}{" "}
+                                  {sess.pushName ? `(${sess.pushName})` : ""}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              {!isReady && (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => {
+                                    setPairingSessionId(sess.id);
+                                    setQrImage(null);
+                                    setPairingCode(null);
+                                  }}
+                                  className="h-7 text-[11px] px-2 gap-1 cursor-pointer text-indigo-600 border-indigo-500/30"
+                                >
+                                  <QrCode className="size-3" />
+                                  <span>Pair</span>
+                                </Button>
+                              )}
+                              {!isReady ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={busy}
+                                  onClick={() => void handleSessionAction(sess.id, "start")}
+                                  className="h-7 text-[11px] px-2 gap-1 cursor-pointer"
+                                >
+                                  <Play className="size-3" />
+                                  <span>Start</span>
+                                </Button>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={busy}
+                                  onClick={() => void handleSessionAction(sess.id, "stop")}
+                                  className="h-7 text-[11px] px-2 gap-1 cursor-pointer"
+                                >
+                                  <Square className="size-3" />
+                                  <span>Stop</span>
+                                </Button>
+                              )}
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={busy}
+                                onClick={() => void handleSessionAction(sess.id, "logout")}
+                                title="Unlink WhatsApp"
+                                className="h-7 text-[11px] px-2 cursor-pointer"
+                              >
+                                <LogOut className="size-3" />
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                disabled={busy}
+                                onClick={() => void handleSessionAction(sess.id, "delete")}
+                                title="Delete session"
+                                className="h-7 text-[11px] px-2 text-rose-600 hover:text-rose-700 cursor-pointer"
+                              >
+                                <Trash2 className="size-3" />
+                              </Button>
+                            </div>
                           </div>
-                          <p className="text-[11px] text-muted-foreground">
-                            Phone: +{activeSession.phone || "Linked"} {activeSession.pushName ? `(${activeSession.pushName})` : ""}
-                          </p>
                         </div>
-                      </div>
-
-                      <a
-                        href={`${dashboardUrl}/sessions`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs font-medium text-indigo-600 hover:text-indigo-500 flex items-center gap-1"
-                      >
-                        <span>Manage</span>
-                        <ExternalLink className="size-3" />
-                      </a>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-emerald-500/20 text-[11px]">
-                      <div>
-                        <span className="text-muted-foreground">Engine:</span>{" "}
-                        <span className="font-semibold text-foreground">Baileys WebSocket</span>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Session ID:</span>{" "}
-                        <code className="font-mono text-[10px] text-foreground truncate">{activeSession.id.slice(0, 12)}...</code>
-                      </div>
-                    </div>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="p-4 rounded-xl border border-dashed border-border text-center text-muted-foreground text-xs space-y-2">
                     <AlertCircle className="size-6 text-amber-500 mx-auto" />
-                    <p className="font-medium text-foreground">No active WhatsApp session</p>
-                    <p className="text-[11px]">Open the OpenWA Dashboard at {dashboardUrl} and scan the QR code to connect your number.</p>
+                    <p className="font-medium text-foreground">
+                      {isOnline ? "No WhatsApp sessions found" : "OpenWA Gateway is offline"}
+                    </p>
+                    <p className="text-[11px]">
+                      {isOnline
+                        ? "Click 'Add Device' above to create a session and pair your WhatsApp."
+                        : "Ensure OpenWA is running and configure its public Gateway URL on the right."}
+                    </p>
                   </div>
                 )}
               </CardContent>
@@ -614,61 +861,104 @@ export default function WhatsAppGatewayPage() {
           </div>
 
           <div className="lg:col-span-5 space-y-4">
+            {/* Inline QR & Phone Pairing Card */}
             <Card className="border border-border bg-card shadow-xs rounded-xl">
               <CardHeader className="pb-3 border-b border-border">
                 <CardTitle className="text-sm font-semibold flex items-center gap-2">
                   <QrCode className="size-4 text-indigo-600" />
-                  <span>How to Pair WhatsApp Account</span>
+                  <span>Link WhatsApp (Any Device)</span>
                 </CardTitle>
                 <CardDescription className="text-xs">
-                  Simple 3-step setup to connect any WhatsApp number to OpenWA.
+                  Scan QR code or use an 8-digit phone pairing code right here.
                 </CardDescription>
               </CardHeader>
-              <CardContent className="pt-4 space-y-3 text-xs leading-relaxed">
-                <div className="flex gap-2.5">
-                  <div className="size-5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
-                    1
-                  </div>
-                  <div>
-                    <span className="font-semibold text-foreground">Open OpenWA Dashboard:</span>
-                    <p className="text-muted-foreground text-[11px] mt-0.5">
-                      Navigate to{" "}
-                      <a
-                        href={dashboardUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-indigo-600 underline font-mono"
-                      >
-                        {dashboardUrl}
-                      </a>{" "}
-                      in your browser.
-                    </p>
-                  </div>
-                </div>
+              <CardContent className="pt-4 space-y-3 text-xs">
+                {pairingSessionId ? (
+                  <div className="space-y-3">
+                    <div className="flex flex-col items-center justify-center p-3 rounded-xl border border-border bg-white">
+                      {qrImage ? (
+                        <img src={qrImage} alt="WhatsApp QR Code" className="size-48 object-contain" />
+                      ) : (
+                        <div className="size-48 flex flex-col items-center justify-center text-slate-500 text-center px-4 gap-2">
+                          <RefreshCw className="size-5 animate-spin text-indigo-600" />
+                          <span className="text-[11px]">
+                            {qrError || "Waiting for OpenWA QR code..."}
+                          </span>
+                        </div>
+                      )}
+                    </div>
 
-                <div className="flex gap-2.5">
-                  <div className="size-5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
-                    2
+                    <div className="pt-2 border-t border-border space-y-2">
+                      <p className="text-[11px] font-medium text-foreground">
+                        On a single phone? Link with phone number instead:
+                      </p>
+                      <form onSubmit={handleRequestPairingCode} className="flex gap-2">
+                        <Input
+                          value={pairingPhone}
+                          onChange={(e) => setPairingPhone(e.target.value)}
+                          placeholder="e.g. 919445648373"
+                          className="h-8 text-xs font-mono"
+                        />
+                        <Button
+                          type="submit"
+                          size="sm"
+                          disabled={isRequestingCode}
+                          className="h-8 text-xs shrink-0 cursor-pointer"
+                        >
+                          {isRequestingCode ? "Getting..." : "Get Code"}
+                        </Button>
+                      </form>
+                      {pairingCode && (
+                        <div className="p-2.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-500/30 text-center">
+                          <span className="text-[10px] text-muted-foreground block">
+                            WhatsApp → Linked Devices → Link with phone number:
+                          </span>
+                          <code className="text-base font-bold tracking-widest text-indigo-600 dark:text-indigo-400">
+                            {pairingCode}
+                          </code>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <span className="font-semibold text-foreground">Create Session &amp; Scan QR:</span>
-                    <p className="text-muted-foreground text-[11px] mt-0.5">
-                      Click <strong>New Session</strong>, choose <strong>Baileys</strong> engine, and scan the QR code with WhatsApp on your phone (<em>Settings &gt; Linked Devices &gt; Link a Device</em>).
-                    </p>
-                  </div>
-                </div>
+                ) : (
+                  <p className="text-muted-foreground text-[11px]">
+                    Click <strong>Add Device</strong> or click <strong>Pair</strong> on any unlinked session to display its QR code and phone pairing code here.
+                  </p>
+                )}
+              </CardContent>
+            </Card>
 
-                <div className="flex gap-2.5">
-                  <div className="size-5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-[10px] shrink-0 mt-0.5">
-                    3
-                  </div>
-                  <div>
-                    <span className="font-semibold text-foreground">Ready for Automated Messaging:</span>
-                    <p className="text-muted-foreground text-[11px] mt-0.5">
-                      Your session links instantly. SocialSync can now dispatch messages, scheduled broadcasts, and customer updates directly through OpenWA!
-                    </p>
-                  </div>
-                </div>
+            {/* Remote Gateway URL Configuration */}
+            <Card className="border border-border bg-card shadow-xs rounded-xl">
+              <CardHeader className="pb-3 border-b border-border">
+                <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                  <Globe className="size-4 text-emerald-600" />
+                  <span>Multi-Device Gateway URL</span>
+                </CardTitle>
+                <CardDescription className="text-xs">
+                  Syncs your OpenWA Gateway URL across Vercel, mobile phones, and all browsers.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="pt-4 space-y-2.5 text-xs">
+                <form onSubmit={handleSaveGateway} className="space-y-2">
+                  <Input
+                    value={gatewayInput}
+                    onChange={(e) => setGatewayInput(e.target.value)}
+                    placeholder="https://your-openwa-url.example.com"
+                    className="h-8 text-xs font-mono"
+                  />
+                  <Button
+                    type="submit"
+                    size="sm"
+                    disabled={isSavingGateway}
+                    className="w-full h-8 text-xs font-semibold cursor-pointer"
+                  >
+                    {isSavingGateway ? "Saving & Testing..." : "Save & Connect Gateway"}
+                  </Button>
+                </form>
+                <p className="text-[11px] text-muted-foreground">
+                  Active URL: <code className="font-mono text-foreground break-all">{apiUrl || "Not configured"}</code>
+                </p>
               </CardContent>
             </Card>
           </div>
